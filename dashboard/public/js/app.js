@@ -93,6 +93,7 @@ function navigateTo(page) {
 
 const pageTitles = {
   dashboard: 'Dashboard',
+  'call-stats': 'Call Statistics',
   suppliers: 'Suppliers',
   numbers: 'Numbers',
   'did-routes': 'DID Routes',
@@ -108,6 +109,7 @@ async function renderPage(page) {
 
   switch (page) {
     case 'dashboard': return renderDashboard(content);
+    case 'call-stats': return renderCallStats(content);
     case 'suppliers': return renderSuppliers(content);
     case 'numbers': return renderNumbers(content);
     case 'did-routes': return renderDidRoutes(content);
@@ -172,6 +174,72 @@ async function refreshDashboard() {
     console.error('Dashboard refresh error:', err);
   }
 }
+
+// ---- CALL STATS ----
+async function renderCallStats(el) {
+  const stats = await API.getCallStats(24);
+
+  el.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="label">Total Calls (24h)</div>
+        <div class="value blue">${stats.totalCalls}</div>
+        <div class="sub">${stats.callsPerMinute} calls/min avg</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Answered</div>
+        <div class="value green">${stats.answeredCalls}</div>
+        <div class="sub">ASR: ${stats.asr}%</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Failed</div>
+        <div class="value" style="color:var(--danger)">${stats.failedCalls}</div>
+        <div class="sub">${stats.totalCalls ? ((stats.failedCalls / stats.totalCalls) * 100).toFixed(1) : 0}% fail rate</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">ACD</div>
+        <div class="value amber">${stats.acd}s</div>
+        <div class="sub">avg call duration</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Total Duration</div>
+        <div class="value">${Math.round(stats.totalDuration / 60)}m</div>
+        <div class="sub">${stats.totalDuration}s total</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3>Recent Calls</h3>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-outline btn-sm" onclick="renderCallStatsForHours(1)">1h</button>
+          <button class="btn btn-outline btn-sm" onclick="renderCallStatsForHours(6)">6h</button>
+          <button class="btn btn-primary btn-sm" onclick="renderCallStatsForHours(24)">24h</button>
+        </div>
+      </div>
+      <div class="card-body">
+        ${stats.recentCalls.length ? `
+        <table>
+          <thead><tr><th>Time</th><th>Source</th><th>Destination</th><th>Duration</th><th>Status</th></tr></thead>
+          <tbody>${stats.recentCalls.map(c => {
+            const statusClass = c.disposition === 'ANSWERED' ? 'badge-ring' : 'badge-direct';
+            return `<tr>
+              <td style="font-size:12px">${escHtml(c.start)}</td>
+              <td style="font-family:monospace;font-size:12px">${escHtml(c.src)}</td>
+              <td style="font-family:monospace;font-size:12px"><strong>${escHtml(c.dst)}</strong></td>
+              <td>${c.billsec}s</td>
+              <td><span class="badge ${statusClass}">${c.disposition}</span></td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>` : '<div class="empty-state">No calls recorded in this period.<br>CDR data is read from /var/log/asterisk/cdr-csv/Master.csv</div>'}
+      </div>
+    </div>`;
+}
+// expose for inline onclick handlers
+window.renderCallStatsForHours = async (h) => {
+  const stats = await API.getCallStats(h);
+  const el = document.getElementById('content');
+  renderCallStats(el);
+};
 
 // ---- SUPPLIERS ----
 async function renderSuppliers(el) {
@@ -399,8 +467,26 @@ function showAddNumberModal(suppliers) {
       </select>
     </div>
     <div class="form-group">
-      <label>Extensions (one per line — each becomes a full number: country code + prefix + extension)</label>
-      <textarea class="form-control" id="num-extensions" rows="6" style="font-family:monospace" placeholder="5550100\n5550101\n5550102"></textarea>
+      <label style="display:flex;align-items:center;gap:12px">
+        Extensions
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--primary)">
+          <input type="checkbox" id="num-range-mode"> Range mode (from-to)
+        </label>
+      </label>
+      <div id="num-ext-manual">
+        <textarea class="form-control" id="num-extensions" rows="5" style="font-family:monospace" placeholder="5550100\n5550101\n5550102"></textarea>
+      </div>
+      <div id="num-ext-range" style="display:none">
+        <div class="form-row">
+          <div class="form-group" style="margin-bottom:0">
+            <input class="form-control" id="num-range-from" placeholder="From: 0000" style="font-family:monospace">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <input class="form-control" id="num-range-to" placeholder="To: 9999" style="font-family:monospace">
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:6px" id="num-range-count"></div>
+      </div>
     </div>
     <div class="form-group">
       <label>Preview</label>
@@ -413,7 +499,23 @@ function showAddNumberModal(suppliers) {
     const prefix = document.getElementById('num-prefix').value.trim();
     const rate = document.getElementById('num-rate').value || '0.01';
     const supplierId = document.getElementById('num-supplier').value;
-    const extensions = document.getElementById('num-extensions').value.split('\n').map(s => s.trim()).filter(Boolean);
+    let extensions;
+    const isRange = document.getElementById('num-range-mode').checked;
+    if (isRange) {
+      const from = parseInt(document.getElementById('num-range-from').value);
+      const to = parseInt(document.getElementById('num-range-to').value);
+      if (isNaN(from) || isNaN(to)) { toast('Enter valid from/to range', 'error'); return; }
+      const start = Math.min(from, to);
+      const end = Math.max(from, to);
+      if (end - start > 10000) { toast('Range too large (max 10000 numbers)', 'error'); return; }
+      const padLen = String(end).length;
+      extensions = [];
+      for (let i = start; i <= end; i++) {
+        extensions.push(String(i).padStart(padLen, '0'));
+      }
+    } else {
+      extensions = document.getElementById('num-extensions').value.split('\n').map(s => s.trim()).filter(Boolean);
+    }
 
     if (!country || !countryCode) { toast('Please select a country', 'error'); return; }
     if (!prefix) { toast('Prefix is required', 'error'); return; }
@@ -430,17 +532,40 @@ function showAddNumberModal(suppliers) {
     const sel = document.getElementById('num-country');
     const cc = sel.selectedOptions[0]?.dataset?.dial || '?';
     const prefix = document.getElementById('num-prefix').value.trim() || '???';
-    const exts = document.getElementById('num-extensions').value.split('\n').map(s => s.trim()).filter(Boolean);
     const preview = document.getElementById('num-preview');
-    if (!exts.length) {
-      preview.textContent = `+${cc} ${prefix} + [extensions] → e.g. +${cc}${prefix}XXXXXXX`;
+    const isRange = document.getElementById('num-range-mode')?.checked;
+
+    if (isRange) {
+      const from = document.getElementById('num-range-from').value || '0000';
+      const to = document.getElementById('num-range-to').value || '9999';
+      preview.innerHTML = `+${cc}${prefix}${from} to +${cc}${prefix}${to}`;
     } else {
-      preview.innerHTML = exts.slice(0, 10).map(e => `+${cc}${prefix}${e}`).join('<br>') + (exts.length > 10 ? `<br>... and ${exts.length - 10} more` : '');
+      const exts = document.getElementById('num-extensions').value.split('\n').map(s => s.trim()).filter(Boolean);
+      if (!exts.length) {
+        preview.textContent = `+${cc} ${prefix} + [extensions]`;
+      } else {
+        preview.innerHTML = exts.slice(0, 10).map(e => `+${cc}${prefix}${e}`).join('<br>') + (exts.length > 10 ? `<br>... and ${exts.length - 10} more` : '');
+      }
     }
   }
   document.getElementById('num-country').onchange = updatePreview;
   document.getElementById('num-prefix').oninput = updatePreview;
   document.getElementById('num-extensions').oninput = updatePreview;
+  document.getElementById('num-range-mode').onchange = (e) => {
+    document.getElementById('num-ext-manual').style.display = e.target.checked ? 'none' : '';
+    document.getElementById('num-ext-range').style.display = e.target.checked ? '' : 'none';
+    updatePreview();
+  };
+  document.getElementById('num-range-from').oninput = () => {
+    const from = parseInt(document.getElementById('num-range-from').value);
+    const to = parseInt(document.getElementById('num-range-to').value);
+    if (!isNaN(from) && !isNaN(to)) {
+      const count = Math.abs(to - from) + 1;
+      document.getElementById('num-range-count').textContent = `${count} numbers will be generated`;
+    }
+    updatePreview();
+  };
+  document.getElementById('num-range-to').oninput = document.getElementById('num-range-from').oninput;
 }
 
 // ---- DID ROUTES ----
@@ -979,6 +1104,11 @@ document.getElementById('btn-apply').onclick = async () => {
 function escHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+document.getElementById('btn-logout').onclick = async () => {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  window.location.href = '/login';
+};
 
 // Init
 navigateTo('dashboard');

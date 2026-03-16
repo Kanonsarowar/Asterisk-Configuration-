@@ -8,6 +8,8 @@ import { promisify } from 'util';
 import { Store } from './lib/store.js';
 import { writeConfigs } from './lib/config-generator.js';
 import * as asterisk from './lib/asterisk.js';
+import { authenticate, validateSession, destroySession, parseCookie } from './lib/auth.js';
+import { getCdrStats } from './lib/cdr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const execAsync = promisify(exec);
@@ -42,7 +44,25 @@ function parseBody(req) {
   });
 }
 
-function serveStatic(res, urlPath) {
+function serveStatic(req, res, urlPath) {
+  // Login page is always accessible
+  if (urlPath === '/login' || urlPath === '/login.html') {
+    const loginPath = join(PUBLIC_DIR, 'login.html');
+    if (existsSync(loginPath)) {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(readFileSync(loginPath));
+      return;
+    }
+  }
+
+  // Check auth for all other pages
+  const cookies = parseCookie(req.headers.cookie);
+  if (!validateSession(cookies.session)) {
+    res.writeHead(302, { 'Location': '/login' });
+    res.end();
+    return;
+  }
+
   let filePath = join(PUBLIC_DIR, urlPath === '/' ? 'index.html' : urlPath);
   if (!existsSync(filePath)) {
     filePath = join(PUBLIC_DIR, 'index.html');
@@ -82,6 +102,41 @@ async function handleApi(req, res) {
   const method = req.method;
 
   try {
+    // Auth endpoints (no auth required)
+    if (path === '/api/auth/login' && method === 'POST') {
+      const body = await parseBody(req);
+      const token = authenticate(body.username, body.password);
+      if (token) {
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Set-Cookie': `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400`
+        });
+        return res.end(JSON.stringify({ ok: true }));
+      }
+      return sendJson(res, 401, { ok: false, error: 'Invalid credentials' });
+    }
+    if (path === '/api/auth/logout' && method === 'POST') {
+      const cookies = parseCookie(req.headers.cookie);
+      destroySession(cookies.session);
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Set-Cookie': 'session=; Path=/; HttpOnly; Max-Age=0'
+      });
+      return res.end(JSON.stringify({ ok: true }));
+    }
+
+    // Auth check for all other API endpoints
+    const cookies = parseCookie(req.headers.cookie);
+    if (!validateSession(cookies.session)) {
+      return sendJson(res, 401, { error: 'Unauthorized' });
+    }
+
+    // Call stats
+    if (path === '/api/call-stats' && method === 'GET') {
+      const hours = parseInt(url.searchParams.get('hours')) || 24;
+      return sendJson(res, 200, getCdrStats(hours));
+    }
+
     // Status endpoints
     if (path === '/api/status' && method === 'GET') {
       return sendJson(res, 200, await asterisk.getStatus());
@@ -238,7 +293,7 @@ const server = createServer(async (req, res) => {
   if (req.url.startsWith('/api/')) {
     return handleApi(req, res);
   }
-  serveStatic(res, req.url);
+  serveStatic(req, res, req.url);
 });
 
 server.listen(PORT, '0.0.0.0', () => {

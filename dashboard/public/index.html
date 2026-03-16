@@ -22,6 +22,10 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
           Dashboard
         </button>
+        <button class="nav-item" data-page="call-stats">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Call Stats
+        </button>
         <button class="nav-item" data-page="suppliers">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
           Suppliers
@@ -59,6 +63,7 @@
         <h2 id="page-title">Dashboard</h2>
         <div style="display:flex;gap:8px;align-items:center">
           <span id="server-status" style="font-size:13px;color:var(--text-muted)"></span>
+          <button class="btn btn-outline btn-sm" id="btn-logout">Logout</button>
         </div>
       </header>
       <div class="content" id="content">

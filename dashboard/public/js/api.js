@@ -16,6 +16,9 @@ const API = {
     return res.json();
   },
 
+  // Call Stats
+  getCallStats(hours = 24) { return this.get(`/api/call-stats?hours=${hours}`); },
+
   // Status
   getStatus() { return this.get('/api/status'); },
   getChannels() { return this.get('/api/channels'); },
