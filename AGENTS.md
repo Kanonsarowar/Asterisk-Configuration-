@@ -51,7 +51,7 @@ cd /workspace/dashboard && node server.js
 # Runs at http://localhost:3000
 ```
 
-Features: DID route CRUD, IVR menu management, ring group management, trunk configuration, live Asterisk status, config preview. Clicking **Apply Changes** regenerates `asterisk/extensions.conf` and `asterisk/pjsip.conf`, copies them to `/etc/asterisk/`, and reloads Asterisk.
+Features: DID route CRUD, IVR menu management, ring group management, trunk configuration, live Asterisk status, call statistics (CDR), config preview. The dashboard requires authentication — default credentials are `admin` / `admin123` (override with `DASH_USER` and `DASH_PASS` env vars). Clicking **Apply Changes** regenerates `asterisk/extensions.conf` and `asterisk/pjsip.conf`, copies them to `/etc/asterisk/`, and reloads Asterisk.
 
 - The dashboard stores data in `dashboard/data/db.json` (auto-created on first run with defaults matching the original repo configs).
 - Config files under `asterisk/` are **overwritten** when Apply is clicked from the dashboard; the dashboard is the source of truth once used.
