@@ -7,6 +7,15 @@ const DATA_DIR = join(__dirname, '..', 'data');
 const DB_FILE = join(DATA_DIR, 'db.json');
 
 const DEFAULT_DATA = {
+  numbers: [
+    { id: '1', country: 'US', countryCode: '1', prefix: '202', extension: '5550100', rate: '0.01', supplierId: '1' },
+    { id: '2', country: 'US', countryCode: '1', prefix: '202', extension: '5550101', rate: '0.01', supplierId: '1' },
+    { id: '3', country: 'US', countryCode: '1', prefix: '202', extension: '5550102', rate: '0.01', supplierId: '1' },
+    { id: '4', country: 'US', countryCode: '1', prefix: '800', extension: '5551234', rate: '0.005', supplierId: '2' },
+    { id: '5', country: 'UK', countryCode: '44', prefix: '20', extension: '71234567', rate: '0.02', supplierId: '3' },
+    { id: '6', country: 'UK', countryCode: '44', prefix: '20', extension: '71234568', rate: '0.02', supplierId: '3' },
+    { id: '7', country: 'DE', countryCode: '49', prefix: '30', extension: '12345678', rate: '0.015', supplierId: '4' }
+  ],
   suppliers: [
     { id: '1', name: 'Supplier 1 (Vultr)', ips: ['108.61.70.46'] },
     { id: '2', name: 'Supplier 2 (Hetzner)', ips: ['157.90.193.196'] },
@@ -67,6 +76,7 @@ function load() {
   try {
     const data = JSON.parse(readFileSync(DB_FILE, 'utf8'));
     if (!data.suppliers) data.suppliers = DEFAULT_DATA.suppliers;
+    if (!data.numbers) data.numbers = DEFAULT_DATA.numbers;
     return data;
   } catch {
     save(DEFAULT_DATA);
@@ -86,6 +96,44 @@ function nextId(collection) {
 export class Store {
   constructor() {
     this.data = load();
+  }
+
+  // Numbers
+  getNumbers() { return this.data.numbers; }
+  getNumber(id) { return this.data.numbers.find(n => n.id === id); }
+  addNumber(num) {
+    num.id = nextId(this.data.numbers);
+    this.data.numbers.push(num);
+    save(this.data);
+    return num;
+  }
+  updateNumber(id, updates) {
+    const idx = this.data.numbers.findIndex(n => n.id === id);
+    if (idx === -1) return null;
+    this.data.numbers[idx] = { ...this.data.numbers[idx], ...updates, id };
+    save(this.data);
+    return this.data.numbers[idx];
+  }
+  deleteNumber(id) {
+    const idx = this.data.numbers.findIndex(n => n.id === id);
+    if (idx === -1) return false;
+    this.data.numbers.splice(idx, 1);
+    save(this.data);
+    return true;
+  }
+  deleteNumbersByPrefix(country, countryCode, prefix) {
+    const before = this.data.numbers.length;
+    this.data.numbers = this.data.numbers.filter(n => !(n.country === country && n.countryCode === countryCode && n.prefix === prefix));
+    save(this.data);
+    return before - this.data.numbers.length;
+  }
+  addBulkNumbers(nums) {
+    for (const num of nums) {
+      num.id = nextId(this.data.numbers);
+      this.data.numbers.push(num);
+    }
+    save(this.data);
+    return nums;
   }
 
   // Suppliers

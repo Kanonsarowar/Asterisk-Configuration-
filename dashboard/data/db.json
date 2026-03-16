@@ -1,4 +1,69 @@
 {
+  "numbers": [
+    {
+      "id": "1",
+      "country": "US",
+      "countryCode": "1",
+      "prefix": "202",
+      "extension": "5550100",
+      "rate": "0.01",
+      "supplierId": "1"
+    },
+    {
+      "id": "2",
+      "country": "US",
+      "countryCode": "1",
+      "prefix": "202",
+      "extension": "5550101",
+      "rate": "0.01",
+      "supplierId": "1"
+    },
+    {
+      "id": "3",
+      "country": "US",
+      "countryCode": "1",
+      "prefix": "202",
+      "extension": "5550102",
+      "rate": "0.01",
+      "supplierId": "1"
+    },
+    {
+      "id": "4",
+      "country": "US",
+      "countryCode": "1",
+      "prefix": "800",
+      "extension": "5551234",
+      "rate": "0.005",
+      "supplierId": "2"
+    },
+    {
+      "id": "5",
+      "country": "UK",
+      "countryCode": "44",
+      "prefix": "20",
+      "extension": "71234567",
+      "rate": "0.02",
+      "supplierId": "3"
+    },
+    {
+      "id": "6",
+      "country": "UK",
+      "countryCode": "44",
+      "prefix": "20",
+      "extension": "71234568",
+      "rate": "0.02",
+      "supplierId": "3"
+    },
+    {
+      "id": "7",
+      "country": "DE",
+      "countryCode": "49",
+      "prefix": "30",
+      "extension": "12345678",
+      "rate": "0.015",
+      "supplierId": "4"
+    }
+  ],
   "suppliers": [
     {
       "id": "1",

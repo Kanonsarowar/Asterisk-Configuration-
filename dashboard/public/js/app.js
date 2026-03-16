@@ -1,5 +1,57 @@
 import API from './api.js';
 
+const COUNTRIES = [
+  { code: 'US', name: 'United States', dial: '1' },
+  { code: 'UK', name: 'United Kingdom', dial: '44' },
+  { code: 'DE', name: 'Germany', dial: '49' },
+  { code: 'FR', name: 'France', dial: '33' },
+  { code: 'ES', name: 'Spain', dial: '34' },
+  { code: 'IT', name: 'Italy', dial: '39' },
+  { code: 'NL', name: 'Netherlands', dial: '31' },
+  { code: 'BE', name: 'Belgium', dial: '32' },
+  { code: 'AT', name: 'Austria', dial: '43' },
+  { code: 'CH', name: 'Switzerland', dial: '41' },
+  { code: 'PL', name: 'Poland', dial: '48' },
+  { code: 'SE', name: 'Sweden', dial: '46' },
+  { code: 'NO', name: 'Norway', dial: '47' },
+  { code: 'DK', name: 'Denmark', dial: '45' },
+  { code: 'FI', name: 'Finland', dial: '358' },
+  { code: 'PT', name: 'Portugal', dial: '351' },
+  { code: 'IE', name: 'Ireland', dial: '353' },
+  { code: 'AU', name: 'Australia', dial: '61' },
+  { code: 'NZ', name: 'New Zealand', dial: '64' },
+  { code: 'CA', name: 'Canada', dial: '1' },
+  { code: 'BR', name: 'Brazil', dial: '55' },
+  { code: 'IN', name: 'India', dial: '91' },
+  { code: 'JP', name: 'Japan', dial: '81' },
+  { code: 'CN', name: 'China', dial: '86' },
+  { code: 'RU', name: 'Russia', dial: '7' },
+  { code: 'ZA', name: 'South Africa', dial: '27' },
+  { code: 'MX', name: 'Mexico', dial: '52' },
+  { code: 'AR', name: 'Argentina', dial: '54' },
+  { code: 'CL', name: 'Chile', dial: '56' },
+  { code: 'CO', name: 'Colombia', dial: '57' },
+  { code: 'BD', name: 'Bangladesh', dial: '880' },
+  { code: 'PK', name: 'Pakistan', dial: '92' },
+  { code: 'AE', name: 'UAE', dial: '971' },
+  { code: 'SA', name: 'Saudi Arabia', dial: '966' },
+  { code: 'EG', name: 'Egypt', dial: '20' },
+  { code: 'NG', name: 'Nigeria', dial: '234' },
+  { code: 'KE', name: 'Kenya', dial: '254' },
+  { code: 'GH', name: 'Ghana', dial: '233' },
+  { code: 'IL', name: 'Israel', dial: '972' },
+  { code: 'TR', name: 'Turkey', dial: '90' },
+  { code: 'SG', name: 'Singapore', dial: '65' },
+  { code: 'MY', name: 'Malaysia', dial: '60' },
+  { code: 'TH', name: 'Thailand', dial: '66' },
+  { code: 'PH', name: 'Philippines', dial: '63' },
+  { code: 'ID', name: 'Indonesia', dial: '62' },
+  { code: 'VN', name: 'Vietnam', dial: '84' },
+  { code: 'KR', name: 'South Korea', dial: '82' },
+  { code: 'TW', name: 'Taiwan', dial: '886' },
+  { code: 'HK', name: 'Hong Kong', dial: '852' },
+];
+
 let currentPage = 'dashboard';
 let hasUnsavedChanges = false;
 let statusInterval = null;
@@ -42,6 +94,7 @@ function navigateTo(page) {
 const pageTitles = {
   dashboard: 'Dashboard',
   suppliers: 'Suppliers',
+  numbers: 'Numbers',
   'did-routes': 'DID Routes',
   'ivr-menus': 'IVR Menus',
   'ring-groups': 'Ring Groups',
@@ -56,6 +109,7 @@ async function renderPage(page) {
   switch (page) {
     case 'dashboard': return renderDashboard(content);
     case 'suppliers': return renderSuppliers(content);
+    case 'numbers': return renderNumbers(content);
     case 'did-routes': return renderDidRoutes(content);
     case 'ivr-menus': return renderIvrMenus(content);
     case 'ring-groups': return renderRingGroups(content);
@@ -190,6 +244,205 @@ function showSupplierModal(supplier) {
   });
 }
 
+// ---- NUMBERS ----
+async function renderNumbers(el) {
+  const numbers = await API.getNumbers();
+  const suppliers = await API.getSuppliers();
+
+  const byCountry = {};
+  for (const n of numbers) {
+    if (!byCountry[n.country]) byCountry[n.country] = {};
+    const key = n.countryCode + '-' + n.prefix;
+    if (!byCountry[n.country][key]) byCountry[n.country][key] = { countryCode: n.countryCode, prefix: n.prefix, rate: n.rate, numbers: [] };
+    byCountry[n.country][key].numbers.push(n);
+  }
+
+  const countries = Object.keys(byCountry).sort();
+  const totalNumbers = numbers.length;
+  const totalPrefixes = Object.values(byCountry).reduce((s, c) => s + Object.keys(c).length, 0);
+
+  el.innerHTML = `
+    <div class="stats-grid" style="margin-bottom:20px">
+      <div class="stat-card"><div class="label">Total Numbers</div><div class="value blue">${totalNumbers}</div></div>
+      <div class="stat-card"><div class="label">Countries</div><div class="value">${countries.length}</div></div>
+      <div class="stat-card"><div class="label">Prefixes</div><div class="value">${totalPrefixes}</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3>Number Inventory</h3>
+        <button class="btn btn-primary" id="btn-add-number">+ Add Numbers</button>
+      </div>
+      <div class="card-body padded" id="numbers-list">
+        ${countries.length ? countries.map(country => {
+          const prefixes = byCountry[country];
+          const prefixKeys = Object.keys(prefixes).sort();
+          const countryTotal = prefixKeys.reduce((s, k) => s + prefixes[k].numbers.length, 0);
+          const c = COUNTRIES.find(cc => cc.code === country);
+          const countryName = c ? c.name : country;
+
+          return `
+          <div class="country-group">
+            <div class="country-header" data-country="${country}">
+              <h4><span class="arrow">&#9660;</span> ${escHtml(countryName)} (+${prefixes[prefixKeys[0]].countryCode})</h4>
+              <span class="count">${countryTotal} number${countryTotal !== 1 ? 's' : ''} / ${prefixKeys.length} prefix${prefixKeys.length !== 1 ? 'es' : ''}</span>
+            </div>
+            <div class="country-body" data-country-body="${country}">
+              ${prefixKeys.map(pk => {
+                const pg = prefixes[pk];
+                return `
+                <div class="prefix-group">
+                  <div class="prefix-header">
+                    <div class="prefix-info">
+                      <span class="prefix-code">+${pg.countryCode} ${pg.prefix}</span>
+                      <span class="prefix-rate">$${pg.rate}/min</span>
+                      <span class="prefix-count">${pg.numbers.length} number${pg.numbers.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div style="display:flex;gap:6px;align-items:center">
+                      <button class="btn btn-outline btn-sm edit-prefix-rate" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" data-rate="${pg.rate}">Edit Rate</button>
+                      <button class="btn btn-danger btn-sm del-prefix" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}">Delete Prefix</button>
+                    </div>
+                  </div>
+                  <div class="prefix-numbers">
+                    <table>
+                      <thead><tr><th>Full Number</th><th>Extension</th><th>Supplier</th><th></th></tr></thead>
+                      <tbody>${pg.numbers.map(n => {
+                        const sup = suppliers.find(s => s.id === n.supplierId);
+                        return `<tr>
+                          <td><strong style="font-family:monospace">+${n.countryCode}${n.prefix}${n.extension}</strong></td>
+                          <td style="font-family:monospace">${n.extension}</td>
+                          <td>${sup ? `<span class="badge badge-direct">${escHtml(sup.name)}</span>` : '-'}</td>
+                          <td><button class="btn-icon del-num" data-id="${n.id}">&#128465;</button></td>
+                        </tr>`;
+                      }).join('')}</tbody>
+                    </table>
+                  </div>
+                </div>`;
+              }).join('')}
+            </div>
+          </div>`;
+        }).join('') : '<div class="empty-state">No numbers in inventory. Click "+ Add Numbers" to get started.</div>'}
+      </div>
+    </div>`;
+
+  el.querySelectorAll('.country-header').forEach(h => h.onclick = () => {
+    h.classList.toggle('collapsed');
+    const body = el.querySelector(`[data-country-body="${h.dataset.country}"]`);
+    body.style.display = h.classList.contains('collapsed') ? 'none' : '';
+  });
+
+  document.getElementById('btn-add-number').onclick = () => showAddNumberModal(suppliers);
+
+  el.querySelectorAll('.del-num').forEach(b => b.onclick = async () => {
+    if (!confirm('Delete this number?')) return;
+    await API.deleteNumber(b.dataset.id);
+    toast('Number deleted');
+    renderNumbers(el);
+  });
+
+  el.querySelectorAll('.del-prefix').forEach(b => b.onclick = async () => {
+    const prefix = b.dataset.prefix;
+    const cc = b.dataset.cc;
+    const country = b.dataset.country;
+    if (!confirm(`Delete ALL numbers with prefix +${cc} ${prefix}?`)) return;
+    const result = await API.deletePrefix(country, cc, prefix);
+    toast(`Deleted ${result.deleted} numbers`);
+    renderNumbers(el);
+  });
+
+  el.querySelectorAll('.edit-prefix-rate').forEach(b => b.onclick = () => {
+    const currentRate = b.dataset.rate;
+    const cc = b.dataset.cc;
+    const prefix = b.dataset.prefix;
+    const country = b.dataset.country;
+    showModal('Edit Rate', `
+      <div class="form-group">
+        <label>Rate for +${cc} ${prefix} ($/min)</label>
+        <input class="form-control" id="edit-rate-val" type="number" step="0.001" value="${currentRate}">
+      </div>
+    `, async () => {
+      const newRate = document.getElementById('edit-rate-val').value;
+      const nums = numbers.filter(n => n.country === country && n.countryCode === cc && n.prefix === prefix);
+      for (const n of nums) {
+        await API.updateNumber(n.id, { rate: newRate });
+      }
+      toast('Rate updated');
+      closeModal();
+      renderNumbers(el);
+    });
+  });
+}
+
+function showAddNumberModal(suppliers) {
+  showModal('Add Numbers', `
+    <div class="form-row-3">
+      <div class="form-group">
+        <label>Country</label>
+        <select class="form-control" id="num-country">
+          <option value="">Select country</option>
+          ${COUNTRIES.map(c => `<option value="${c.code}" data-dial="${c.dial}">${c.name} (+${c.dial})</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Prefix (area code)</label>
+        <input class="form-control" id="num-prefix" placeholder="e.g. 202">
+      </div>
+      <div class="form-group">
+        <label>Rate ($/min)</label>
+        <input class="form-control" id="num-rate" type="number" step="0.001" value="0.01" placeholder="0.01">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Supplier</label>
+      <select class="form-control" id="num-supplier">
+        <option value="">— No Supplier —</option>
+        ${suppliers.map(s => `<option value="${s.id}">${escHtml(s.name)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Extensions (one per line — each becomes a full number: country code + prefix + extension)</label>
+      <textarea class="form-control" id="num-extensions" rows="6" style="font-family:monospace" placeholder="5550100\n5550101\n5550102"></textarea>
+    </div>
+    <div class="form-group">
+      <label>Preview</label>
+      <div id="num-preview" style="font-size:12px;color:var(--text-muted);font-family:monospace;padding:8px;background:var(--bg-input);border-radius:var(--radius);min-height:30px">Select country and enter extensions to preview</div>
+    </div>
+  `, async () => {
+    const countrySelect = document.getElementById('num-country');
+    const country = countrySelect.value;
+    const countryCode = countrySelect.selectedOptions[0]?.dataset?.dial || '';
+    const prefix = document.getElementById('num-prefix').value.trim();
+    const rate = document.getElementById('num-rate').value || '0.01';
+    const supplierId = document.getElementById('num-supplier').value;
+    const extensions = document.getElementById('num-extensions').value.split('\n').map(s => s.trim()).filter(Boolean);
+
+    if (!country || !countryCode) { toast('Please select a country', 'error'); return; }
+    if (!prefix) { toast('Prefix is required', 'error'); return; }
+    if (!extensions.length) { toast('Enter at least one extension', 'error'); return; }
+
+    const nums = extensions.map(ext => ({ country, countryCode, prefix, extension: ext, rate, supplierId }));
+    await API.addBulkNumbers(nums);
+    toast(`Added ${nums.length} numbers`);
+    closeModal();
+    renderPage('numbers');
+  });
+
+  function updatePreview() {
+    const sel = document.getElementById('num-country');
+    const cc = sel.selectedOptions[0]?.dataset?.dial || '?';
+    const prefix = document.getElementById('num-prefix').value.trim() || '???';
+    const exts = document.getElementById('num-extensions').value.split('\n').map(s => s.trim()).filter(Boolean);
+    const preview = document.getElementById('num-preview');
+    if (!exts.length) {
+      preview.textContent = `+${cc} ${prefix} + [extensions] → e.g. +${cc}${prefix}XXXXXXX`;
+    } else {
+      preview.innerHTML = exts.slice(0, 10).map(e => `+${cc}${prefix}${e}`).join('<br>') + (exts.length > 10 ? `<br>... and ${exts.length - 10} more` : '');
+    }
+  }
+  document.getElementById('num-country').onchange = updatePreview;
+  document.getElementById('num-prefix').oninput = updatePreview;
+  document.getElementById('num-extensions').oninput = updatePreview;
+}
+
 // ---- DID ROUTES ----
 async function renderDidRoutes(el) {
   const routes = await API.getDidRoutes();
@@ -244,9 +497,10 @@ async function renderDidRoutes(el) {
   });
 }
 
-function showDidModal(route, ivrMenus, ringGroups, suppliers) {
+async function showDidModal(route, ivrMenus, ringGroups, suppliers) {
   const isEdit = !!route;
   const destType = route?.destinationType || 'ivr';
+  const numbers = await API.getNumbers();
 
   function optionsFor(type) {
     if (type === 'ivr') return ivrMenus.map(m => `<option value="${m.id}" ${route?.destinationId === m.id ? 'selected' : ''}>${m.name}</option>`).join('');
@@ -255,11 +509,17 @@ function showDidModal(route, ivrMenus, ringGroups, suppliers) {
   }
 
   showModal(isEdit ? 'Edit DID Route' : 'Add DID Route', `
-    <div class="form-row">
-      <div class="form-group">
-        <label>DID Number</label>
-        <input class="form-control" id="did-number" value="${route?.didNumber || ''}" placeholder="e.g. 12025550100">
+    <div class="form-group">
+      <label>DID Number (from inventory or manual)</label>
+      <div style="display:flex;gap:8px;">
+        <select class="form-control" id="did-from-inventory" style="flex:1">
+          <option value="">— Pick from Numbers —</option>
+        </select>
+        <span style="padding:8px;color:var(--text-muted)">or</span>
+        <input class="form-control" id="did-number" value="${route?.didNumber || ''}" placeholder="Manual: 12025550100" style="flex:1">
       </div>
+    </div>
+    <div class="form-row">
       <div class="form-group">
         <label>Supplier</label>
         <select class="form-control" id="did-supplier">
@@ -267,10 +527,10 @@ function showDidModal(route, ivrMenus, ringGroups, suppliers) {
           ${(suppliers || []).map(s => `<option value="${s.id}" ${route?.supplierId === s.id ? 'selected' : ''}>${escHtml(s.name)}</option>`).join('')}
         </select>
       </div>
-    </div>
-    <div class="form-group">
-      <label>Description</label>
-      <input class="form-control" id="did-desc" value="${route?.description || ''}" placeholder="e.g. Main Office Line">
+      <div class="form-group">
+        <label>Description</label>
+        <input class="form-control" id="did-desc" value="${route?.description || ''}" placeholder="e.g. Main Office Line">
+      </div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -326,6 +586,38 @@ function showDidModal(route, ivrMenus, ringGroups, suppliers) {
       sel.parentElement.style.display = '';
       directBox.style.display = 'none';
       sel.innerHTML = optionsFor(type);
+    }
+  };
+
+  const invSelect = document.getElementById('did-from-inventory');
+  const grouped = {};
+  for (const n of numbers) {
+    const fullNum = n.countryCode + n.prefix + n.extension;
+    const label = `+${n.countryCode} ${n.prefix} ${n.extension}`;
+    if (!grouped[n.country]) grouped[n.country] = [];
+    grouped[n.country].push({ fullNum, label, n });
+  }
+  for (const [country, nums] of Object.entries(grouped).sort()) {
+    const c = COUNTRIES.find(cc => cc.code === country);
+    const optgroup = document.createElement('optgroup');
+    optgroup.label = c ? c.name : country;
+    for (const { fullNum, label, n } of nums) {
+      const opt = document.createElement('option');
+      opt.value = fullNum;
+      opt.textContent = label;
+      opt.dataset.supplierId = n.supplierId || '';
+      optgroup.appendChild(opt);
+    }
+    invSelect.appendChild(optgroup);
+  }
+  invSelect.onchange = () => {
+    const val = invSelect.value;
+    if (val) {
+      document.getElementById('did-number').value = val;
+      const opt = invSelect.selectedOptions[0];
+      if (opt.dataset.supplierId) {
+        document.getElementById('did-supplier').value = opt.dataset.supplierId;
+      }
     }
   };
 }

@@ -112,6 +112,35 @@ async function handleApi(req, res) {
       return store.deleteSupplier(id) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
     }
 
+    // Numbers
+    if (path === '/api/numbers' && method === 'GET') {
+      return sendJson(res, 200, store.getNumbers());
+    }
+    if (path === '/api/numbers/bulk' && method === 'POST') {
+      const body = await parseBody(req);
+      const added = store.addBulkNumbers(body.numbers);
+      return sendJson(res, 201, { ok: true, count: added.length });
+    }
+    if (path === '/api/numbers/delete-prefix' && method === 'POST') {
+      const body = await parseBody(req);
+      const count = store.deleteNumbersByPrefix(body.country, body.countryCode, body.prefix);
+      return sendJson(res, 200, { ok: true, deleted: count });
+    }
+    if (path === '/api/numbers' && method === 'POST') {
+      const body = await parseBody(req);
+      return sendJson(res, 201, store.addNumber(body));
+    }
+    if (path.startsWith('/api/numbers/') && method === 'PUT') {
+      const id = path.split('/').pop();
+      const body = await parseBody(req);
+      const updated = store.updateNumber(id, body);
+      return updated ? sendJson(res, 200, updated) : sendJson(res, 404, { error: 'Not found' });
+    }
+    if (path.startsWith('/api/numbers/') && method === 'DELETE') {
+      const id = path.split('/').pop();
+      return store.deleteNumber(id) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
+    }
+
     // DID Routes
     if (path === '/api/did-routes' && method === 'GET') {
       return sendJson(res, 200, store.getDidRoutes());

@@ -27,6 +27,14 @@ const API = {
   updateSupplier(id, sup) { return this.put(`/api/suppliers/${id}`, sup); },
   deleteSupplier(id) { return this.del(`/api/suppliers/${id}`); },
 
+  // Numbers
+  getNumbers() { return this.get('/api/numbers'); },
+  addNumber(num) { return this.post('/api/numbers', num); },
+  addBulkNumbers(nums) { return this.post('/api/numbers/bulk', { numbers: nums }); },
+  updateNumber(id, num) { return this.put(`/api/numbers/${id}`, num); },
+  deleteNumber(id) { return this.del(`/api/numbers/${id}`); },
+  deletePrefix(country, countryCode, prefix) { return this.post('/api/numbers/delete-prefix', { country, countryCode, prefix }); },
+
   // DID Routes
   getDidRoutes() { return this.get('/api/did-routes'); },
   addDidRoute(route) { return this.post('/api/did-routes', route); },
