@@ -21,6 +21,12 @@ const API = {
   getChannels() { return this.get('/api/channels'); },
   getModules() { return this.get('/api/modules'); },
 
+  // Suppliers
+  getSuppliers() { return this.get('/api/suppliers'); },
+  addSupplier(sup) { return this.post('/api/suppliers', sup); },
+  updateSupplier(id, sup) { return this.put(`/api/suppliers/${id}`, sup); },
+  deleteSupplier(id) { return this.del(`/api/suppliers/${id}`); },
+
   // DID Routes
   getDidRoutes() { return this.get('/api/did-routes'); },
   addDidRoute(route) { return this.post('/api/did-routes', route); },

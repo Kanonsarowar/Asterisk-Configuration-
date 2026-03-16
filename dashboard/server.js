@@ -93,6 +93,25 @@ async function handleApi(req, res) {
       return sendJson(res, 200, await asterisk.getLoadedModules());
     }
 
+    // Suppliers
+    if (path === '/api/suppliers' && method === 'GET') {
+      return sendJson(res, 200, store.getSuppliers());
+    }
+    if (path === '/api/suppliers' && method === 'POST') {
+      const body = await parseBody(req);
+      return sendJson(res, 201, store.addSupplier(body));
+    }
+    if (path.startsWith('/api/suppliers/') && method === 'PUT') {
+      const id = path.split('/').pop();
+      const body = await parseBody(req);
+      const updated = store.updateSupplier(id, body);
+      return updated ? sendJson(res, 200, updated) : sendJson(res, 404, { error: 'Not found' });
+    }
+    if (path.startsWith('/api/suppliers/') && method === 'DELETE') {
+      const id = path.split('/').pop();
+      return store.deleteSupplier(id) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
+    }
+
     // DID Routes
     if (path === '/api/did-routes' && method === 'GET') {
       return sendJson(res, 200, store.getDidRoutes());

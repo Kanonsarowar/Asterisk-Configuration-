@@ -5,13 +5,13 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ASTERISK_DIR = process.env.ASTERISK_CONF_DIR || join(__dirname, '..', '..', 'asterisk');
 
-function contextName(type, id) {
-  return `${type}-${id}`;
+function slugify(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
 export function generateExtensionsConf(store) {
   const data = store.getAll();
-  const { didRoutes, ivrMenus, ringGroups, globals } = data;
+  const { didRoutes, ivrMenus, ringGroups, globals, suppliers } = data;
   const lines = [];
 
   lines.push('; ================================');
@@ -30,7 +30,7 @@ export function generateExtensionsConf(store) {
   lines.push(`IVR_DIGIT_TIMEOUT=${globals.ivrDigitTimeout}`);
   lines.push('');
 
-  // Inbound context
+  // Inbound context (shared by all suppliers)
   lines.push('[from-supplier-ip]');
   lines.push('; Most providers deliver DID in Request-URI as ${EXTEN}');
   lines.push('exten => _X!,1,NoOp(Inbound call from supplier. Raw EXTEN=${EXTEN})');
@@ -62,19 +62,22 @@ export function generateExtensionsConf(store) {
   // DID routing context
   lines.push('[did-routing]');
   for (const route of didRoutes) {
-    let target;
+    const sup = (suppliers || []).find(s => s.id === route.supplierId);
+    const supLabel = sup ? sup.name : '';
+    const desc = [route.description, supLabel].filter(Boolean).join(' via ');
+
     if (route.destinationType === 'ivr') {
       const ivr = ivrMenus.find(m => m.id === route.destinationId);
-      target = ivr ? `ivr-${ivr.id}` : 'ivr-1';
-      lines.push(`exten => ${route.didNumber},1,NoOp(Route DID \${EXTEN} to ${route.description || 'IVR'})`);
+      const target = ivr ? `ivr-${ivr.id}` : 'ivr-1';
+      lines.push(`exten => ${route.didNumber},1,NoOp(Route DID \${EXTEN} to ${desc || 'IVR'})`);
       lines.push(` same => n,Goto(${target},s,1)`);
     } else if (route.destinationType === 'ring_group') {
       const rg = ringGroups.find(g => g.id === route.destinationId);
-      target = rg ? `ring-group-${rg.id}` : 'ring-group-1';
-      lines.push(`exten => ${route.didNumber},1,NoOp(Route DID \${EXTEN} to ${route.description || 'Ring Group'})`);
+      const target = rg ? `ring-group-${rg.id}` : 'ring-group-1';
+      lines.push(`exten => ${route.didNumber},1,NoOp(Route DID \${EXTEN} to ${desc || 'Ring Group'})`);
       lines.push(` same => n,Goto(${target},s,1)`);
     } else {
-      lines.push(`exten => ${route.didNumber},1,NoOp(Route DID \${EXTEN} to ${route.description || 'Direct'})`);
+      lines.push(`exten => ${route.didNumber},1,NoOp(Route DID \${EXTEN} to ${desc || 'Direct'})`);
       lines.push(` same => n,Dial(PJSIP/${route.destinationId},30)`);
       lines.push(` same => n,Hangup()`);
     }
@@ -140,6 +143,7 @@ export function generateExtensionsConf(store) {
 
 export function generatePjsipConf(store) {
   const trunk = store.getTrunkConfig();
+  const suppliers = store.getSuppliers();
   const lines = [];
 
   lines.push('; ================================');
@@ -161,6 +165,8 @@ export function generatePjsipConf(store) {
   lines.push('local_net=172.16.0.0/12');
   lines.push('local_net=192.168.0.0/16');
   lines.push('');
+
+  // Shared endpoint for all suppliers (they all land in same context)
   lines.push('[supplier-trunk]');
   lines.push('type=endpoint');
   lines.push('transport=transport-udp');
@@ -176,20 +182,27 @@ export function generatePjsipConf(store) {
   lines.push('send_pai=yes');
   lines.push('t38_udptl=no');
   lines.push('');
-  const ips = trunk.supplierIps || (trunk.supplierIp ? [trunk.supplierIp] : ['127.0.0.1']);
 
+  // AOR with first supplier's first IP as contact
+  const firstIp = suppliers.length && suppliers[0].ips.length ? suppliers[0].ips[0] : '127.0.0.1';
   lines.push('[supplier-trunk-aor]');
   lines.push('type=aor');
-  lines.push(`contact=sip:${ips[0]}:${trunk.bindPort}`);
+  lines.push(`contact=sip:${firstIp}:${trunk.bindPort}`);
   lines.push(`qualify_frequency=${trunk.qualifyFrequency}`);
   lines.push('');
-  lines.push('[supplier-trunk-identify]');
-  lines.push('type=identify');
-  lines.push('endpoint=supplier-trunk');
-  for (const ip of ips) {
-    lines.push(`match=${ip}/32`);
+
+  // Per-supplier identify sections
+  for (const sup of suppliers) {
+    const slug = slugify(sup.name) || `supplier-${sup.id}`;
+    lines.push(`; --- ${sup.name} ---`);
+    lines.push(`[identify-${slug}]`);
+    lines.push('type=identify');
+    lines.push('endpoint=supplier-trunk');
+    for (const ip of sup.ips) {
+      lines.push(`match=${ip}/32`);
+    }
+    lines.push('');
   }
-  lines.push('');
 
   return lines.join('\n');
 }

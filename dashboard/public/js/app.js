@@ -41,6 +41,7 @@ function navigateTo(page) {
 
 const pageTitles = {
   dashboard: 'Dashboard',
+  suppliers: 'Suppliers',
   'did-routes': 'DID Routes',
   'ivr-menus': 'IVR Menus',
   'ring-groups': 'Ring Groups',
@@ -54,6 +55,7 @@ async function renderPage(page) {
 
   switch (page) {
     case 'dashboard': return renderDashboard(content);
+    case 'suppliers': return renderSuppliers(content);
     case 'did-routes': return renderDidRoutes(content);
     case 'ivr-menus': return renderIvrMenus(content);
     case 'ring-groups': return renderRingGroups(content);
@@ -117,11 +119,83 @@ async function refreshDashboard() {
   }
 }
 
+// ---- SUPPLIERS ----
+async function renderSuppliers(el) {
+  const suppliers = await API.getSuppliers();
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <h3>Suppliers (${suppliers.length})</h3>
+        <button class="btn btn-primary" id="btn-add-sup">+ Add Supplier</button>
+      </div>
+      <div class="card-body">
+        ${suppliers.length ? `
+        <table>
+          <thead><tr><th>Name</th><th>IP Addresses</th><th>DIDs</th><th></th></tr></thead>
+          <tbody>${suppliers.map(s => `<tr>
+            <td><strong>${escHtml(s.name)}</strong></td>
+            <td>${s.ips.map(ip => `<span class="badge badge-ring" style="margin-right:4px;font-family:monospace">${ip}</span>`).join('')}</td>
+            <td><span class="badge badge-ivr">${s.ips.length} IP${s.ips.length > 1 ? 's' : ''}</span></td>
+            <td>
+              <button class="btn-icon edit-sup" data-id="${s.id}">&#9998;</button>
+              <button class="btn-icon del-sup" data-id="${s.id}">&#128465;</button>
+            </td>
+          </tr>`).join('')}</tbody>
+        </table>` : '<div class="empty-state">No suppliers configured</div>'}
+      </div>
+    </div>`;
+
+  document.getElementById('btn-add-sup').onclick = () => showSupplierModal(null);
+  el.querySelectorAll('.edit-sup').forEach(b => b.onclick = () => {
+    const sup = suppliers.find(s => s.id === b.dataset.id);
+    showSupplierModal(sup);
+  });
+  el.querySelectorAll('.del-sup').forEach(b => b.onclick = async () => {
+    if (!confirm('Delete this supplier? DID routes using this supplier will lose their supplier assignment.')) return;
+    await API.deleteSupplier(b.dataset.id);
+    markChanged();
+    toast('Supplier deleted');
+    renderSuppliers(el);
+  });
+}
+
+function showSupplierModal(supplier) {
+  const isEdit = !!supplier;
+  showModal(isEdit ? 'Edit Supplier' : 'Add Supplier', `
+    <div class="form-group">
+      <label>Supplier Name</label>
+      <input class="form-control" id="sup-name" value="${supplier?.name || ''}" placeholder="e.g. VoIP Provider ABC">
+    </div>
+    <div class="form-group">
+      <label>IP Addresses (one per line)</label>
+      <textarea class="form-control" id="sup-ips" rows="4" style="font-family:monospace;font-size:13px" placeholder="e.g.\n108.61.70.46\n108.61.70.47">${(supplier?.ips || []).join('\n')}</textarea>
+    </div>
+  `, async () => {
+    const name = document.getElementById('sup-name').value.trim();
+    const ips = document.getElementById('sup-ips').value.split('\n').map(s => s.trim()).filter(Boolean);
+    if (!name) { toast('Supplier name is required', 'error'); return; }
+    if (!ips.length) { toast('At least one IP address is required', 'error'); return; }
+
+    if (isEdit) {
+      await API.updateSupplier(supplier.id, { name, ips });
+      toast('Supplier updated');
+    } else {
+      await API.addSupplier({ name, ips });
+      toast('Supplier added');
+    }
+    markChanged();
+    closeModal();
+    renderPage('suppliers');
+  });
+}
+
 // ---- DID ROUTES ----
 async function renderDidRoutes(el) {
   const routes = await API.getDidRoutes();
   const ivrMenus = await API.getIvrMenus();
   const ringGroups = await API.getRingGroups();
+  const suppliers = await API.getSuppliers();
 
   el.innerHTML = `
     <div class="card">
@@ -132,15 +206,18 @@ async function renderDidRoutes(el) {
       <div class="card-body">
         ${routes.length ? `
         <table>
-          <thead><tr><th>DID Number</th><th>Description</th><th>Destination</th><th>Target</th><th></th></tr></thead>
+          <thead><tr><th>DID Number</th><th>Description</th><th>Supplier</th><th>Destination</th><th>Target</th><th></th></tr></thead>
           <tbody>${routes.map(r => {
             let targetName = r.destinationId;
             if (r.destinationType === 'ivr') { const m = ivrMenus.find(i => i.id === r.destinationId); targetName = m ? m.name : r.destinationId; }
             if (r.destinationType === 'ring_group') { const g = ringGroups.find(i => i.id === r.destinationId); targetName = g ? g.name : r.destinationId; }
             const badge = r.destinationType === 'ivr' ? 'badge-ivr' : r.destinationType === 'ring_group' ? 'badge-ring' : 'badge-direct';
+            const sup = suppliers.find(s => s.id === r.supplierId);
+            const supName = sup ? sup.name : '<span style="color:var(--text-muted)">—</span>';
             return `<tr>
               <td><strong>${r.didNumber}</strong></td>
               <td>${r.description || '-'}</td>
+              <td><span class="badge badge-direct">${sup ? escHtml(sup.name) : 'None'}</span></td>
               <td><span class="badge ${badge}">${r.destinationType.replace('_', ' ')}</span></td>
               <td>${targetName}</td>
               <td>
@@ -153,10 +230,10 @@ async function renderDidRoutes(el) {
       </div>
     </div>`;
 
-  document.getElementById('btn-add-did').onclick = () => showDidModal(null, ivrMenus, ringGroups);
+  document.getElementById('btn-add-did').onclick = () => showDidModal(null, ivrMenus, ringGroups, suppliers);
   el.querySelectorAll('.edit-did').forEach(b => b.onclick = () => {
     const route = routes.find(r => r.id === b.dataset.id);
-    showDidModal(route, ivrMenus, ringGroups);
+    showDidModal(route, ivrMenus, ringGroups, suppliers);
   });
   el.querySelectorAll('.del-did').forEach(b => b.onclick = async () => {
     if (!confirm('Delete this DID route?')) return;
@@ -167,7 +244,7 @@ async function renderDidRoutes(el) {
   });
 }
 
-function showDidModal(route, ivrMenus, ringGroups) {
+function showDidModal(route, ivrMenus, ringGroups, suppliers) {
   const isEdit = !!route;
   const destType = route?.destinationType || 'ivr';
 
@@ -178,9 +255,18 @@ function showDidModal(route, ivrMenus, ringGroups) {
   }
 
   showModal(isEdit ? 'Edit DID Route' : 'Add DID Route', `
-    <div class="form-group">
-      <label>DID Number</label>
-      <input class="form-control" id="did-number" value="${route?.didNumber || ''}" placeholder="e.g. 12025550100">
+    <div class="form-row">
+      <div class="form-group">
+        <label>DID Number</label>
+        <input class="form-control" id="did-number" value="${route?.didNumber || ''}" placeholder="e.g. 12025550100">
+      </div>
+      <div class="form-group">
+        <label>Supplier</label>
+        <select class="form-control" id="did-supplier">
+          <option value="">— No Supplier —</option>
+          ${(suppliers || []).map(s => `<option value="${s.id}" ${route?.supplierId === s.id ? 'selected' : ''}>${escHtml(s.name)}</option>`).join('')}
+        </select>
+      </div>
     </div>
     <div class="form-group">
       <label>Description</label>
@@ -207,6 +293,7 @@ function showDidModal(route, ivrMenus, ringGroups) {
   `, async () => {
     const didNumber = document.getElementById('did-number').value.trim();
     const description = document.getElementById('did-desc').value.trim();
+    const supplierId = document.getElementById('did-supplier').value || '';
     const destinationType = document.getElementById('did-dest-type').value;
     let destinationId;
     if (destinationType === 'direct') {
@@ -217,10 +304,10 @@ function showDidModal(route, ivrMenus, ringGroups) {
     if (!didNumber) { toast('DID number required', 'error'); return; }
 
     if (isEdit) {
-      await API.updateDidRoute(route.id, { didNumber, description, destinationType, destinationId });
+      await API.updateDidRoute(route.id, { didNumber, description, supplierId, destinationType, destinationId });
       toast('DID route updated');
     } else {
-      await API.addDidRoute({ didNumber, description, destinationType, destinationId });
+      await API.addDidRoute({ didNumber, description, supplierId, destinationType, destinationId });
       toast('DID route added');
     }
     markChanged();
@@ -463,16 +550,11 @@ async function renderTrunk(el) {
   const trunk = await API.getTrunkConfig();
   const globals = await API.getGlobals();
 
-  const ips = trunk.supplierIps || (trunk.supplierIp ? [trunk.supplierIp] : []);
-
   el.innerHTML = `
     <div class="card">
       <div class="card-header"><h3>SIP Trunk Configuration</h3></div>
       <div class="card-body padded">
-        <div class="form-group">
-          <label>Supplier IPs (one per line — all IPs will be matched for inbound authentication)</label>
-          <textarea class="form-control" id="trunk-sips" rows="6" style="font-family:monospace;font-size:13px">${ips.join('\n')}</textarea>
-        </div>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Supplier IPs are now managed per-supplier in the <a href="#" onclick="event.preventDefault();navigateTo('suppliers')" style="color:var(--primary)">Suppliers</a> page.</p>
         <div class="form-row">
           <div class="form-group">
             <label>Your Public IP (this VPS)</label>
@@ -518,10 +600,7 @@ async function renderTrunk(el) {
     </div>`;
 
   document.getElementById('btn-save-trunk').onclick = async () => {
-    const supplierIps = document.getElementById('trunk-sips').value
-      .split('\n').map(s => s.trim()).filter(Boolean);
     await API.updateTrunkConfig({
-      supplierIps,
       publicIp: document.getElementById('trunk-pip').value.trim(),
       userAgent: document.getElementById('trunk-ua').value.trim(),
       bindPort: parseInt(document.getElementById('trunk-port').value) || 5060,

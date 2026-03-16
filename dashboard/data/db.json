@@ -1,128 +1,48 @@
 {
+  "suppliers": [
+    { "id": "1", "name": "Supplier 1 (Vultr)", "ips": ["108.61.70.46"] },
+    { "id": "2", "name": "Supplier 2 (Hetzner)", "ips": ["157.90.193.196"] },
+    { "id": "3", "name": "Supplier 3 (OVH)", "ips": ["51.77.77.223"] },
+    { "id": "4", "name": "Supplier 4 (Hetzner-2)", "ips": ["95.217.90.21"] },
+    { "id": "5", "name": "Supplier 5 (AWS)", "ips": ["52.28.165.40", "52.57.172.184", "35.156.119.128"] },
+    { "id": "6", "name": "Supplier 6 (Contabo)", "ips": ["149.12.160.10"] },
+    { "id": "7", "name": "Supplier 7 (myLoc)", "ips": ["93.94.120.49"] },
+    { "id": "8", "name": "Supplier 8 (DataClub)", "ips": ["185.209.147.14"] }
+  ],
   "didRoutes": [
-    {
-      "id": "1",
-      "didNumber": "12025550100",
-      "description": "Main Office",
-      "destinationType": "ivr",
-      "destinationId": "1"
-    },
-    {
-      "id": "2",
-      "didNumber": "12025550101",
-      "description": "Sales Line",
-      "destinationType": "ivr",
-      "destinationId": "2"
-    },
-    {
-      "id": "3",
-      "didNumber": "12025550102",
-      "description": "Support Direct",
-      "destinationType": "ring_group",
-      "destinationId": "2"
-    }
+    { "id": "1", "didNumber": "12025550100", "description": "Main Office", "supplierId": "1", "destinationType": "ivr", "destinationId": "1" },
+    { "id": "2", "didNumber": "12025550101", "description": "Sales Line", "supplierId": "1", "destinationType": "ivr", "destinationId": "2" },
+    { "id": "3", "didNumber": "12025550102", "description": "Support Direct", "supplierId": "1", "destinationType": "ring_group", "destinationId": "2" }
   ],
   "ivrMenus": [
     {
-      "id": "1",
-      "name": "Main IVR",
-      "audioFile": "custom/main-menu",
+      "id": "1", "name": "Main IVR", "audioFile": "custom/main-menu",
       "options": [
-        {
-          "digit": "1",
-          "actionType": "ring_group",
-          "actionTarget": "1",
-          "label": "Sales"
-        },
-        {
-          "digit": "2",
-          "actionType": "ring_group",
-          "actionTarget": "2",
-          "label": "Support"
-        },
-        {
-          "digit": "0",
-          "actionType": "ring_group",
-          "actionTarget": "3",
-          "label": "Operator"
-        }
+        { "digit": "1", "actionType": "ring_group", "actionTarget": "1", "label": "Sales" },
+        { "digit": "2", "actionType": "ring_group", "actionTarget": "2", "label": "Support" },
+        { "digit": "0", "actionType": "ring_group", "actionTarget": "3", "label": "Operator" }
       ],
-      "timeoutAction": "hangup",
-      "invalidAction": "replay"
+      "timeoutAction": "hangup", "invalidAction": "replay"
     },
     {
-      "id": "2",
-      "name": "Sales IVR",
-      "audioFile": "custom/sales-menu",
+      "id": "2", "name": "Sales IVR", "audioFile": "custom/sales-menu",
       "options": [
-        {
-          "digit": "1",
-          "actionType": "ring_group",
-          "actionTarget": "1",
-          "label": "Sales"
-        },
-        {
-          "digit": "2",
-          "actionType": "ring_group",
-          "actionTarget": "3",
-          "label": "Operator"
-        }
+        { "digit": "1", "actionType": "ring_group", "actionTarget": "1", "label": "Sales" },
+        { "digit": "2", "actionType": "ring_group", "actionTarget": "3", "label": "Operator" }
       ],
-      "timeoutAction": "hangup",
-      "invalidAction": "replay"
+      "timeoutAction": "hangup", "invalidAction": "replay"
     }
   ],
   "ringGroups": [
-    {
-      "id": "1",
-      "name": "Sales",
-      "extensions": [
-        "2001"
-      ],
-      "ringTimeout": 25,
-      "voicemailExt": "2001"
-    },
-    {
-      "id": "2",
-      "name": "Support",
-      "extensions": [
-        "2002"
-      ],
-      "ringTimeout": 25,
-      "voicemailExt": "2002"
-    },
-    {
-      "id": "3",
-      "name": "Operator",
-      "extensions": [
-        "2000"
-      ],
-      "ringTimeout": 25,
-      "voicemailExt": "2000"
-    }
+    { "id": "1", "name": "Sales", "extensions": ["2001"], "ringTimeout": 25, "voicemailExt": "2001" },
+    { "id": "2", "name": "Support", "extensions": ["2002"], "ringTimeout": 25, "voicemailExt": "2002" },
+    { "id": "3", "name": "Operator", "extensions": ["2000"], "ringTimeout": 25, "voicemailExt": "2000" }
   ],
   "trunkConfig": {
-    "supplierIps": [
-      "108.61.70.46",
-      "157.90.193.196",
-      "51.77.77.223",
-      "95.217.90.21",
-      "52.28.165.40",
-      "52.57.172.184",
-      "35.156.119.128",
-      "149.12.160.10",
-      "93.94.120.49",
-      "185.209.147.14"
-    ],
     "publicIp": "167.172.170.88",
     "userAgent": "Asterisk-IPAuth-IVR",
     "bindPort": 5060,
-    "codecs": [
-      "g729",
-      "alaw",
-      "ulaw",
-      "gsm"
-    ],
+    "codecs": ["g729", "alaw", "ulaw", "gsm"],
     "qualifyFrequency": 60
   },
   "globals": {

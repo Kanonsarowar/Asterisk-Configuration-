@@ -7,10 +7,20 @@ const DATA_DIR = join(__dirname, '..', 'data');
 const DB_FILE = join(DATA_DIR, 'db.json');
 
 const DEFAULT_DATA = {
+  suppliers: [
+    { id: '1', name: 'Supplier 1 (Vultr)', ips: ['108.61.70.46'] },
+    { id: '2', name: 'Supplier 2 (Hetzner)', ips: ['157.90.193.196'] },
+    { id: '3', name: 'Supplier 3 (OVH)', ips: ['51.77.77.223'] },
+    { id: '4', name: 'Supplier 4 (Hetzner-2)', ips: ['95.217.90.21'] },
+    { id: '5', name: 'Supplier 5 (AWS)', ips: ['52.28.165.40', '52.57.172.184', '35.156.119.128'] },
+    { id: '6', name: 'Supplier 6 (Contabo)', ips: ['149.12.160.10'] },
+    { id: '7', name: 'Supplier 7 (myLoc)', ips: ['93.94.120.49'] },
+    { id: '8', name: 'Supplier 8 (DataClub)', ips: ['185.209.147.14'] }
+  ],
   didRoutes: [
-    { id: '1', didNumber: '12025550100', description: 'Main Office', destinationType: 'ivr', destinationId: '1' },
-    { id: '2', didNumber: '12025550101', description: 'Sales Line', destinationType: 'ivr', destinationId: '2' },
-    { id: '3', didNumber: '12025550102', description: 'Support Direct', destinationType: 'ring_group', destinationId: '2' }
+    { id: '1', didNumber: '12025550100', description: 'Main Office', supplierId: '1', destinationType: 'ivr', destinationId: '1' },
+    { id: '2', didNumber: '12025550101', description: 'Sales Line', supplierId: '1', destinationType: 'ivr', destinationId: '2' },
+    { id: '3', didNumber: '12025550102', description: 'Support Direct', supplierId: '1', destinationType: 'ring_group', destinationId: '2' }
   ],
   ivrMenus: [
     {
@@ -37,18 +47,6 @@ const DEFAULT_DATA = {
     { id: '3', name: 'Operator', extensions: ['2000'], ringTimeout: 25, voicemailExt: '2000' }
   ],
   trunkConfig: {
-    supplierIps: [
-      '108.61.70.46',
-      '157.90.193.196',
-      '51.77.77.223',
-      '95.217.90.21',
-      '52.28.165.40',
-      '52.57.172.184',
-      '35.156.119.128',
-      '149.12.160.10',
-      '93.94.120.49',
-      '185.209.147.14'
-    ],
     publicIp: '167.172.170.88',
     userAgent: 'Asterisk-IPAuth-IVR',
     bindPort: 5060,
@@ -67,7 +65,9 @@ function load() {
     return structuredClone(DEFAULT_DATA);
   }
   try {
-    return JSON.parse(readFileSync(DB_FILE, 'utf8'));
+    const data = JSON.parse(readFileSync(DB_FILE, 'utf8'));
+    if (!data.suppliers) data.suppliers = DEFAULT_DATA.suppliers;
+    return data;
   } catch {
     save(DEFAULT_DATA);
     return structuredClone(DEFAULT_DATA);
@@ -86,6 +86,30 @@ function nextId(collection) {
 export class Store {
   constructor() {
     this.data = load();
+  }
+
+  // Suppliers
+  getSuppliers() { return this.data.suppliers; }
+  getSupplier(id) { return this.data.suppliers.find(s => s.id === id); }
+  addSupplier(supplier) {
+    supplier.id = nextId(this.data.suppliers);
+    this.data.suppliers.push(supplier);
+    save(this.data);
+    return supplier;
+  }
+  updateSupplier(id, updates) {
+    const idx = this.data.suppliers.findIndex(s => s.id === id);
+    if (idx === -1) return null;
+    this.data.suppliers[idx] = { ...this.data.suppliers[idx], ...updates, id };
+    save(this.data);
+    return this.data.suppliers[idx];
+  }
+  deleteSupplier(id) {
+    const idx = this.data.suppliers.findIndex(s => s.id === id);
+    if (idx === -1) return false;
+    this.data.suppliers.splice(idx, 1);
+    save(this.data);
+    return true;
   }
 
   // DID Routes
