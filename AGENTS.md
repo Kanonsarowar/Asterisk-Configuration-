@@ -41,3 +41,18 @@ sudo asterisk -rx "dialplan show ivr-sales"
 - **PJSIP commands** (e.g. `pjsip show endpoint`) won't work because Asterisk was compiled without pjproject. Dialplan validation and most other modules work fine.
 - **Sound files** referenced in the dialplan (`custom/main-menu`, `custom/sales-menu`) don't exist in the repo; stub files are created at `/var/lib/asterisk/sounds/custom/` for testing.
 - The `extensions.conf` line with `NoOp(No DID found in request; rejecting call)` generates a harmless parser warning about missing closing parenthesis – this is a known Asterisk parser quirk with semicolons in `NoOp()` arguments.
+
+### Web Dashboard
+
+The `dashboard/` directory contains a Node.js web UI (zero external dependencies) for managing Asterisk config.
+
+```bash
+cd /workspace/dashboard && node server.js
+# Runs at http://localhost:3000
+```
+
+Features: DID route CRUD, IVR menu management, ring group management, trunk configuration, live Asterisk status, config preview. Clicking **Apply Changes** regenerates `asterisk/extensions.conf` and `asterisk/pjsip.conf`, copies them to `/etc/asterisk/`, and reloads Asterisk.
+
+- The dashboard stores data in `dashboard/data/db.json` (auto-created on first run with defaults matching the original repo configs).
+- Config files under `asterisk/` are **overwritten** when Apply is clicked from the dashboard; the dashboard is the source of truth once used.
+- The `res_pjsip` reload will report "No such module" since Asterisk was compiled without pjproject; this is harmless.

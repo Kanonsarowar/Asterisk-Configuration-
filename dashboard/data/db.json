@@ -20,6 +20,13 @@
       "description": "Support Direct",
       "destinationType": "ring_group",
       "destinationId": "2"
+    },
+    {
+      "didNumber": "18005551234",
+      "description": "Customer Service Hotline",
+      "destinationType": "ivr",
+      "destinationId": "1",
+      "id": "4"
     }
   ],
   "ivrMenus": [
