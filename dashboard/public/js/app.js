@@ -238,7 +238,6 @@ const pageTitles = {
   'call-stats': 'Call Statistics',
   suppliers: 'Suppliers',
   numbers: 'Numbers',
-  'did-routes': 'DID Routes',
   'ivr-menus': 'IVR Menus',
   'ring-groups': 'Ring Groups',
   trunk: 'Trunk Configuration',
@@ -254,7 +253,6 @@ async function renderPage(page) {
     case 'call-stats': return renderCallStats(content);
     case 'suppliers': return renderSuppliers(content);
     case 'numbers': return renderNumbers(content);
-    case 'did-routes': return renderDidRoutes(content);
     case 'ivr-menus': return renderIvrMenus(content);
     case 'ring-groups': return renderRingGroups(content);
     case 'trunk': return renderTrunk(content);
@@ -271,8 +269,8 @@ async function renderDashboard(el) {
 
 async function refreshDashboard() {
   try {
-    const [status, modules, didRoutes, ivrMenus, ringGroups] = await Promise.all([
-      API.getStatus(), API.getModules(), API.getDidRoutes(), API.getIvrMenus(), API.getRingGroups()
+    const [status, modules, numbers, ivrMenus, ringGroups] = await Promise.all([
+      API.getStatus(), API.getModules(), API.getNumbers(), API.getIvrMenus(), API.getRingGroups()
     ]);
 
     document.getElementById('stats-grid').innerHTML = `
@@ -287,8 +285,8 @@ async function refreshDashboard() {
         <div class="sub">${status.activeChannels} channels</div>
       </div>
       <div class="stat-card">
-        <div class="label">DID Routes</div>
-        <div class="value">${didRoutes.length}</div>
+        <div class="label">Numbers</div>
+        <div class="value">${numbers.length}</div>
         <div class="sub">${ivrMenus.length} IVR menus</div>
       </div>
       <div class="stat-card">
@@ -456,8 +454,9 @@ function showSupplierModal(supplier) {
 
 // ---- NUMBERS ----
 async function renderNumbers(el) {
-  const numbers = await API.getNumbers();
-  const suppliers = await API.getSuppliers();
+  const [numbers, suppliers, ivrMenus, ringGroups] = await Promise.all([
+    API.getNumbers(), API.getSuppliers(), API.getIvrMenus(), API.getRingGroups()
+  ]);
 
   const byCountry = {};
   for (const n of numbers) {
@@ -514,14 +513,25 @@ async function renderNumbers(el) {
                   </div>
                   <div class="prefix-numbers">
                     <table>
-                      <thead><tr><th>Full Number</th><th>Extension</th><th>Supplier</th><th></th></tr></thead>
+                      <thead><tr><th>Full Number</th><th>Extension</th><th>Rate</th><th>Supplier</th><th>Destination</th><th></th></tr></thead>
                       <tbody>${pg.numbers.map(n => {
                         const sup = suppliers.find(s => s.id === n.supplierId);
+                        const destLabel = n.destinationType === 'ivr' ?
+                          (ivrMenus.find(m => m.id === n.destinationId)?.name || 'IVR') :
+                          n.destinationType === 'ring_group' ?
+                          (ringGroups.find(g => g.id === n.destinationId)?.name || 'Ring Group') :
+                          n.destinationType === 'direct' ? 'Ext ' + n.destinationId : 'Not set';
+                        const destBadge = n.destinationType === 'ivr' ? 'badge-ivr' : n.destinationType === 'ring_group' ? 'badge-ring' : 'badge-direct';
                         return `<tr>
                           <td><strong style="font-family:monospace">${n.countryCode}${n.prefix}${n.extension}</strong></td>
                           <td style="font-family:monospace">${n.extension}</td>
+                          <td>$${n.rate}/min</td>
                           <td>${sup ? `<span class="badge badge-direct">${escHtml(sup.name)}</span>` : '-'}</td>
-                          <td><button class="btn-icon del-num" data-id="${n.id}">&#128465;</button></td>
+                          <td><span class="badge ${destBadge}">${destLabel}</span></td>
+                          <td>
+                            <button class="btn-icon edit-num-dest" data-id="${n.id}" title="Edit destination">&#9998;</button>
+                            <button class="btn-icon del-num" data-id="${n.id}">&#128465;</button>
+                          </td>
                         </tr>`;
                       }).join('')}</tbody>
                     </table>
@@ -540,13 +550,18 @@ async function renderNumbers(el) {
     body.style.display = h.classList.contains('collapsed') ? 'none' : '';
   });
 
-  document.getElementById('btn-add-number').onclick = () => showAddNumberModal(suppliers);
+  document.getElementById('btn-add-number').onclick = () => showAddNumberModal(suppliers, ivrMenus, ringGroups);
 
   el.querySelectorAll('.del-num').forEach(b => b.onclick = async () => {
     if (!confirm('Delete this number?')) return;
     await API.deleteNumber(b.dataset.id);
     toast('Number deleted');
     renderNumbers(el);
+  });
+
+  el.querySelectorAll('.edit-num-dest').forEach(b => b.onclick = () => {
+    const num = numbers.find(n => n.id === b.dataset.id);
+    if (num) showEditDestModal(num, ivrMenus, ringGroups, el);
   });
 
   el.querySelectorAll('.del-prefix').forEach(b => b.onclick = async () => {
@@ -582,7 +597,71 @@ async function renderNumbers(el) {
   });
 }
 
-function showAddNumberModal(suppliers) {
+function showEditDestModal(num, ivrMenus, ringGroups, parentEl) {
+  const fullNum = num.countryCode + num.prefix + num.extension;
+  const destType = num.destinationType || 'ivr';
+
+  function optionsFor(type) {
+    if (type === 'ivr') return ivrMenus.map(m => `<option value="${m.id}" ${num.destinationId === m.id ? 'selected' : ''}>${m.name}</option>`).join('');
+    if (type === 'ring_group') return ringGroups.map(g => `<option value="${g.id}" ${num.destinationId === g.id ? 'selected' : ''}>${g.name}</option>`).join('');
+    return '';
+  }
+
+  showModal('Edit Destination — ' + fullNum, `
+    <div class="form-group">
+      <label>Number</label>
+      <input class="form-control" value="${fullNum}" readonly style="font-family:monospace;background:var(--bg-input);opacity:0.7">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Destination Type</label>
+        <select class="form-control" id="ed-dest-type">
+          <option value="ivr" ${destType === 'ivr' ? 'selected' : ''}>IVR Menu</option>
+          <option value="ring_group" ${destType === 'ring_group' ? 'selected' : ''}>Ring Group</option>
+          <option value="direct" ${destType === 'direct' ? 'selected' : ''}>Direct Extension</option>
+        </select>
+      </div>
+      <div class="form-group" id="ed-target-group">
+        <label>Target</label>
+        <select class="form-control" id="ed-dest-id">${optionsFor(destType)}</select>
+      </div>
+    </div>
+    <div class="form-group" id="ed-direct-ext" style="display:${destType === 'direct' ? 'block' : 'none'}">
+      <label>Extension Number</label>
+      <input class="form-control" id="ed-direct-ext-val" value="${destType === 'direct' ? (num.destinationId || '') : ''}" placeholder="e.g. 2001">
+    </div>
+  `, async () => {
+    const destinationType = document.getElementById('ed-dest-type').value;
+    let destinationId;
+    if (destinationType === 'direct') {
+      destinationId = document.getElementById('ed-direct-ext-val').value.trim();
+    } else {
+      destinationId = document.getElementById('ed-dest-id').value;
+    }
+    await API.updateNumber(num.id, { destinationType, destinationId });
+    markChanged();
+    toast('Destination updated');
+    closeModal();
+    renderNumbers(parentEl);
+  });
+
+  document.getElementById('ed-dest-type').onchange = (e) => {
+    const type = e.target.value;
+    const sel = document.getElementById('ed-dest-id');
+    const directBox = document.getElementById('ed-direct-ext');
+    const targetGroup = document.getElementById('ed-target-group');
+    if (type === 'direct') {
+      targetGroup.style.display = 'none';
+      directBox.style.display = 'block';
+    } else {
+      targetGroup.style.display = '';
+      directBox.style.display = 'none';
+      sel.innerHTML = optionsFor(type);
+    }
+  };
+}
+
+function showAddNumberModal(suppliers, ivrMenus, ringGroups) {
   showModal('Add Numbers', `
     <div class="form-row-3">
       <div class="form-group">
@@ -607,6 +686,26 @@ function showAddNumberModal(suppliers) {
         <option value="">— No Supplier —</option>
         ${suppliers.map(s => `<option value="${s.id}">${escHtml(s.name)}</option>`).join('')}
       </select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Destination Type</label>
+        <select class="form-control" id="num-dest-type">
+          <option value="ivr">IVR Menu</option>
+          <option value="ring_group">Ring Group</option>
+          <option value="direct">Direct Extension</option>
+        </select>
+      </div>
+      <div class="form-group" id="num-target-group">
+        <label>Target</label>
+        <select class="form-control" id="num-dest-id">
+          ${(ivrMenus || []).map(m => `<option value="${m.id}">${m.name}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-group" id="num-direct-ext" style="display:none">
+      <label>Extension Number</label>
+      <input class="form-control" id="num-direct-ext-val" placeholder="e.g. 2001">
     </div>
     <div class="form-group">
       <label style="display:flex;align-items:center;gap:12px">
@@ -663,7 +762,14 @@ function showAddNumberModal(suppliers) {
     if (!prefix) { toast('Prefix is required', 'error'); return; }
     if (!extensions.length) { toast('Enter at least one extension', 'error'); return; }
 
-    const nums = extensions.map(ext => ({ country, countryCode, prefix, extension: ext, rate, supplierId }));
+    const destinationType = document.getElementById('num-dest-type').value;
+    let destinationId;
+    if (destinationType === 'direct') {
+      destinationId = document.getElementById('num-direct-ext-val').value.trim();
+    } else {
+      destinationId = document.getElementById('num-dest-id').value;
+    }
+    const nums = extensions.map(ext => ({ country, countryCode, prefix, extension: ext, rate, supplierId, destinationType, destinationId }));
     await API.addBulkNumbers(nums);
     toast(`Added ${nums.length} numbers`);
     closeModal();
@@ -708,182 +814,22 @@ function showAddNumberModal(suppliers) {
     updatePreview();
   };
   document.getElementById('num-range-to').oninput = document.getElementById('num-range-from').oninput;
-}
 
-// ---- DID ROUTES ----
-async function renderDidRoutes(el) {
-  const routes = await API.getDidRoutes();
-  const ivrMenus = await API.getIvrMenus();
-  const ringGroups = await API.getRingGroups();
-  const suppliers = await API.getSuppliers();
-
-  el.innerHTML = `
-    <div class="card">
-      <div class="card-header">
-        <h3>DID Routes (${routes.length})</h3>
-        <button class="btn btn-primary" id="btn-add-did">+ Add DID Route</button>
-      </div>
-      <div class="card-body">
-        ${routes.length ? `
-        <table>
-          <thead><tr><th>DID Number</th><th>Description</th><th>Supplier</th><th>Destination</th><th>Target</th><th></th></tr></thead>
-          <tbody>${routes.map(r => {
-            let targetName = r.destinationId;
-            if (r.destinationType === 'ivr') { const m = ivrMenus.find(i => i.id === r.destinationId); targetName = m ? m.name : r.destinationId; }
-            if (r.destinationType === 'ring_group') { const g = ringGroups.find(i => i.id === r.destinationId); targetName = g ? g.name : r.destinationId; }
-            const badge = r.destinationType === 'ivr' ? 'badge-ivr' : r.destinationType === 'ring_group' ? 'badge-ring' : 'badge-direct';
-            const sup = suppliers.find(s => s.id === r.supplierId);
-            const supName = sup ? sup.name : '<span style="color:var(--text-muted)">—</span>';
-            return `<tr>
-              <td><strong>${r.didNumber}</strong></td>
-              <td>${r.description || '-'}</td>
-              <td><span class="badge badge-direct">${sup ? escHtml(sup.name) : 'None'}</span></td>
-              <td><span class="badge ${badge}">${r.destinationType.replace('_', ' ')}</span></td>
-              <td>${targetName}</td>
-              <td>
-                <button class="btn-icon edit-did" data-id="${r.id}" title="Edit">&#9998;</button>
-                <button class="btn-icon del-did" data-id="${r.id}" title="Delete">&#128465;</button>
-              </td>
-            </tr>`;
-          }).join('')}</tbody>
-        </table>` : '<div class="empty-state">No DID routes configured</div>'}
-      </div>
-    </div>`;
-
-  document.getElementById('btn-add-did').onclick = () => showDidModal(null, ivrMenus, ringGroups, suppliers);
-  el.querySelectorAll('.edit-did').forEach(b => b.onclick = () => {
-    const route = routes.find(r => r.id === b.dataset.id);
-    showDidModal(route, ivrMenus, ringGroups, suppliers);
-  });
-  el.querySelectorAll('.del-did').forEach(b => b.onclick = async () => {
-    if (!confirm('Delete this DID route?')) return;
-    await API.deleteDidRoute(b.dataset.id);
-    markChanged();
-    toast('DID route deleted');
-    renderDidRoutes(el);
-  });
-}
-
-async function showDidModal(route, ivrMenus, ringGroups, suppliers) {
-  const isEdit = !!route;
-  const destType = route?.destinationType || 'ivr';
-  const numbers = await API.getNumbers();
-
-  function optionsFor(type) {
-    if (type === 'ivr') return ivrMenus.map(m => `<option value="${m.id}" ${route?.destinationId === m.id ? 'selected' : ''}>${m.name}</option>`).join('');
-    if (type === 'ring_group') return ringGroups.map(g => `<option value="${g.id}" ${route?.destinationId === g.id ? 'selected' : ''}>${g.name}</option>`).join('');
-    return '';
-  }
-
-  showModal(isEdit ? 'Edit DID Route' : 'Add DID Route', `
-    <div class="form-group">
-      <label>DID Number (from inventory or manual)</label>
-      <div style="display:flex;gap:8px;">
-        <select class="form-control" id="did-from-inventory" style="flex:1">
-          <option value="">— Pick from Numbers —</option>
-        </select>
-        <span style="padding:8px;color:var(--text-muted)">or</span>
-        <input class="form-control" id="did-number" value="${route?.didNumber || ''}" placeholder="Manual: 12025550100" style="flex:1">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Supplier</label>
-        <select class="form-control" id="did-supplier">
-          <option value="">— No Supplier —</option>
-          ${(suppliers || []).map(s => `<option value="${s.id}" ${route?.supplierId === s.id ? 'selected' : ''}>${escHtml(s.name)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Description</label>
-        <input class="form-control" id="did-desc" value="${route?.description || ''}" placeholder="e.g. Main Office Line">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Destination Type</label>
-        <select class="form-control" id="did-dest-type">
-          <option value="ivr" ${destType === 'ivr' ? 'selected' : ''}>IVR Menu</option>
-          <option value="ring_group" ${destType === 'ring_group' ? 'selected' : ''}>Ring Group</option>
-          <option value="direct" ${destType === 'direct' ? 'selected' : ''}>Direct Extension</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Target</label>
-        <select class="form-control" id="did-dest-id">${optionsFor(destType)}</select>
-      </div>
-    </div>
-    <div class="form-group" id="did-direct-ext" style="display:${destType === 'direct' ? 'block' : 'none'}">
-      <label>Extension Number</label>
-      <input class="form-control" id="did-direct-ext-val" value="${destType === 'direct' ? (route?.destinationId || '') : ''}" placeholder="e.g. 2001">
-    </div>
-  `, async () => {
-    const didNumber = document.getElementById('did-number').value.trim();
-    const description = document.getElementById('did-desc').value.trim();
-    const supplierId = document.getElementById('did-supplier').value || '';
-    const destinationType = document.getElementById('did-dest-type').value;
-    let destinationId;
-    if (destinationType === 'direct') {
-      destinationId = document.getElementById('did-direct-ext-val').value.trim();
-    } else {
-      destinationId = document.getElementById('did-dest-id').value;
-    }
-    if (!didNumber) { toast('DID number required', 'error'); return; }
-
-    if (isEdit) {
-      await API.updateDidRoute(route.id, { didNumber, description, supplierId, destinationType, destinationId });
-      toast('DID route updated');
-    } else {
-      await API.addDidRoute({ didNumber, description, supplierId, destinationType, destinationId });
-      toast('DID route added');
-    }
-    markChanged();
-    closeModal();
-    renderPage('did-routes');
-  });
-
-  document.getElementById('did-dest-type').onchange = (e) => {
+  document.getElementById('num-dest-type').onchange = (e) => {
     const type = e.target.value;
-    const sel = document.getElementById('did-dest-id');
-    const directBox = document.getElementById('did-direct-ext');
+    const sel = document.getElementById('num-dest-id');
+    const directBox = document.getElementById('num-direct-ext');
+    const targetGroup = document.getElementById('num-target-group');
     if (type === 'direct') {
-      sel.parentElement.style.display = 'none';
+      targetGroup.style.display = 'none';
       directBox.style.display = 'block';
     } else {
-      sel.parentElement.style.display = '';
+      targetGroup.style.display = '';
       directBox.style.display = 'none';
-      sel.innerHTML = optionsFor(type);
-    }
-  };
-
-  const invSelect = document.getElementById('did-from-inventory');
-  const grouped = {};
-  for (const n of numbers) {
-    const fullNum = n.countryCode + n.prefix + n.extension;
-    const label = `${n.countryCode} ${n.prefix} ${n.extension}`;
-    if (!grouped[n.country]) grouped[n.country] = [];
-    grouped[n.country].push({ fullNum, label, n });
-  }
-  for (const [country, nums] of Object.entries(grouped).sort()) {
-    const c = COUNTRIES.find(cc => cc.code === country);
-    const optgroup = document.createElement('optgroup');
-    optgroup.label = c ? c.name : country;
-    for (const { fullNum, label, n } of nums) {
-      const opt = document.createElement('option');
-      opt.value = fullNum;
-      opt.textContent = label;
-      opt.dataset.supplierId = n.supplierId || '';
-      optgroup.appendChild(opt);
-    }
-    invSelect.appendChild(optgroup);
-  }
-  invSelect.onchange = () => {
-    const val = invSelect.value;
-    if (val) {
-      document.getElementById('did-number').value = val;
-      const opt = invSelect.selectedOptions[0];
-      if (opt.dataset.supplierId) {
-        document.getElementById('did-supplier').value = opt.dataset.supplierId;
+      if (type === 'ivr') {
+        sel.innerHTML = (ivrMenus || []).map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+      } else {
+        sel.innerHTML = (ringGroups || []).map(g => `<option value="${g.id}">${g.name}</option>`).join('');
       }
     }
   };

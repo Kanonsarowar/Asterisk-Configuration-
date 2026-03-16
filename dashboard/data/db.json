@@ -7,7 +7,9 @@
       "prefix": "202",
       "extension": "5550100",
       "rate": "0.01",
-      "supplierId": "1"
+      "supplierId": "1",
+      "destinationType": "ivr",
+      "destinationId": "1"
     },
     {
       "id": "2",
@@ -16,7 +18,9 @@
       "prefix": "202",
       "extension": "5550101",
       "rate": "0.01",
-      "supplierId": "1"
+      "supplierId": "1",
+      "destinationType": "ivr",
+      "destinationId": "1"
     },
     {
       "id": "3",
@@ -25,7 +29,9 @@
       "prefix": "202",
       "extension": "5550102",
       "rate": "0.01",
-      "supplierId": "1"
+      "supplierId": "1",
+      "destinationType": "ivr",
+      "destinationId": "1"
     },
     {
       "id": "4",
@@ -34,7 +40,9 @@
       "prefix": "800",
       "extension": "5551234",
       "rate": "0.005",
-      "supplierId": "2"
+      "supplierId": "2",
+      "destinationType": "ivr",
+      "destinationId": "1"
     },
     {
       "id": "5",
@@ -43,7 +51,9 @@
       "prefix": "20",
       "extension": "71234567",
       "rate": "0.02",
-      "supplierId": "3"
+      "supplierId": "3",
+      "destinationType": "ivr",
+      "destinationId": "1"
     },
     {
       "id": "6",
@@ -52,7 +62,9 @@
       "prefix": "20",
       "extension": "71234568",
       "rate": "0.02",
-      "supplierId": "3"
+      "supplierId": "3",
+      "destinationType": "ivr",
+      "destinationId": "1"
     },
     {
       "id": "7",
@@ -61,7 +73,9 @@
       "prefix": "30",
       "extension": "12345678",
       "rate": "0.015",
-      "supplierId": "4"
+      "supplierId": "4",
+      "destinationType": "ivr",
+      "destinationId": "1"
     }
   ],
   "suppliers": [
@@ -122,32 +136,6 @@
       "ips": [
         "185.209.147.14"
       ]
-    }
-  ],
-  "didRoutes": [
-    {
-      "id": "1",
-      "didNumber": "12025550100",
-      "description": "Main Office",
-      "supplierId": "1",
-      "destinationType": "ivr",
-      "destinationId": "1"
-    },
-    {
-      "id": "2",
-      "didNumber": "12025550101",
-      "description": "Sales Line",
-      "supplierId": "1",
-      "destinationType": "ivr",
-      "destinationId": "2"
-    },
-    {
-      "id": "3",
-      "didNumber": "12025550102",
-      "description": "Support Direct",
-      "supplierId": "1",
-      "destinationType": "ring_group",
-      "destinationId": "2"
     }
   ],
   "ivrMenus": [

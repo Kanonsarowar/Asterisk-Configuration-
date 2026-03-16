@@ -38,12 +38,6 @@ const API = {
   deleteNumber(id) { return this.del(`/api/numbers/${id}`); },
   deletePrefix(country, countryCode, prefix) { return this.post('/api/numbers/delete-prefix', { country, countryCode, prefix }); },
 
-  // DID Routes
-  getDidRoutes() { return this.get('/api/did-routes'); },
-  addDidRoute(route) { return this.post('/api/did-routes', route); },
-  updateDidRoute(id, route) { return this.put(`/api/did-routes/${id}`, route); },
-  deleteDidRoute(id) { return this.del(`/api/did-routes/${id}`); },
-
   // IVR
   getIvrMenus() { return this.get('/api/ivr-menus'); },
   addIvrMenu(menu) { return this.post('/api/ivr-menus', menu); },

@@ -11,7 +11,7 @@ function slugify(name) {
 
 export function generateExtensionsConf(store) {
   const data = store.getAll();
-  const { didRoutes, ivrMenus, ringGroups, globals, suppliers } = data;
+  const { ivrMenus, ringGroups, globals, suppliers } = data;
   const lines = [];
 
   lines.push('; ================================');
@@ -59,26 +59,28 @@ export function generateExtensionsConf(store) {
   lines.push(' same => n,Hangup()');
   lines.push('');
 
-  // DID routing context
+  // DID routing context from numbers
   lines.push('[did-routing]');
-  for (const route of didRoutes) {
-    const sup = (suppliers || []).find(s => s.id === route.supplierId);
-    const supLabel = sup ? sup.name : '';
-    const desc = [route.description, supLabel].filter(Boolean).join(' via ');
+  const numbers = data.numbers || [];
+  for (const n of numbers) {
+    if (!n.destinationType) continue;
+    const did = n.countryCode + n.prefix + n.extension;
+    const sup = (suppliers || []).find(s => s.id === n.supplierId);
+    const desc = sup ? sup.name : '';
 
-    if (route.destinationType === 'ivr') {
-      const ivr = ivrMenus.find(m => m.id === route.destinationId);
+    if (n.destinationType === 'ivr') {
+      const ivr = ivrMenus.find(m => m.id === n.destinationId);
       const target = ivr ? `ivr-${ivr.id}` : 'ivr-1';
-      lines.push(`exten => ${route.didNumber},1,NoOp(Route DID \${EXTEN} to ${desc || 'IVR'})`);
+      lines.push(`exten => ${did},1,NoOp(Route DID \${EXTEN} ${desc})`);
       lines.push(` same => n,Goto(${target},s,1)`);
-    } else if (route.destinationType === 'ring_group') {
-      const rg = ringGroups.find(g => g.id === route.destinationId);
+    } else if (n.destinationType === 'ring_group') {
+      const rg = ringGroups.find(g => g.id === n.destinationId);
       const target = rg ? `ring-group-${rg.id}` : 'ring-group-1';
-      lines.push(`exten => ${route.didNumber},1,NoOp(Route DID \${EXTEN} to ${desc || 'Ring Group'})`);
+      lines.push(`exten => ${did},1,NoOp(Route DID \${EXTEN} ${desc})`);
       lines.push(` same => n,Goto(${target},s,1)`);
-    } else {
-      lines.push(`exten => ${route.didNumber},1,NoOp(Route DID \${EXTEN} to ${desc || 'Direct'})`);
-      lines.push(` same => n,Dial(PJSIP/${route.destinationId},30)`);
+    } else if (n.destinationType === 'direct') {
+      lines.push(`exten => ${did},1,NoOp(Route DID \${EXTEN} ${desc})`);
+      lines.push(` same => n,Dial(PJSIP/${n.destinationId},30)`);
       lines.push(` same => n,Hangup()`);
     }
     lines.push('');

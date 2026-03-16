@@ -196,25 +196,6 @@ async function handleApi(req, res) {
       return store.deleteNumber(id) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
     }
 
-    // DID Routes
-    if (path === '/api/did-routes' && method === 'GET') {
-      return sendJson(res, 200, store.getDidRoutes());
-    }
-    if (path === '/api/did-routes' && method === 'POST') {
-      const body = await parseBody(req);
-      return sendJson(res, 201, store.addDidRoute(body));
-    }
-    if (path.startsWith('/api/did-routes/') && method === 'PUT') {
-      const id = path.split('/').pop();
-      const body = await parseBody(req);
-      const updated = store.updateDidRoute(id, body);
-      return updated ? sendJson(res, 200, updated) : sendJson(res, 404, { error: 'Not found' });
-    }
-    if (path.startsWith('/api/did-routes/') && method === 'DELETE') {
-      const id = path.split('/').pop();
-      return store.deleteDidRoute(id) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
-    }
-
     // Audio file upload & list
     const SOUNDS_DIR = '/var/lib/asterisk/sounds/custom';
     if (path === '/api/audio-files' && method === 'GET') {

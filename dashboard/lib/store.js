@@ -8,13 +8,13 @@ const DB_FILE = join(DATA_DIR, 'db.json');
 
 const DEFAULT_DATA = {
   numbers: [
-    { id: '1', country: 'US', countryCode: '1', prefix: '202', extension: '5550100', rate: '0.01', supplierId: '1' },
-    { id: '2', country: 'US', countryCode: '1', prefix: '202', extension: '5550101', rate: '0.01', supplierId: '1' },
-    { id: '3', country: 'US', countryCode: '1', prefix: '202', extension: '5550102', rate: '0.01', supplierId: '1' },
-    { id: '4', country: 'US', countryCode: '1', prefix: '800', extension: '5551234', rate: '0.005', supplierId: '2' },
-    { id: '5', country: 'UK', countryCode: '44', prefix: '20', extension: '71234567', rate: '0.02', supplierId: '3' },
-    { id: '6', country: 'UK', countryCode: '44', prefix: '20', extension: '71234568', rate: '0.02', supplierId: '3' },
-    { id: '7', country: 'DE', countryCode: '49', prefix: '30', extension: '12345678', rate: '0.015', supplierId: '4' }
+    { id: '1', country: 'US', countryCode: '1', prefix: '202', extension: '5550100', rate: '0.01', supplierId: '1', destinationType: 'ivr', destinationId: '1' },
+    { id: '2', country: 'US', countryCode: '1', prefix: '202', extension: '5550101', rate: '0.01', supplierId: '1', destinationType: 'ivr', destinationId: '1' },
+    { id: '3', country: 'US', countryCode: '1', prefix: '202', extension: '5550102', rate: '0.01', supplierId: '1', destinationType: 'ivr', destinationId: '1' },
+    { id: '4', country: 'US', countryCode: '1', prefix: '800', extension: '5551234', rate: '0.005', supplierId: '2', destinationType: 'ivr', destinationId: '1' },
+    { id: '5', country: 'UK', countryCode: '44', prefix: '20', extension: '71234567', rate: '0.02', supplierId: '3', destinationType: 'ivr', destinationId: '1' },
+    { id: '6', country: 'UK', countryCode: '44', prefix: '20', extension: '71234568', rate: '0.02', supplierId: '3', destinationType: 'ivr', destinationId: '1' },
+    { id: '7', country: 'DE', countryCode: '49', prefix: '30', extension: '12345678', rate: '0.015', supplierId: '4', destinationType: 'ivr', destinationId: '1' }
   ],
   suppliers: [
     { id: '1', name: 'Supplier 1 (Vultr)', ips: ['108.61.70.46'] },
@@ -25,11 +25,6 @@ const DEFAULT_DATA = {
     { id: '6', name: 'Supplier 6 (Contabo)', ips: ['149.12.160.10'] },
     { id: '7', name: 'Supplier 7 (myLoc)', ips: ['93.94.120.49'] },
     { id: '8', name: 'Supplier 8 (DataClub)', ips: ['185.209.147.14'] }
-  ],
-  didRoutes: [
-    { id: '1', didNumber: '12025550100', description: 'Main Office', supplierId: '1', destinationType: 'ivr', destinationId: '1' },
-    { id: '2', didNumber: '12025550101', description: 'Sales Line', supplierId: '1', destinationType: 'ivr', destinationId: '2' },
-    { id: '3', didNumber: '12025550102', description: 'Support Direct', supplierId: '1', destinationType: 'ring_group', destinationId: '2' }
   ],
   ivrMenus: [
     {
@@ -156,30 +151,6 @@ export class Store {
     const idx = this.data.suppliers.findIndex(s => s.id === id);
     if (idx === -1) return false;
     this.data.suppliers.splice(idx, 1);
-    save(this.data);
-    return true;
-  }
-
-  // DID Routes
-  getDidRoutes() { return this.data.didRoutes; }
-  getDidRoute(id) { return this.data.didRoutes.find(r => r.id === id); }
-  addDidRoute(route) {
-    route.id = nextId(this.data.didRoutes);
-    this.data.didRoutes.push(route);
-    save(this.data);
-    return route;
-  }
-  updateDidRoute(id, updates) {
-    const idx = this.data.didRoutes.findIndex(r => r.id === id);
-    if (idx === -1) return null;
-    this.data.didRoutes[idx] = { ...this.data.didRoutes[idx], ...updates, id };
-    save(this.data);
-    return this.data.didRoutes[idx];
-  }
-  deleteDidRoute(id) {
-    const idx = this.data.didRoutes.findIndex(r => r.id === id);
-    if (idx === -1) return false;
-    this.data.didRoutes.splice(idx, 1);
     save(this.data);
     return true;
   }
