@@ -320,12 +320,34 @@ select.form-control { cursor: pointer; }
 
 @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
+/* Mobile menu */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.5);
+  z-index: 89;
+}
+.sidebar-overlay.visible { display: block; }
+
 /* Responsive */
 @media (max-width: 768px) {
-  .sidebar { display: none; }
+  .sidebar {
+    position: fixed;
+    left: -260px;
+    top: 0;
+    bottom: 0;
+    z-index: 90;
+    transition: left .25s ease;
+  }
+  .sidebar.open { left: 0; }
+  #btn-menu { display: flex !important; }
   .apply-banner { left: 0; }
   .form-row { grid-template-columns: 1fr; }
+  .form-row-3 { grid-template-columns: 1fr; }
   .stats-grid { grid-template-columns: 1fr 1fr; }
+  .topbar { gap: 8px; }
+  .topbar h2 { font-size: 16px; }
 }
 
 .empty-state {

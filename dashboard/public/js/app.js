@@ -1110,5 +1110,21 @@ document.getElementById('btn-logout').onclick = async () => {
   window.location.href = '/login';
 };
 
+// Mobile menu toggle
+const sidebar = document.querySelector('.sidebar');
+const overlay = document.getElementById('sidebar-overlay');
+document.getElementById('btn-menu').onclick = () => {
+  sidebar.classList.add('open');
+  overlay.classList.add('visible');
+};
+function closeMobileMenu() {
+  sidebar.classList.remove('open');
+  overlay.classList.remove('visible');
+}
+overlay.onclick = closeMobileMenu;
+document.querySelectorAll('.nav-item').forEach(btn => {
+  btn.addEventListener('click', closeMobileMenu);
+});
+
 // Init
 navigateTo('dashboard');

@@ -60,6 +60,9 @@
     <!-- Main -->
     <div class="main">
       <header class="topbar">
+        <button class="btn-icon" id="btn-menu" style="display:none" aria-label="Menu">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
         <h2 id="page-title">Dashboard</h2>
         <div style="display:flex;gap:8px;align-items:center">
           <span id="server-status" style="font-size:13px;color:var(--text-muted)"></span>
@@ -71,6 +74,9 @@
       </div>
     </div>
   </div>
+
+  <!-- Sidebar Overlay (mobile) -->
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
   <!-- Apply Banner -->
   <div class="apply-banner" id="apply-banner">
