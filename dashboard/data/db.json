@@ -1,0 +1,119 @@
+{
+  "didRoutes": [
+    {
+      "id": "1",
+      "didNumber": "12025550100",
+      "description": "Main Office",
+      "destinationType": "ivr",
+      "destinationId": "1"
+    },
+    {
+      "id": "2",
+      "didNumber": "12025550101",
+      "description": "Sales Line",
+      "destinationType": "ivr",
+      "destinationId": "2"
+    },
+    {
+      "id": "3",
+      "didNumber": "12025550102",
+      "description": "Support Direct",
+      "destinationType": "ring_group",
+      "destinationId": "2"
+    }
+  ],
+  "ivrMenus": [
+    {
+      "id": "1",
+      "name": "Main IVR",
+      "audioFile": "custom/main-menu",
+      "options": [
+        {
+          "digit": "1",
+          "actionType": "ring_group",
+          "actionTarget": "1",
+          "label": "Sales"
+        },
+        {
+          "digit": "2",
+          "actionType": "ring_group",
+          "actionTarget": "2",
+          "label": "Support"
+        },
+        {
+          "digit": "0",
+          "actionType": "ring_group",
+          "actionTarget": "3",
+          "label": "Operator"
+        }
+      ],
+      "timeoutAction": "hangup",
+      "invalidAction": "replay"
+    },
+    {
+      "id": "2",
+      "name": "Sales IVR",
+      "audioFile": "custom/sales-menu",
+      "options": [
+        {
+          "digit": "1",
+          "actionType": "ring_group",
+          "actionTarget": "1",
+          "label": "Sales"
+        },
+        {
+          "digit": "2",
+          "actionType": "ring_group",
+          "actionTarget": "3",
+          "label": "Operator"
+        }
+      ],
+      "timeoutAction": "hangup",
+      "invalidAction": "replay"
+    }
+  ],
+  "ringGroups": [
+    {
+      "id": "1",
+      "name": "Sales",
+      "extensions": [
+        "2001"
+      ],
+      "ringTimeout": 25,
+      "voicemailExt": "2001"
+    },
+    {
+      "id": "2",
+      "name": "Support",
+      "extensions": [
+        "2002"
+      ],
+      "ringTimeout": 25,
+      "voicemailExt": "2002"
+    },
+    {
+      "id": "3",
+      "name": "Operator",
+      "extensions": [
+        "2000"
+      ],
+      "ringTimeout": 25,
+      "voicemailExt": "2000"
+    }
+  ],
+  "trunkConfig": {
+    "supplierIp": "127.0.0.1",
+    "publicIp": "127.0.0.1",
+    "userAgent": "Asterisk-IPAuth-IVR",
+    "bindPort": 5060,
+    "codecs": [
+      "alaw",
+      "ulaw"
+    ],
+    "qualifyFrequency": 60
+  },
+  "globals": {
+    "ivrResponseTimeout": 7,
+    "ivrDigitTimeout": 5
+  }
+}

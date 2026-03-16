@@ -1,0 +1,11 @@
+{
+  "name": "asterisk-dashboard",
+  "version": "1.0.0",
+  "description": "Web dashboard for managing Asterisk PBX configuration",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "type": "module"
+}
