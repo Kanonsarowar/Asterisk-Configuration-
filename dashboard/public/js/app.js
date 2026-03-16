@@ -493,7 +493,7 @@ async function renderNumbers(el) {
           return `
           <div class="country-group">
             <div class="country-header" data-country="${country}">
-              <h4><span class="arrow">&#9660;</span> ${escHtml(countryName)} (+${prefixes[prefixKeys[0]].countryCode})</h4>
+              <h4><span class="arrow">&#9660;</span> ${escHtml(countryName)} (${prefixes[prefixKeys[0]].countryCode})</h4>
               <span class="count">${countryTotal} number${countryTotal !== 1 ? 's' : ''} / ${prefixKeys.length} prefix${prefixKeys.length !== 1 ? 'es' : ''}</span>
             </div>
             <div class="country-body" data-country-body="${country}">
@@ -503,7 +503,7 @@ async function renderNumbers(el) {
                 <div class="prefix-group">
                   <div class="prefix-header">
                     <div class="prefix-info">
-                      <span class="prefix-code">+${pg.countryCode} ${pg.prefix}</span>
+                      <span class="prefix-code">${pg.countryCode} ${pg.prefix}</span>
                       <span class="prefix-rate">$${pg.rate}/min</span>
                       <span class="prefix-count">${pg.numbers.length} number${pg.numbers.length !== 1 ? 's' : ''}</span>
                     </div>
@@ -518,7 +518,7 @@ async function renderNumbers(el) {
                       <tbody>${pg.numbers.map(n => {
                         const sup = suppliers.find(s => s.id === n.supplierId);
                         return `<tr>
-                          <td><strong style="font-family:monospace">+${n.countryCode}${n.prefix}${n.extension}</strong></td>
+                          <td><strong style="font-family:monospace">${n.countryCode}${n.prefix}${n.extension}</strong></td>
                           <td style="font-family:monospace">${n.extension}</td>
                           <td>${sup ? `<span class="badge badge-direct">${escHtml(sup.name)}</span>` : '-'}</td>
                           <td><button class="btn-icon del-num" data-id="${n.id}">&#128465;</button></td>
@@ -553,7 +553,7 @@ async function renderNumbers(el) {
     const prefix = b.dataset.prefix;
     const cc = b.dataset.cc;
     const country = b.dataset.country;
-    if (!confirm(`Delete ALL numbers with prefix +${cc} ${prefix}?`)) return;
+    if (!confirm(`Delete ALL numbers with prefix ${cc} ${prefix}?`)) return;
     const result = await API.deletePrefix(country, cc, prefix);
     toast(`Deleted ${result.deleted} numbers`);
     renderNumbers(el);
@@ -566,7 +566,7 @@ async function renderNumbers(el) {
     const country = b.dataset.country;
     showModal('Edit Rate', `
       <div class="form-group">
-        <label>Rate for +${cc} ${prefix} ($/min)</label>
+        <label>Rate for ${cc} ${prefix} ($/min)</label>
         <input class="form-control" id="edit-rate-val" type="number" step="0.001" value="${currentRate}">
       </div>
     `, async () => {
@@ -680,13 +680,13 @@ function showAddNumberModal(suppliers) {
     if (isRange) {
       const from = document.getElementById('num-range-from').value || '0000';
       const to = document.getElementById('num-range-to').value || '9999';
-      preview.innerHTML = `+${cc}${prefix}${from} to +${cc}${prefix}${to}`;
+      preview.innerHTML = `${cc}${prefix}${from} to ${cc}${prefix}${to}`;
     } else {
       const exts = document.getElementById('num-extensions').value.split('\n').map(s => s.trim()).filter(Boolean);
       if (!exts.length) {
-        preview.textContent = `+${cc} ${prefix} + [extensions]`;
+        preview.textContent = `${cc}${prefix} + [extensions]`;
       } else {
-        preview.innerHTML = exts.slice(0, 10).map(e => `+${cc}${prefix}${e}`).join('<br>') + (exts.length > 10 ? `<br>... and ${exts.length - 10} more` : '');
+        preview.innerHTML = exts.slice(0, 10).map(e => `${cc}${prefix}${e}`).join('<br>') + (exts.length > 10 ? `<br>... and ${exts.length - 10} more` : '');
       }
     }
   }
@@ -860,7 +860,7 @@ async function showDidModal(route, ivrMenus, ringGroups, suppliers) {
   const grouped = {};
   for (const n of numbers) {
     const fullNum = n.countryCode + n.prefix + n.extension;
-    const label = `+${n.countryCode} ${n.prefix} ${n.extension}`;
+    const label = `${n.countryCode} ${n.prefix} ${n.extension}`;
     if (!grouped[n.country]) grouped[n.country] = [];
     grouped[n.country].push({ fullNum, label, n });
   }
