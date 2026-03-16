@@ -932,7 +932,7 @@ async function renderIvrMenus(el) {
   });
 }
 
-function showIvrModal(menu, ringGroups, allMenus) {
+async function showIvrModal(menu, ringGroups, allMenus) {
   const isEdit = !!menu;
   const options = menu?.options || [{ digit: '1', actionType: 'ring_group', actionTarget: '', label: '' }];
 
@@ -955,16 +955,27 @@ function showIvrModal(menu, ringGroups, allMenus) {
     `).join('');
   }
 
+  const audioFiles = await API.getAudioFiles();
+
   showModal(isEdit ? 'Edit IVR Menu' : 'Add IVR Menu', `
-    <div class="form-row">
-      <div class="form-group">
-        <label>Menu Name</label>
-        <input class="form-control" id="ivr-name" value="${menu?.name || ''}" placeholder="e.g. Main IVR">
+    <div class="form-group">
+      <label>Menu Name</label>
+      <input class="form-control" id="ivr-name" value="${menu?.name || ''}" placeholder="e.g. Main IVR">
+    </div>
+    <div class="form-group">
+      <label>Audio File</label>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <select class="form-control" id="ivr-audio-select" style="flex:1">
+          <option value="">— Select uploaded file —</option>
+          ${audioFiles.map(f => `<option value="${f.path}" ${menu?.audioFile === f.path ? 'selected' : ''}>${f.name} (${f.path})</option>`).join('')}
+        </select>
+        <label class="btn btn-outline" style="cursor:pointer;flex-shrink:0;margin:0">
+          Upload
+          <input type="file" id="ivr-file-upload" accept=".wav,.gsm,.mp3,.sln,.ulaw,.alaw" style="display:none">
+        </label>
       </div>
-      <div class="form-group">
-        <label>Audio File</label>
-        <input class="form-control" id="ivr-audio" value="${menu?.audioFile || ''}" placeholder="e.g. custom/main-menu">
-      </div>
+      <input class="form-control" id="ivr-audio" value="${menu?.audioFile || ''}" placeholder="Or type path: custom/main-menu">
+      <div id="ivr-upload-status" style="font-size:12px;margin-top:4px;color:var(--success);display:none"></div>
     </div>
     <div class="form-group">
       <label>DTMF Options</label>
@@ -1020,6 +1031,40 @@ function showIvrModal(menu, ringGroups, allMenus) {
     const div = document.createElement('div');
     div.innerHTML = renderOptions([{ digit: '', actionType: 'ring_group', actionTarget: '', label: '' }]);
     container.appendChild(div.firstElementChild);
+  };
+
+  document.getElementById('ivr-audio-select').onchange = (e) => {
+    if (e.target.value) document.getElementById('ivr-audio').value = e.target.value;
+  };
+
+  document.getElementById('ivr-file-upload').onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const status = document.getElementById('ivr-upload-status');
+    status.style.display = 'block';
+    status.style.color = 'var(--text-muted)';
+    status.textContent = 'Uploading ' + file.name + '...';
+    try {
+      const result = await API.uploadAudio(file);
+      if (result.ok && result.files.length) {
+        const path = 'custom/' + result.files[0].replace(/\.[^.]+$/, '');
+        document.getElementById('ivr-audio').value = path;
+        const sel = document.getElementById('ivr-audio-select');
+        const opt = document.createElement('option');
+        opt.value = path;
+        opt.textContent = result.files[0] + ' (' + path + ')';
+        opt.selected = true;
+        sel.appendChild(opt);
+        status.style.color = 'var(--success)';
+        status.textContent = 'Uploaded: ' + result.files[0];
+      } else {
+        status.style.color = 'var(--danger)';
+        status.textContent = 'Upload failed: ' + (result.error || 'unknown error');
+      }
+    } catch (err) {
+      status.style.color = 'var(--danger)';
+      status.textContent = 'Upload error: ' + err.message;
+    }
   };
 }
 

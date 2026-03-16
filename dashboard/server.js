@@ -1,6 +1,6 @@
 import { createServer } from 'http';
-import { readFileSync, existsSync, statSync } from 'fs';
-import { join, dirname, extname } from 'path';
+import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, readdirSync } from 'fs';
+import { join, dirname, extname, basename } from 'path';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -213,6 +213,45 @@ async function handleApi(req, res) {
     if (path.startsWith('/api/did-routes/') && method === 'DELETE') {
       const id = path.split('/').pop();
       return store.deleteDidRoute(id) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
+    }
+
+    // Audio file upload & list
+    const SOUNDS_DIR = '/var/lib/asterisk/sounds/custom';
+    if (path === '/api/audio-files' && method === 'GET') {
+      try {
+        if (!existsSync(SOUNDS_DIR)) mkdirSync(SOUNDS_DIR, { recursive: true });
+        const files = readdirSync(SOUNDS_DIR).filter(f => /\.(wav|gsm|sln|ulaw|alaw|mp3)$/i.test(f));
+        return sendJson(res, 200, files.map(f => ({ name: f, path: `custom/${f.replace(/\.[^.]+$/, '')}` })));
+      } catch { return sendJson(res, 200, []); }
+    }
+    if (path === '/api/audio-upload' && method === 'POST') {
+      try {
+        if (!existsSync(SOUNDS_DIR)) mkdirSync(SOUNDS_DIR, { recursive: true });
+        const contentType = req.headers['content-type'] || '';
+        if (!contentType.includes('multipart/form-data')) {
+          return sendJson(res, 400, { error: 'Use multipart/form-data' });
+        }
+        const boundary = '--' + contentType.split('boundary=')[1];
+        const chunks = [];
+        for await (const chunk of req) chunks.push(chunk);
+        const buf = Buffer.concat(chunks);
+        const parts = buf.toString('binary').split(boundary).filter(p => p.includes('filename='));
+        const uploaded = [];
+        for (const part of parts) {
+          const headerEnd = part.indexOf('\r\n\r\n');
+          if (headerEnd === -1) continue;
+          const headers = part.substring(0, headerEnd);
+          const fnMatch = headers.match(/filename="([^"]+)"/);
+          if (!fnMatch) continue;
+          let filename = fnMatch[1].replace(/[^a-zA-Z0-9._-]/g, '_');
+          const body = part.substring(headerEnd + 4).replace(/\r\n--$/, '').replace(/\r\n$/, '');
+          writeFileSync(join(SOUNDS_DIR, filename), body, 'binary');
+          uploaded.push(filename);
+        }
+        return sendJson(res, 200, { ok: true, files: uploaded });
+      } catch (err) {
+        return sendJson(res, 500, { error: err.message });
+      }
     }
 
     // IVR Menus

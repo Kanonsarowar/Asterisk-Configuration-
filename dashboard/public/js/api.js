@@ -64,6 +64,15 @@ const API = {
   getGlobals() { return this.get('/api/globals'); },
   updateGlobals(globals) { return this.put('/api/globals', globals); },
 
+  // Audio
+  getAudioFiles() { return this.get('/api/audio-files'); },
+  async uploadAudio(file) {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/audio-upload', { method: 'POST', body: form });
+    return res.json();
+  },
+
   // Apply
   apply() { return this.post('/api/apply', {}); },
   previewConfig() { return this.get('/api/preview-config'); },
