@@ -37,11 +37,22 @@ const DEFAULT_DATA = {
     { id: '3', name: 'Operator', extensions: ['2000'], ringTimeout: 25, voicemailExt: '2000' }
   ],
   trunkConfig: {
-    supplierIp: 'SUPPLIER_IP',
+    supplierIps: [
+      '108.61.70.46',
+      '157.90.193.196',
+      '51.77.77.223',
+      '95.217.90.21',
+      '52.28.165.40',
+      '52.57.172.184',
+      '35.156.119.128',
+      '149.12.160.10',
+      '93.94.120.49',
+      '185.209.147.14'
+    ],
     publicIp: '167.172.170.88',
     userAgent: 'Asterisk-IPAuth-IVR',
     bindPort: 5060,
-    codecs: ['alaw', 'ulaw'],
+    codecs: ['g729', 'alaw', 'ulaw', 'gsm'],
     qualifyFrequency: 60
   },
   globals: {

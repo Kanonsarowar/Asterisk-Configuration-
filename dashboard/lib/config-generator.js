@@ -176,15 +176,19 @@ export function generatePjsipConf(store) {
   lines.push('send_pai=yes');
   lines.push('t38_udptl=no');
   lines.push('');
+  const ips = trunk.supplierIps || (trunk.supplierIp ? [trunk.supplierIp] : ['127.0.0.1']);
+
   lines.push('[supplier-trunk-aor]');
   lines.push('type=aor');
-  lines.push(`contact=sip:${trunk.supplierIp}:${trunk.bindPort}`);
+  lines.push(`contact=sip:${ips[0]}:${trunk.bindPort}`);
   lines.push(`qualify_frequency=${trunk.qualifyFrequency}`);
   lines.push('');
   lines.push('[supplier-trunk-identify]');
   lines.push('type=identify');
   lines.push('endpoint=supplier-trunk');
-  lines.push(`match=${trunk.supplierIp}/32`);
+  for (const ip of ips) {
+    lines.push(`match=${ip}/32`);
+  }
   lines.push('');
 
   return lines.join('\n');

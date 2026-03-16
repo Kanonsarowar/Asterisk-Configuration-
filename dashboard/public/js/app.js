@@ -463,24 +463,20 @@ async function renderTrunk(el) {
   const trunk = await API.getTrunkConfig();
   const globals = await API.getGlobals();
 
+  const ips = trunk.supplierIps || (trunk.supplierIp ? [trunk.supplierIp] : []);
+
   el.innerHTML = `
     <div class="card">
       <div class="card-header"><h3>SIP Trunk Configuration</h3></div>
       <div class="card-body padded">
-        <div class="form-row">
-          <div class="form-group">
-            <label>Supplier IP</label>
-            <input class="form-control" id="trunk-sip" value="${trunk.supplierIp}">
-          </div>
-          <div class="form-group">
-            <label>Public IP</label>
-            <input class="form-control" id="trunk-pip" value="${trunk.publicIp}">
-          </div>
+        <div class="form-group">
+          <label>Supplier IPs (one per line — all IPs will be matched for inbound authentication)</label>
+          <textarea class="form-control" id="trunk-sips" rows="6" style="font-family:monospace;font-size:13px">${ips.join('\n')}</textarea>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label>User Agent</label>
-            <input class="form-control" id="trunk-ua" value="${trunk.userAgent}">
+            <label>Your Public IP (this VPS)</label>
+            <input class="form-control" id="trunk-pip" value="${trunk.publicIp}">
           </div>
           <div class="form-group">
             <label>Bind Port</label>
@@ -489,13 +485,17 @@ async function renderTrunk(el) {
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label>Codecs (comma-separated)</label>
+            <label>Codecs (comma-separated, priority order)</label>
             <input class="form-control" id="trunk-codecs" value="${trunk.codecs.join(', ')}">
           </div>
           <div class="form-group">
             <label>Qualify Frequency (seconds)</label>
             <input class="form-control" type="number" id="trunk-qf" value="${trunk.qualifyFrequency}">
           </div>
+        </div>
+        <div class="form-group">
+          <label>User Agent</label>
+          <input class="form-control" id="trunk-ua" value="${trunk.userAgent}">
         </div>
         <button class="btn btn-primary" id="btn-save-trunk" style="margin-top:12px">Save Trunk Config</button>
       </div>
@@ -518,8 +518,10 @@ async function renderTrunk(el) {
     </div>`;
 
   document.getElementById('btn-save-trunk').onclick = async () => {
+    const supplierIps = document.getElementById('trunk-sips').value
+      .split('\n').map(s => s.trim()).filter(Boolean);
     await API.updateTrunkConfig({
-      supplierIp: document.getElementById('trunk-sip').value.trim(),
+      supplierIps,
       publicIp: document.getElementById('trunk-pip').value.trim(),
       userAgent: document.getElementById('trunk-ua').value.trim(),
       bindPort: parseInt(document.getElementById('trunk-port').value) || 5060,
