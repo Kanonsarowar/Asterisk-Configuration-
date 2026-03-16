@@ -3,7 +3,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ASTERISK_DIR = join(__dirname, '..', '..', 'asterisk');
+const ASTERISK_DIR = process.env.ASTERISK_CONF_DIR || join(__dirname, '..', '..', 'asterisk');
 
 function contextName(type, id) {
   return `${type}-${id}`;

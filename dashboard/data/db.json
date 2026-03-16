@@ -20,13 +20,6 @@
       "description": "Support Direct",
       "destinationType": "ring_group",
       "destinationId": "2"
-    },
-    {
-      "didNumber": "18005551234",
-      "description": "Customer Service Hotline",
-      "destinationType": "ivr",
-      "destinationId": "1",
-      "id": "4"
     }
   ],
   "ivrMenus": [
@@ -109,8 +102,8 @@
     }
   ],
   "trunkConfig": {
-    "supplierIp": "127.0.0.1",
-    "publicIp": "127.0.0.1",
+    "supplierIp": "SUPPLIER_IP",
+    "publicIp": "167.172.170.88",
     "userAgent": "Asterisk-IPAuth-IVR",
     "bindPort": 5060,
     "codecs": [

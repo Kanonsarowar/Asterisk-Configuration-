@@ -1,66 +1,132 @@
-# Asterisk Configuration (Inbound IP Auth + IVR + DID Routing)
+# Asterisk PBX Configuration + Web Dashboard
 
-This repository now includes a working base configuration for your requirement:
+Manage your Asterisk PBX inbound routing, IVR menus, and ring groups through a web dashboard.
 
-- Inbound SIP calls from provider to your server IP
-- IP-to-IP authentication (no username/password registration)
-- Auto-answer inbound call in dialplan
-- Route calls by DID number
-- Send routed calls to IVR menus
+## Features
+
+- **DID Route Management** -- Add, edit, delete inbound DID routes via UI
+- **IVR Menu Builder** -- Create IVR menus with DTMF options, audio files, timeout/invalid actions
+- **Ring Group Manager** -- Configure agent ring groups with extensions and voicemail
+- **Trunk Configuration** -- Set supplier IP, public IP, codecs, ports
+- **Live Dashboard** -- Real-time Asterisk status, active channels, memory, uptime
+- **Config Preview** -- View auto-generated `extensions.conf` and `pjsip.conf` before deploying
+- **One-Click Apply** -- Generates configs, deploys to `/etc/asterisk/`, and reloads Asterisk
+
+## Quick Deploy on VPS
+
+```bash
+# SSH into your VPS
+ssh root@167.172.170.88
+
+# Clone the repo
+git clone https://github.com/Kanonsarowar/Asterisk-Configuration-.git /tmp/asterisk-deploy
+cd /tmp/asterisk-deploy
+
+# Run deployment (installs Node.js if needed, creates systemd service)
+sudo bash deploy.sh
+```
+
+Dashboard will be running at: **http://167.172.170.88:3000**
+
+## Manual Setup
+
+### Prerequisites
+
+- **Asterisk** installed and running (`sudo apt-get install asterisk`)
+- **Node.js 18+** (`node -v` to check)
+
+### Install
+
+```bash
+git clone https://github.com/Kanonsarowar/Asterisk-Configuration-.git
+cd Asterisk-Configuration-/dashboard
+node server.js
+```
+
+Open `http://YOUR_SERVER_IP:3000` in your browser.
+
+### Run as Background Service
+
+```bash
+# Using systemd (recommended)
+sudo bash deploy.sh
+
+# Or manually with nohup
+cd dashboard && nohup node server.js > /var/log/asterisk-dashboard.log 2>&1 &
+```
+
+## Configuration
+
+### First-Time Setup
+
+1. Open the dashboard at `http://YOUR_SERVER_IP:3000`
+2. Go to **Trunk Config** and enter your SIP provider IP and your server's public IP
+3. Go to **DID Routes** and add your real DID numbers
+4. Go to **IVR Menus** and configure your IVR menus
+5. Go to **Ring Groups** and set up your agent extensions
+6. Click **Apply Changes** to generate configs and reload Asterisk
+
+### Audio Files
+
+Upload your IVR audio files (WAV format) to:
+```
+/var/lib/asterisk/sounds/custom/
+```
+
+Reference them in the dashboard as `custom/filename` (without extension).
 
 ## Files
 
-- `asterisk/pjsip.conf`  
-  PJSIP transport + provider trunk using `identify` by source IP.
-
-- `asterisk/extensions.conf`  
-  Dialplan that:
-  - receives inbound calls in `from-supplier-ip`
-  - extracts DID from `${EXTEN}` or `To:` header
-  - routes DID in `[did-routing]`
-  - runs IVR in `[ivr-main]` and `[ivr-sales]`
-
-## Replace placeholders before use
-
-In `asterisk/pjsip.conf`:
-
-- `SUPPLIER_IP` -> provider SIP IP
-- `YOUR_PUBLIC_IP` -> your VPS public IP
-
-In `asterisk/extensions.conf`:
-
-- Replace sample DIDs:
-  - `12025550100`
-  - `12025550101`
-  - `12025550102`
-- Replace agent extensions:
-  - `2000` / `2001` / `2002`
-- Upload IVR audio files:
-  - `/var/lib/asterisk/sounds/custom/main-menu.wav`
-  - `/var/lib/asterisk/sounds/custom/sales-menu.wav`
-
-## Deploy on Asterisk server
-
-Copy files:
-
-```bash
-sudo cp asterisk/pjsip.conf /etc/asterisk/pjsip.conf
-sudo cp asterisk/extensions.conf /etc/asterisk/extensions.conf
+```
+├── deploy.sh                    # One-command VPS deployment script
+├── asterisk/
+│   ├── pjsip.conf               # Auto-generated PJSIP trunk config
+│   └── extensions.conf          # Auto-generated dialplan
+└── dashboard/
+    ├── server.js                # Node.js web server (port 3000)
+    ├── package.json
+    ├── data/
+    │   └── db.json              # Dashboard data store
+    ├── lib/
+    │   ├── store.js             # JSON data store
+    │   ├── asterisk.js          # Asterisk CLI integration
+    │   └── config-generator.js  # Generates .conf files from dashboard data
+    └── public/
+        ├── index.html           # Dashboard UI
+        ├── css/style.css        # Styles
+        └── js/
+            ├── app.js           # Dashboard application
+            └── api.js           # API client
 ```
 
-Reload:
+## Service Management
 
 ```bash
-sudo asterisk -rx "pjsip reload"
-sudo asterisk -rx "dialplan reload"
+# Check status
+sudo systemctl status asterisk-dashboard
+
+# View logs
+sudo journalctl -u asterisk-dashboard -f
+
+# Restart
+sudo systemctl restart asterisk-dashboard
+
+# Stop
+sudo systemctl stop asterisk-dashboard
 ```
 
-## Quick test
+## Firewall
+
+Make sure these ports are open:
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 3000 | TCP | Dashboard web UI |
+| 5060 | UDP | SIP signaling |
+| 10000-20000 | UDP | RTP media |
 
 ```bash
-sudo asterisk -rx "pjsip show endpoint supplier-trunk"
-sudo asterisk -rx "dialplan show from-supplier-ip"
-sudo asterisk -rvvvvv
+sudo ufw allow 3000/tcp
+sudo ufw allow 5060/udp
+sudo ufw allow 10000:20000/udp
 ```
-
-Then call one of your configured DIDs and verify the call goes to IVR.

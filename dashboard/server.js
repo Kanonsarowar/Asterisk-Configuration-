@@ -62,11 +62,13 @@ function serveStatic(res, urlPath) {
   res.end(readFileSync(filePath));
 }
 
+const CONF_SRC = process.env.ASTERISK_CONF_DIR || join(__dirname, '..', 'asterisk');
+
 async function deployConfigs() {
   const configs = writeConfigs(store);
   try {
-    await execAsync('sudo cp /workspace/asterisk/pjsip.conf /etc/asterisk/pjsip.conf');
-    await execAsync('sudo cp /workspace/asterisk/extensions.conf /etc/asterisk/extensions.conf');
+    await execAsync(`sudo cp ${join(CONF_SRC, 'pjsip.conf')} /etc/asterisk/pjsip.conf`);
+    await execAsync(`sudo cp ${join(CONF_SRC, 'extensions.conf')} /etc/asterisk/extensions.conf`);
     const reload = await asterisk.reloadAll();
     return { ok: true, reload, message: 'Configs deployed and Asterisk reloaded' };
   } catch (err) {
