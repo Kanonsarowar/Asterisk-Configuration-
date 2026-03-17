@@ -29,22 +29,37 @@ export function generateExtensionsConf(store) {
   lines.push('');
 
   // Inbound context — all supplier calls land here
+  // Handles all formats: 963966341001, 00963966341001, +963966341001
   lines.push('[from-supplier-ip]');
-  lines.push('exten => _X!,1,NoOp(Inbound call. EXTEN=${EXTEN} from ${CHANNEL(peerip)})');
+  lines.push('exten => _X!,1,NoOp(Inbound EXTEN=${EXTEN} from ${CHANNEL(peerip)})');
   lines.push(' same => n,Set(DID=${FILTER(0-9,${EXTEN})})');
   lines.push(' same => n,GotoIf($["${DID}" = ""]?s,1)');
+  lines.push('; Strip 00 prefix if present');
+  lines.push(' same => n,GotoIf($["${DID:0:2}" = "00"]?strip00)');
+  lines.push(' same => n,Goto(did-routing,${DID},1)');
+  lines.push(' same => n(strip00),Set(DID=${DID:2})');
   lines.push(' same => n,Goto(did-routing,${DID},1)');
   lines.push('');
+  lines.push('; Handle + prefix');
   lines.push('exten => _+X!,1,Set(DID=${FILTER(0-9,${EXTEN})})');
   lines.push(' same => n,Goto(did-routing,${DID},1)');
   lines.push('');
+  lines.push('; Handle 00 prefix directly');
+  lines.push('exten => _00X!,1,NoOp(Inbound with 00 prefix: ${EXTEN})');
+  lines.push(' same => n,Set(DID=${EXTEN:2})');
+  lines.push(' same => n,Goto(did-routing,${DID},1)');
+  lines.push('');
+  lines.push('; Fallback: check To header');
   lines.push('exten => s,1,NoOp(No DID in EXTEN, checking To header)');
   lines.push(' same => n,Set(TO_HDR=${PJSIP_HEADER(read,To)})');
   lines.push(' same => n,Set(DID=${FILTER(0-9,${CUT(CUT(${TO_HDR},@,1),:,2)})})');
+  lines.push(' same => n,GotoIf($["${DID:0:2}" = "00"]?strip00to)');
   lines.push(' same => n,GotoIf($["${DID}" != ""]?did-routing,${DID},1)');
   lines.push(' same => n,Answer()');
   lines.push(' same => n,Wait(1)');
   lines.push(' same => n,Hangup()');
+  lines.push(' same => n(strip00to),Set(DID=${DID:2})');
+  lines.push(' same => n,Goto(did-routing,${DID},1)');
   lines.push('');
 
   // DID routing — prefix pattern matching
