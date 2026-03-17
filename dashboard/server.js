@@ -10,6 +10,7 @@ import { writeConfigs } from './lib/config-generator.js';
 import * as asterisk from './lib/asterisk.js';
 import { authenticate, validateSession, destroySession, parseCookie } from './lib/auth.js';
 import { getCdrStats } from './lib/cdr.js';
+import { getRecentInvites } from './lib/sip-log.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const execAsync = promisify(exec);
@@ -89,6 +90,7 @@ async function deployConfigs() {
   try {
     await execAsync(`sudo cp ${join(CONF_SRC, 'pjsip.conf')} /etc/asterisk/pjsip.conf`);
     await execAsync(`sudo cp ${join(CONF_SRC, 'extensions.conf')} /etc/asterisk/extensions.conf`);
+    await execAsync(`sudo cp ${join(CONF_SRC, 'acl.conf')} /etc/asterisk/acl.conf`);
     const reload = await asterisk.reloadAll();
     return { ok: true, reload, message: 'Configs deployed and Asterisk reloaded' };
   } catch (err) {
@@ -137,6 +139,12 @@ async function handleApi(req, res) {
       return sendJson(res, 200, getCdrStats(hours));
     }
 
+    // SIP Invites
+    if (path === '/api/sip-invites' && method === 'GET') {
+      const limit = parseInt(url.searchParams.get('limit')) || 100;
+      return sendJson(res, 200, getRecentInvites(limit));
+    }
+
     // Status endpoints
     if (path === '/api/status' && method === 'GET') {
       return sendJson(res, 200, await asterisk.getStatus());
@@ -171,6 +179,128 @@ async function handleApi(req, res) {
     if (path === '/api/numbers' && method === 'GET') {
       return sendJson(res, 200, store.getNumbers());
     }
+    if (path === '/api/numbers/upload-csv' && method === 'POST') {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const content = Buffer.concat(chunks).toString('utf8');
+      
+      const lines = content.split('\n').map(l => l.trim().replace(/[",]/g, '')).filter(l => /^\d{5,}$/.test(l));
+      if (!lines.length) return sendJson(res, 400, { error: 'No valid numbers found. Each line should be a full number (digits only).' });
+      
+      const DIAL_CODES = [
+        { code: 'BD', dial: '880' }, { code: 'TW', dial: '886' }, { code: 'HK', dial: '852' },
+        { code: 'MO', dial: '853' }, { code: 'KH', dial: '855' }, { code: 'LA', dial: '856' },
+        { code: 'FI', dial: '358' }, { code: 'PT', dial: '351' }, { code: 'IE', dial: '353' },
+        { code: 'IS', dial: '354' }, { code: 'LV', dial: '371' }, { code: 'LT', dial: '370' },
+        { code: 'EE', dial: '372' }, { code: 'MD', dial: '373' }, { code: 'AM', dial: '374' },
+        { code: 'BY', dial: '375' }, { code: 'AD', dial: '376' }, { code: 'MC', dial: '377' },
+        { code: 'SM', dial: '378' }, { code: 'UA', dial: '380' }, { code: 'RS', dial: '381' },
+        { code: 'ME', dial: '382' }, { code: 'HR', dial: '385' }, { code: 'SI', dial: '386' },
+        { code: 'BA', dial: '387' }, { code: 'MK', dial: '389' }, { code: 'CZ', dial: '420' },
+        { code: 'SK', dial: '421' }, { code: 'LI', dial: '423' }, { code: 'AT', dial: '43' },
+        { code: 'UK', dial: '44' }, { code: 'DK', dial: '45' }, { code: 'SE', dial: '46' },
+        { code: 'NO', dial: '47' }, { code: 'PL', dial: '48' }, { code: 'DE', dial: '49' },
+        { code: 'PE', dial: '51' }, { code: 'MX', dial: '52' }, { code: 'CU', dial: '53' },
+        { code: 'AR', dial: '54' }, { code: 'BR', dial: '55' }, { code: 'CL', dial: '56' },
+        { code: 'CO', dial: '57' }, { code: 'VE', dial: '58' }, { code: 'MY', dial: '60' },
+        { code: 'AU', dial: '61' }, { code: 'ID', dial: '62' }, { code: 'PH', dial: '63' },
+        { code: 'NZ', dial: '64' }, { code: 'SG', dial: '65' }, { code: 'TH', dial: '66' },
+        { code: 'JP', dial: '81' }, { code: 'KR', dial: '82' }, { code: 'VN', dial: '84' },
+        { code: 'CN', dial: '86' }, { code: 'TR', dial: '90' }, { code: 'IN', dial: '91' },
+        { code: 'PK', dial: '92' }, { code: 'AF', dial: '93' }, { code: 'LK', dial: '94' },
+        { code: 'MM', dial: '95' }, { code: 'IR', dial: '98' }, { code: 'SS', dial: '211' },
+        { code: 'MA', dial: '212' }, { code: 'DZ', dial: '213' }, { code: 'TN', dial: '216' },
+        { code: 'LY', dial: '218' }, { code: 'GM', dial: '220' }, { code: 'SN', dial: '221' },
+        { code: 'MR', dial: '222' }, { code: 'ML', dial: '223' }, { code: 'GN', dial: '224' },
+        { code: 'CI', dial: '225' }, { code: 'BF', dial: '226' }, { code: 'NE', dial: '227' },
+        { code: 'TG', dial: '228' }, { code: 'BJ', dial: '229' }, { code: 'MU', dial: '230' },
+        { code: 'LR', dial: '231' }, { code: 'SL', dial: '232' }, { code: 'GH', dial: '233' },
+        { code: 'NG', dial: '234' }, { code: 'CF', dial: '236' }, { code: 'CM', dial: '237' },
+        { code: 'CV', dial: '238' }, { code: 'ST', dial: '239' }, { code: 'GQ', dial: '240' },
+        { code: 'GA', dial: '241' }, { code: 'CG', dial: '242' }, { code: 'CD', dial: '243' },
+        { code: 'AO', dial: '244' }, { code: 'GW', dial: '245' }, { code: 'SC', dial: '248' },
+        { code: 'SD', dial: '249' }, { code: 'RW', dial: '250' }, { code: 'ET', dial: '251' },
+        { code: 'SO', dial: '252' }, { code: 'DJ', dial: '253' }, { code: 'KE', dial: '254' },
+        { code: 'TZ', dial: '255' }, { code: 'UG', dial: '256' }, { code: 'BI', dial: '257' },
+        { code: 'MZ', dial: '258' }, { code: 'ZM', dial: '260' }, { code: 'MG', dial: '261' },
+        { code: 'ZW', dial: '263' }, { code: 'NA', dial: '264' }, { code: 'MW', dial: '265' },
+        { code: 'LS', dial: '266' }, { code: 'BW', dial: '267' }, { code: 'SZ', dial: '268' },
+        { code: 'KM', dial: '269' }, { code: 'ZA', dial: '27' }, { code: 'ER', dial: '291' },
+        { code: 'AE', dial: '971' }, { code: 'IL', dial: '972' }, { code: 'BH', dial: '973' },
+        { code: 'QA', dial: '974' }, { code: 'BT', dial: '975' }, { code: 'MN', dial: '976' },
+        { code: 'NP', dial: '977' }, { code: 'SA', dial: '966' }, { code: 'YE', dial: '967' },
+        { code: 'OM', dial: '968' }, { code: 'IQ', dial: '964' }, { code: 'KW', dial: '965' },
+        { code: 'JO', dial: '962' }, { code: 'SY', dial: '963' }, { code: 'LB', dial: '961' },
+        { code: 'EG', dial: '20' }, { code: 'US', dial: '1' }, { code: 'CA', dial: '1' },
+        { code: 'RU', dial: '7' }, { code: 'KZ', dial: '7' }, { code: 'FR', dial: '33' },
+        { code: 'ES', dial: '34' }, { code: 'IT', dial: '39' }, { code: 'RO', dial: '40' },
+        { code: 'CH', dial: '41' }, { code: 'NL', dial: '31' }, { code: 'BE', dial: '32' },
+        { code: 'GR', dial: '30' }, { code: 'HU', dial: '36' }, { code: 'BG', dial: '359' },
+        { code: 'AL', dial: '355' }, { code: 'GE', dial: '995' }, { code: 'AZ', dial: '994' },
+        { code: 'TM', dial: '993' }, { code: 'TJ', dial: '992' }, { code: 'KG', dial: '996' },
+        { code: 'UZ', dial: '998' },
+      ];
+      DIAL_CODES.sort((a, b) => b.dial.length - a.dial.length);
+
+      function detectCountry(num) {
+        for (const c of DIAL_CODES) {
+          if (num.startsWith(c.dial)) {
+            const rest = num.substring(c.dial.length);
+            return { country: c.code, countryCode: c.dial, rest };
+          }
+        }
+        return { country: 'XX', countryCode: '', rest: num };
+      }
+
+      const detected = lines.map(num => {
+        const d = detectCountry(num);
+        return { ...d, fullNumber: num };
+      });
+
+      const groups = {};
+      for (const d of detected) {
+        const key = d.country + '-' + d.countryCode;
+        if (!groups[key]) groups[key] = { country: d.country, countryCode: d.countryCode, numbers: [] };
+        groups[key].numbers.push(d.rest);
+      }
+
+      const result = [];
+      for (const g of Object.values(groups)) {
+        let prefix = '';
+        if (g.numbers.length > 1) {
+          const sorted = g.numbers.sort();
+          const first = sorted[0];
+          const last = sorted[sorted.length - 1];
+          let i = 0;
+          while (i < first.length && i < last.length && first[i] === last[i]) i++;
+          prefix = first.substring(0, Math.max(1, Math.min(i, first.length - 2)));
+        } else if (g.numbers.length === 1) {
+          prefix = g.numbers[0].substring(0, Math.max(1, Math.floor(g.numbers[0].length / 2)));
+        }
+
+        for (const rest of g.numbers) {
+          const extension = rest.substring(prefix.length);
+          result.push({
+            country: g.country,
+            countryCode: g.countryCode,
+            prefix,
+            extension: extension || rest,
+            rate: '0.01',
+            supplierId: '',
+            destinationType: 'ivr',
+            destinationId: '1'
+          });
+        }
+      }
+
+      const added = store.addBulkNumbers(result);
+      return sendJson(res, 200, { 
+        ok: true, 
+        count: result.length, 
+        detected: Object.values(groups).map(g => ({ country: g.country, code: g.countryCode, count: g.numbers.length }))
+      });
+    }
+
     if (path === '/api/numbers/bulk' && method === 'POST') {
       const body = await parseBody(req);
       const added = store.addBulkNumbers(body.numbers);

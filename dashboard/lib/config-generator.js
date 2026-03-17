@@ -62,28 +62,70 @@ export function generateExtensionsConf(store) {
   // DID routing context from numbers
   lines.push('[did-routing]');
   const numbers = data.numbers || [];
+  
+  // Group by prefix for pattern matching
+  const prefixGroups = {};
   for (const n of numbers) {
     if (!n.destinationType) continue;
-    const did = n.countryCode + n.prefix + n.extension;
-    const sup = (suppliers || []).find(s => s.id === n.supplierId);
-    const desc = sup ? sup.name : '';
+    const prefixKey = n.countryCode + n.prefix;
+    if (!prefixGroups[prefixKey]) prefixGroups[prefixKey] = { numbers: [], destType: n.destinationType, destId: n.destinationId };
+    prefixGroups[prefixKey].numbers.push(n);
+  }
 
-    if (n.destinationType === 'ivr') {
-      const ivr = ivrMenus.find(m => m.id === n.destinationId);
-      const target = ivr ? `ivr-${ivr.id}` : 'ivr-1';
-      lines.push(`exten => ${did},1,NoOp(Route DID \${EXTEN} ${desc})`);
-      lines.push(` same => n,Goto(${target},s,1)`);
-    } else if (n.destinationType === 'ring_group') {
-      const rg = ringGroups.find(g => g.id === n.destinationId);
-      const target = rg ? `ring-group-${rg.id}` : 'ring-group-1';
-      lines.push(`exten => ${did},1,NoOp(Route DID \${EXTEN} ${desc})`);
-      lines.push(` same => n,Goto(${target},s,1)`);
-    } else if (n.destinationType === 'direct') {
-      lines.push(`exten => ${did},1,NoOp(Route DID \${EXTEN} ${desc})`);
-      lines.push(` same => n,Dial(PJSIP/${n.destinationId},30)`);
-      lines.push(` same => n,Hangup()`);
+  // Check if all numbers in a prefix group have the same destination
+  for (const [prefixKey, group] of Object.entries(prefixGroups)) {
+    const allSameDest = group.numbers.every(n => n.destinationType === group.destType && n.destinationId === group.destId);
+    
+    if (allSameDest && group.numbers.length >= 2) {
+      // Use pattern matching for the whole prefix
+      const n = group.numbers[0];
+      const sup = (suppliers || []).find(s => s.id === n.supplierId);
+      const desc = sup ? sup.name : '';
+      
+      if (n.destinationType === 'ivr') {
+        const ivr = ivrMenus.find(m => m.id === n.destinationId);
+        const target = ivr ? `ivr-${ivr.id}` : 'ivr-1';
+        lines.push(`; Prefix ${prefixKey} (${group.numbers.length} numbers) ${desc}`);
+        lines.push(`exten => _${prefixKey}.,1,NoOp(Route prefix ${prefixKey} ${desc})`);
+        lines.push(` same => n,Goto(${target},s,1)`);
+      } else if (n.destinationType === 'ring_group') {
+        const rg = ringGroups.find(g => g.id === n.destinationId);
+        const target = rg ? `ring-group-${rg.id}` : 'ring-group-1';
+        lines.push(`; Prefix ${prefixKey} (${group.numbers.length} numbers) ${desc}`);
+        lines.push(`exten => _${prefixKey}.,1,NoOp(Route prefix ${prefixKey} ${desc})`);
+        lines.push(` same => n,Goto(${target},s,1)`);
+      } else if (n.destinationType === 'direct') {
+        lines.push(`; Prefix ${prefixKey} (${group.numbers.length} numbers) ${desc}`);
+        lines.push(`exten => _${prefixKey}.,1,NoOp(Route prefix ${prefixKey} ${desc})`);
+        lines.push(` same => n,Dial(PJSIP/${n.destinationId},30)`);
+        lines.push(` same => n,Hangup()`);
+      }
+      lines.push('');
+    } else {
+      // Different destinations within prefix - add individual entries
+      for (const n of group.numbers) {
+        const did = n.countryCode + n.prefix + n.extension;
+        const sup = (suppliers || []).find(s => s.id === n.supplierId);
+        const desc = sup ? sup.name : '';
+        
+        if (n.destinationType === 'ivr') {
+          const ivr = ivrMenus.find(m => m.id === n.destinationId);
+          const target = ivr ? `ivr-${ivr.id}` : 'ivr-1';
+          lines.push(`exten => ${did},1,NoOp(Route DID \${EXTEN} ${desc})`);
+          lines.push(` same => n,Goto(${target},s,1)`);
+        } else if (n.destinationType === 'ring_group') {
+          const rg = ringGroups.find(g => g.id === n.destinationId);
+          const target = rg ? `ring-group-${rg.id}` : 'ring-group-1';
+          lines.push(`exten => ${did},1,NoOp(Route DID \${EXTEN} ${desc})`);
+          lines.push(` same => n,Goto(${target},s,1)`);
+        } else if (n.destinationType === 'direct') {
+          lines.push(`exten => ${did},1,NoOp(Route DID \${EXTEN} ${desc})`);
+          lines.push(` same => n,Dial(PJSIP/${n.destinationId},30)`);
+          lines.push(` same => n,Hangup()`);
+        }
+        lines.push('');
+      }
     }
-    lines.push('');
   }
   lines.push('exten => _X.,1,NoOp(Unknown or unmapped DID: ${EXTEN})');
   lines.push(' same => n,Playback(ss-noservice)');
@@ -168,6 +210,18 @@ export function generatePjsipConf(store) {
   lines.push('local_net=192.168.0.0/16');
   lines.push('');
 
+  // ACL - only allow supplier IPs
+  lines.push('; --- IP Security: reject unknown sources ---');
+  lines.push('[acl]');
+  lines.push('type=acl');
+  lines.push('deny=0.0.0.0/0.0.0.0');
+  for (const sup of suppliers) {
+    for (const ip of sup.ips) {
+      lines.push(`permit=${ip}/32`);
+    }
+  }
+  lines.push('');
+
   // Shared endpoint for all suppliers (they all land in same context)
   lines.push('[supplier-trunk]');
   lines.push('type=endpoint');
@@ -183,6 +237,7 @@ export function generatePjsipConf(store) {
   lines.push('trust_id_inbound=yes');
   lines.push('send_pai=yes');
   lines.push('t38_udptl=no');
+  lines.push('acl=acl');
   lines.push('');
 
   // AOR with first supplier's first IP as contact
@@ -209,12 +264,31 @@ export function generatePjsipConf(store) {
   return lines.join('\n');
 }
 
+export function generateAclConf(store) {
+  const suppliers = store.getSuppliers();
+  const lines = [];
+  lines.push('; Auto-generated by Asterisk Dashboard');
+  lines.push('; Only allow SIP from known supplier IPs');
+  lines.push('[supplier-acl]');
+  lines.push('deny=0.0.0.0/0.0.0.0');
+  for (const sup of suppliers) {
+    lines.push(`; ${sup.name}`);
+    for (const ip of sup.ips) {
+      lines.push(`permit=${ip}/255.255.255.255`);
+    }
+  }
+  lines.push('');
+  return lines.join('\n');
+}
+
 export function writeConfigs(store) {
   const extConf = generateExtensionsConf(store);
   const pjsipConf = generatePjsipConf(store);
+  const aclConf = generateAclConf(store);
 
   writeFileSync(join(ASTERISK_DIR, 'extensions.conf'), extConf, 'utf8');
   writeFileSync(join(ASTERISK_DIR, 'pjsip.conf'), pjsipConf, 'utf8');
+  writeFileSync(join(ASTERISK_DIR, 'acl.conf'), aclConf, 'utf8');
 
-  return { extensionsConf: extConf, pjsipConf: pjsipConf };
+  return { extensionsConf: extConf, pjsipConf: pjsipConf, aclConf: aclConf };
 }

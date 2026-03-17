@@ -19,6 +19,9 @@ const API = {
   // Call Stats
   getCallStats(hours = 24) { return this.get(`/api/call-stats?hours=${hours}`); },
 
+  // SIP Invites
+  getSipInvites(limit = 100) { return this.get(`/api/sip-invites?limit=${limit}`); },
+
   // Status
   getStatus() { return this.get('/api/status'); },
   getChannels() { return this.get('/api/channels'); },
@@ -29,6 +32,12 @@ const API = {
   addSupplier(sup) { return this.post('/api/suppliers', sup); },
   updateSupplier(id, sup) { return this.put(`/api/suppliers/${id}`, sup); },
   deleteSupplier(id) { return this.del(`/api/suppliers/${id}`); },
+
+  async postRaw(url, text) {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text });
+    return res.json();
+  },
+  uploadNumbersCsv(text) { return this.postRaw('/api/numbers/upload-csv', text); },
 
   // Numbers
   getNumbers() { return this.get('/api/numbers'); },

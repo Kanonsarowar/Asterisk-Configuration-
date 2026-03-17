@@ -236,6 +236,7 @@ function navigateTo(page) {
 const pageTitles = {
   dashboard: 'Dashboard',
   'call-stats': 'Call Statistics',
+  'sip-log': 'SIP Invite Log',
   suppliers: 'Suppliers',
   numbers: 'Numbers',
   'ivr-menus': 'IVR Menus',
@@ -251,6 +252,7 @@ async function renderPage(page) {
   switch (page) {
     case 'dashboard': return renderDashboard(content);
     case 'call-stats': return renderCallStats(content);
+    case 'sip-log': return renderSipLog(content);
     case 'suppliers': return renderSuppliers(content);
     case 'numbers': return renderNumbers(content);
     case 'ivr-menus': return renderIvrMenus(content);
@@ -381,6 +383,53 @@ window.renderCallStatsForHours = async (h) => {
   renderCallStats(el);
 };
 
+// ---- SIP LOG ----
+async function renderSipLog(el) {
+  const invites = await API.getSipInvites(200);
+  const suppliers = await API.getSuppliers();
+  const knownIps = new Set();
+  suppliers.forEach(s => s.ips.forEach(ip => knownIps.add(ip)));
+
+  el.innerHTML = `
+    <div class="stats-grid" style="margin-bottom:20px">
+      <div class="stat-card">
+        <div class="label">Total Events</div>
+        <div class="value blue">${invites.length}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Accepted</div>
+        <div class="value green">${invites.filter(i => i.type === 'INVITE').length}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Blocked</div>
+        <div class="value" style="color:var(--danger)">${invites.filter(i => i.type === 'BLOCKED').length}</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3>Recent SIP Events</h3>
+        <button class="btn btn-outline btn-sm" onclick="navigateTo('sip-log')">Refresh</button>
+      </div>
+      <div class="card-body">
+        ${invites.length ? `
+        <table>
+          <thead><tr><th>Time</th><th>Source IP</th><th>DID</th><th>Status</th><th>Known</th></tr></thead>
+          <tbody>${invites.map(inv => {
+            const isKnown = knownIps.has(inv.ip);
+            const statusBadge = inv.type === 'BLOCKED' ? 'badge-direct' : 'badge-ring';
+            return `<tr style="${inv.type === 'BLOCKED' ? 'background:rgba(239,68,68,.05)' : ''}">
+              <td style="font-size:11px;white-space:nowrap">${escHtml(inv.time)}</td>
+              <td style="font-family:monospace;font-size:12px"><strong>${escHtml(inv.ip)}</strong></td>
+              <td style="font-family:monospace;font-size:12px">${escHtml(inv.did)}</td>
+              <td><span class="badge ${statusBadge}">${inv.type}</span></td>
+              <td>${isKnown ? '<span class="badge badge-ring">Known</span>' : '<span class="badge badge-direct">Unknown</span>'}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>` : '<div class="empty-state">No SIP events found in Asterisk logs.<br>Make sure logging is enabled: <code>/var/log/asterisk/messages</code></div>'}
+      </div>
+    </div>`;
+}
+
 // ---- SUPPLIERS ----
 async function renderSuppliers(el) {
   const suppliers = await API.getSuppliers();
@@ -479,7 +528,13 @@ async function renderNumbers(el) {
     <div class="card">
       <div class="card-header">
         <h3>Number Inventory</h3>
-        <button class="btn btn-primary" id="btn-add-number">+ Add Numbers</button>
+        <div style="display:flex;gap:8px">
+          <label class="btn btn-outline" style="cursor:pointer;margin:0">
+            Upload File
+            <input type="file" id="num-file-upload" accept=".csv,.txt,.text" style="display:none">
+          </label>
+          <button class="btn btn-primary" id="btn-add-number">+ Add Numbers</button>
+        </div>
       </div>
       <div class="card-body padded" id="numbers-list">
         ${countries.length ? countries.map(country => {
@@ -573,6 +628,27 @@ async function renderNumbers(el) {
     toast(`Deleted ${result.deleted} numbers`);
     renderNumbers(el);
   });
+
+  const fileUpload = document.getElementById('num-file-upload');
+  if (fileUpload) {
+    fileUpload.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const text = await file.text();
+      try {
+        const result = await API.uploadNumbersCsv(text);
+        if (result.ok) {
+          const summary = result.detected.map(d => `${d.country}: ${d.count}`).join(', ');
+          toast(`Imported ${result.count} numbers (${summary})`);
+          renderNumbers(el);
+        } else {
+          toast(result.error || 'Upload failed', 'error');
+        }
+      } catch (err) {
+        toast('Upload error: ' + err.message, 'error');
+      }
+    };
+  }
 
   el.querySelectorAll('.edit-prefix-rate').forEach(b => b.onclick = () => {
     const currentRate = b.dataset.rate;
@@ -1182,7 +1258,11 @@ async function renderConfig(el) {
     <div class="card">
       <div class="card-header"><h3>pjsip.conf</h3></div>
       <div class="card-body padded"><div class="config-preview">${escHtml(config.pjsipConf)}</div></div>
-    </div>`;
+    </div>
+    ${config.aclConf ? `<div class="card">
+      <div class="card-header"><h3>acl.conf</h3></div>
+      <div class="card-body padded"><div class="config-preview">${escHtml(config.aclConf)}</div></div>
+    </div>` : ''}`;
 }
 
 // ---- MODAL ----
