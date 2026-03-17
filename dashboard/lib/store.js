@@ -27,28 +27,16 @@ const DEFAULT_DATA = {
     { id: '8', name: 'Supplier 8 (DataClub)', ips: ['185.209.147.14'] }
   ],
   ivrMenus: [
-    {
-      id: '1', name: 'Main IVR', audioFile: 'custom/main-menu',
-      options: [
-        { digit: '1', actionType: 'ring_group', actionTarget: '1', label: 'Sales' },
-        { digit: '2', actionType: 'ring_group', actionTarget: '2', label: 'Support' },
-        { digit: '0', actionType: 'ring_group', actionTarget: '3', label: 'Operator' }
-      ],
-      timeoutAction: 'hangup', invalidAction: 'replay'
-    },
-    {
-      id: '2', name: 'Sales IVR', audioFile: 'custom/sales-menu',
-      options: [
-        { digit: '1', actionType: 'ring_group', actionTarget: '1', label: 'Sales' },
-        { digit: '2', actionType: 'ring_group', actionTarget: '3', label: 'Operator' }
-      ],
-      timeoutAction: 'hangup', invalidAction: 'replay'
-    }
-  ],
-  ringGroups: [
-    { id: '1', name: 'Sales', extensions: ['2001'], ringTimeout: 25, voicemailExt: '2001' },
-    { id: '2', name: 'Support', extensions: ['2002'], ringTimeout: 25, voicemailExt: '2002' },
-    { id: '3', name: 'Operator', extensions: ['2000'], ringTimeout: 25, voicemailExt: '2000' }
+    { id: '1', name: 'IVR 1', audioFile: '' },
+    { id: '2', name: 'IVR 2', audioFile: '' },
+    { id: '3', name: 'IVR 3', audioFile: '' },
+    { id: '4', name: 'IVR 4', audioFile: '' },
+    { id: '5', name: 'IVR 5', audioFile: '' },
+    { id: '6', name: 'IVR 6', audioFile: '' },
+    { id: '7', name: 'IVR 7', audioFile: '' },
+    { id: '8', name: 'IVR 8', audioFile: '' },
+    { id: '9', name: 'IVR 9', audioFile: '' },
+    { id: '10', name: 'IVR 10', audioFile: '' }
   ],
   trunkConfig: {
     publicIp: '167.172.170.88',
@@ -155,52 +143,15 @@ export class Store {
     return true;
   }
 
-  // IVR Menus
+  // IVR Menus (fixed 10 slots - only update allowed)
   getIvrMenus() { return this.data.ivrMenus; }
   getIvrMenu(id) { return this.data.ivrMenus.find(m => m.id === id); }
-  addIvrMenu(menu) {
-    menu.id = nextId(this.data.ivrMenus);
-    this.data.ivrMenus.push(menu);
-    save(this.data);
-    return menu;
-  }
   updateIvrMenu(id, updates) {
     const idx = this.data.ivrMenus.findIndex(m => m.id === id);
     if (idx === -1) return null;
     this.data.ivrMenus[idx] = { ...this.data.ivrMenus[idx], ...updates, id };
     save(this.data);
     return this.data.ivrMenus[idx];
-  }
-  deleteIvrMenu(id) {
-    const idx = this.data.ivrMenus.findIndex(m => m.id === id);
-    if (idx === -1) return false;
-    this.data.ivrMenus.splice(idx, 1);
-    save(this.data);
-    return true;
-  }
-
-  // Ring Groups
-  getRingGroups() { return this.data.ringGroups; }
-  getRingGroup(id) { return this.data.ringGroups.find(g => g.id === id); }
-  addRingGroup(group) {
-    group.id = nextId(this.data.ringGroups);
-    this.data.ringGroups.push(group);
-    save(this.data);
-    return group;
-  }
-  updateRingGroup(id, updates) {
-    const idx = this.data.ringGroups.findIndex(g => g.id === id);
-    if (idx === -1) return null;
-    this.data.ringGroups[idx] = { ...this.data.ringGroups[idx], ...updates, id };
-    save(this.data);
-    return this.data.ringGroups[idx];
-  }
-  deleteRingGroup(id) {
-    const idx = this.data.ringGroups.findIndex(g => g.id === id);
-    if (idx === -1) return false;
-    this.data.ringGroups.splice(idx, 1);
-    save(this.data);
-    return true;
   }
 
   // Trunk Config

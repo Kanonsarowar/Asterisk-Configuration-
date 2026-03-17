@@ -194,83 +194,16 @@
     }
   ],
   "ivrMenus": [
-    {
-      "id": "1",
-      "name": "Main IVR",
-      "audioFile": "custom/main-menu",
-      "options": [
-        {
-          "digit": "1",
-          "actionType": "ring_group",
-          "actionTarget": "1",
-          "label": "Sales"
-        },
-        {
-          "digit": "2",
-          "actionType": "ring_group",
-          "actionTarget": "2",
-          "label": "Support"
-        },
-        {
-          "digit": "0",
-          "actionType": "ring_group",
-          "actionTarget": "3",
-          "label": "Operator"
-        }
-      ],
-      "timeoutAction": "hangup",
-      "invalidAction": "replay"
-    },
-    {
-      "id": "2",
-      "name": "Sales IVR",
-      "audioFile": "custom/sales-menu",
-      "options": [
-        {
-          "digit": "1",
-          "actionType": "ring_group",
-          "actionTarget": "1",
-          "label": "Sales"
-        },
-        {
-          "digit": "2",
-          "actionType": "ring_group",
-          "actionTarget": "3",
-          "label": "Operator"
-        }
-      ],
-      "timeoutAction": "hangup",
-      "invalidAction": "replay"
-    }
-  ],
-  "ringGroups": [
-    {
-      "id": "1",
-      "name": "Sales",
-      "extensions": [
-        "2001"
-      ],
-      "ringTimeout": 25,
-      "voicemailExt": "2001"
-    },
-    {
-      "id": "2",
-      "name": "Support",
-      "extensions": [
-        "2002"
-      ],
-      "ringTimeout": 25,
-      "voicemailExt": "2002"
-    },
-    {
-      "id": "3",
-      "name": "Operator",
-      "extensions": [
-        "2000"
-      ],
-      "ringTimeout": 25,
-      "voicemailExt": "2000"
-    }
+    { "id": "1", "name": "IVR 1", "audioFile": "" },
+    { "id": "2", "name": "IVR 2", "audioFile": "" },
+    { "id": "3", "name": "IVR 3", "audioFile": "" },
+    { "id": "4", "name": "IVR 4", "audioFile": "" },
+    { "id": "5", "name": "IVR 5", "audioFile": "" },
+    { "id": "6", "name": "IVR 6", "audioFile": "" },
+    { "id": "7", "name": "IVR 7", "audioFile": "" },
+    { "id": "8", "name": "IVR 8", "audioFile": "" },
+    { "id": "9", "name": "IVR 9", "audioFile": "" },
+    { "id": "10", "name": "IVR 10", "audioFile": "" }
   ],
   "trunkConfig": {
     "publicIp": "167.172.170.88",

@@ -239,8 +239,7 @@ const pageTitles = {
   'sip-log': 'SIP Invite Log',
   suppliers: 'Suppliers',
   numbers: 'Numbers',
-  'ivr-menus': 'IVR Menus',
-  'ring-groups': 'Ring Groups',
+  'ivr-menus': 'IVR Audio',
   trunk: 'Trunk Configuration',
   config: 'Config Preview'
 };
@@ -256,7 +255,6 @@ async function renderPage(page) {
     case 'suppliers': return renderSuppliers(content);
     case 'numbers': return renderNumbers(content);
     case 'ivr-menus': return renderIvrMenus(content);
-    case 'ring-groups': return renderRingGroups(content);
     case 'trunk': return renderTrunk(content);
     case 'config': return renderConfig(content);
   }
@@ -271,8 +269,8 @@ async function renderDashboard(el) {
 
 async function refreshDashboard() {
   try {
-    const [status, modules, numbers, ivrMenus, ringGroups] = await Promise.all([
-      API.getStatus(), API.getModules(), API.getNumbers(), API.getIvrMenus(), API.getRingGroups()
+    const [status, modules, numbers, ivrMenus] = await Promise.all([
+      API.getStatus(), API.getModules(), API.getNumbers(), API.getIvrMenus()
     ]);
 
     document.getElementById('stats-grid').innerHTML = `
@@ -289,12 +287,12 @@ async function refreshDashboard() {
       <div class="stat-card">
         <div class="label">Numbers</div>
         <div class="value">${numbers.length}</div>
-        <div class="sub">${ivrMenus.length} IVR menus</div>
+        <div class="sub">${ivrMenus.length} IVR slots</div>
       </div>
       <div class="stat-card">
-        <div class="label">Ring Groups</div>
-        <div class="value">${ringGroups.length}</div>
-        <div class="sub">${ringGroups.reduce((s, g) => s + g.extensions.length, 0)} extensions</div>
+        <div class="label">IVR Slots</div>
+        <div class="value">${ivrMenus.filter(m => m.audioFile).length}/10</div>
+        <div class="sub">with audio</div>
       </div>
       <div class="stat-card">
         <div class="label">Modules</div>
@@ -503,8 +501,8 @@ function showSupplierModal(supplier) {
 
 // ---- NUMBERS ----
 async function renderNumbers(el) {
-  const [numbers, suppliers, ivrMenus, ringGroups] = await Promise.all([
-    API.getNumbers(), API.getSuppliers(), API.getIvrMenus(), API.getRingGroups()
+  const [numbers, suppliers, ivrMenus] = await Promise.all([
+    API.getNumbers(), API.getSuppliers(), API.getIvrMenus()
   ]);
 
   const byCountry = {};
@@ -529,10 +527,7 @@ async function renderNumbers(el) {
       <div class="card-header">
         <h3>Number Inventory</h3>
         <div style="display:flex;gap:8px">
-          <label class="btn btn-outline" style="cursor:pointer;margin:0">
-            Upload File
-            <input type="file" id="num-file-upload" accept=".csv,.txt,.text" style="display:none">
-          </label>
+          <button class="btn btn-outline" id="btn-upload-file">Upload File</button>
           <button class="btn btn-primary" id="btn-add-number">+ Add Numbers</button>
         </div>
       </div>
@@ -557,36 +552,27 @@ async function renderNumbers(el) {
                 <div class="prefix-group">
                   <div class="prefix-header">
                     <div class="prefix-info">
-                      <span class="prefix-code">${pg.countryCode} ${pg.prefix}</span>
+                      <span class="prefix-code">${pg.countryCode}${pg.prefix}</span>
                       <span class="prefix-rate">$${pg.rate}/min</span>
                       <span class="prefix-count">${pg.numbers.length} number${pg.numbers.length !== 1 ? 's' : ''}</span>
                     </div>
                     <div style="display:flex;gap:6px;align-items:center">
-                      <button class="btn btn-outline btn-sm edit-prefix-rate" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" data-rate="${pg.rate}">Edit Rate</button>
-                      <button class="btn btn-danger btn-sm del-prefix" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}">Delete Prefix</button>
+                      <select class="form-control prefix-ivr-sel" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" style="width:auto;padding:4px 8px;font-size:12px">
+                        ${ivrMenus.map(ivr => `<option value="${ivr.id}" ${pg.numbers[0]?.destinationId === ivr.id ? 'selected' : ''}>${ivr.name}</option>`).join('')}
+                      </select>
+                      <button class="btn btn-outline btn-sm edit-prefix-rate" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" data-rate="${pg.rate}">Rate</button>
+                      <button class="btn btn-danger btn-sm del-prefix" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}">Delete</button>
                     </div>
                   </div>
                   <div class="prefix-numbers">
                     <table>
-                      <thead><tr><th>Full Number</th><th>Extension</th><th>Rate</th><th>Supplier</th><th>Destination</th><th></th></tr></thead>
+                      <thead><tr><th>Full Number</th><th>Extension</th><th>Supplier</th></tr></thead>
                       <tbody>${pg.numbers.map(n => {
                         const sup = suppliers.find(s => s.id === n.supplierId);
-                        const destLabel = n.destinationType === 'ivr' ?
-                          (ivrMenus.find(m => m.id === n.destinationId)?.name || 'IVR') :
-                          n.destinationType === 'ring_group' ?
-                          (ringGroups.find(g => g.id === n.destinationId)?.name || 'Ring Group') :
-                          n.destinationType === 'direct' ? 'Ext ' + n.destinationId : 'Not set';
-                        const destBadge = n.destinationType === 'ivr' ? 'badge-ivr' : n.destinationType === 'ring_group' ? 'badge-ring' : 'badge-direct';
                         return `<tr>
                           <td><strong style="font-family:monospace">${n.countryCode}${n.prefix}${n.extension}</strong></td>
                           <td style="font-family:monospace">${n.extension}</td>
-                          <td>$${n.rate}/min</td>
                           <td>${sup ? `<span class="badge badge-direct">${escHtml(sup.name)}</span>` : '-'}</td>
-                          <td><span class="badge ${destBadge}">${destLabel}</span></td>
-                          <td>
-                            <button class="btn-icon edit-num-dest" data-id="${n.id}" title="Edit destination">&#9998;</button>
-                            <button class="btn-icon del-num" data-id="${n.id}">&#128465;</button>
-                          </td>
                         </tr>`;
                       }).join('')}</tbody>
                     </table>
@@ -605,19 +591,7 @@ async function renderNumbers(el) {
     body.style.display = h.classList.contains('collapsed') ? 'none' : '';
   });
 
-  document.getElementById('btn-add-number').onclick = () => showAddNumberModal(suppliers, ivrMenus, ringGroups);
-
-  el.querySelectorAll('.del-num').forEach(b => b.onclick = async () => {
-    if (!confirm('Delete this number?')) return;
-    await API.deleteNumber(b.dataset.id);
-    toast('Number deleted');
-    renderNumbers(el);
-  });
-
-  el.querySelectorAll('.edit-num-dest').forEach(b => b.onclick = () => {
-    const num = numbers.find(n => n.id === b.dataset.id);
-    if (num) showEditDestModal(num, ivrMenus, ringGroups, el);
-  });
+  document.getElementById('btn-add-number').onclick = () => showAddNumberModal(suppliers, ivrMenus);
 
   el.querySelectorAll('.del-prefix').forEach(b => b.onclick = async () => {
     const prefix = b.dataset.prefix;
@@ -629,17 +603,39 @@ async function renderNumbers(el) {
     renderNumbers(el);
   });
 
-  const fileUpload = document.getElementById('num-file-upload');
-  if (fileUpload) {
-    fileUpload.onchange = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const text = await file.text();
+  document.getElementById('btn-upload-file').onclick = () => {
+    showModal('Upload DID File', `
+      <div class="form-group">
+        <label>Supplier</label>
+        <select class="form-control" id="upload-supplier">
+          ${suppliers.map(s => `<option value="${s.id}">${escHtml(s.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>DID File (.txt or .csv — one number per line)</label>
+        <input type="file" class="form-control" id="upload-did-file" accept=".csv,.txt,.text" style="padding:6px">
+      </div>
+      <div class="form-group">
+        <label>Or paste numbers (one per line)</label>
+        <textarea class="form-control" id="upload-did-text" rows="6" style="font-family:monospace" placeholder="393199030220\n393199030221\n393199030222"></textarea>
+      </div>
+    `, async () => {
+      const supplierId = document.getElementById('upload-supplier').value;
+      const file = document.getElementById('upload-did-file').files[0];
+      const textArea = document.getElementById('upload-did-text').value.trim();
+
+      let text = textArea;
+      if (file) {
+        text = await file.text();
+      }
+      if (!text) { toast('Select a file or paste numbers', 'error'); return; }
+
       try {
-        const result = await API.uploadNumbersCsv(text);
+        const result = await API.uploadNumbersCsv(text, supplierId);
         if (result.ok) {
-          const summary = result.detected.map(d => `${d.country}: ${d.count}`).join(', ');
-          toast(`Imported ${result.count} numbers (${summary})`);
+          const summary = result.detected.map(d => d.country + ': ' + d.count).join(', ');
+          toast('Imported ' + result.count + ' numbers (' + summary + ')');
+          closeModal();
           renderNumbers(el);
         } else {
           toast(result.error || 'Upload failed', 'error');
@@ -647,8 +643,23 @@ async function renderNumbers(el) {
       } catch (err) {
         toast('Upload error: ' + err.message, 'error');
       }
+    });
+  };
+
+  el.querySelectorAll('.prefix-ivr-sel').forEach(sel => {
+    sel.onchange = async () => {
+      const country = sel.dataset.country;
+      const cc = sel.dataset.cc;
+      const prefix = sel.dataset.prefix;
+      const newIvrId = sel.value;
+      const prefixNums = numbers.filter(n => n.country === country && n.countryCode === cc && n.prefix === prefix);
+      for (const n of prefixNums) {
+        await API.updateNumber(n.id, { destinationType: 'ivr', destinationId: newIvrId });
+      }
+      markChanged();
+      toast(`Prefix ${cc}${prefix} → IVR ${newIvrId}`);
     };
-  }
+  });
 
   el.querySelectorAll('.edit-prefix-rate').forEach(b => b.onclick = () => {
     const currentRate = b.dataset.rate;
@@ -673,71 +684,7 @@ async function renderNumbers(el) {
   });
 }
 
-function showEditDestModal(num, ivrMenus, ringGroups, parentEl) {
-  const fullNum = num.countryCode + num.prefix + num.extension;
-  const destType = num.destinationType || 'ivr';
-
-  function optionsFor(type) {
-    if (type === 'ivr') return ivrMenus.map(m => `<option value="${m.id}" ${num.destinationId === m.id ? 'selected' : ''}>${m.name}</option>`).join('');
-    if (type === 'ring_group') return ringGroups.map(g => `<option value="${g.id}" ${num.destinationId === g.id ? 'selected' : ''}>${g.name}</option>`).join('');
-    return '';
-  }
-
-  showModal('Edit Destination — ' + fullNum, `
-    <div class="form-group">
-      <label>Number</label>
-      <input class="form-control" value="${fullNum}" readonly style="font-family:monospace;background:var(--bg-input);opacity:0.7">
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Destination Type</label>
-        <select class="form-control" id="ed-dest-type">
-          <option value="ivr" ${destType === 'ivr' ? 'selected' : ''}>IVR Menu</option>
-          <option value="ring_group" ${destType === 'ring_group' ? 'selected' : ''}>Ring Group</option>
-          <option value="direct" ${destType === 'direct' ? 'selected' : ''}>Direct Extension</option>
-        </select>
-      </div>
-      <div class="form-group" id="ed-target-group">
-        <label>Target</label>
-        <select class="form-control" id="ed-dest-id">${optionsFor(destType)}</select>
-      </div>
-    </div>
-    <div class="form-group" id="ed-direct-ext" style="display:${destType === 'direct' ? 'block' : 'none'}">
-      <label>Extension Number</label>
-      <input class="form-control" id="ed-direct-ext-val" value="${destType === 'direct' ? (num.destinationId || '') : ''}" placeholder="e.g. 2001">
-    </div>
-  `, async () => {
-    const destinationType = document.getElementById('ed-dest-type').value;
-    let destinationId;
-    if (destinationType === 'direct') {
-      destinationId = document.getElementById('ed-direct-ext-val').value.trim();
-    } else {
-      destinationId = document.getElementById('ed-dest-id').value;
-    }
-    await API.updateNumber(num.id, { destinationType, destinationId });
-    markChanged();
-    toast('Destination updated');
-    closeModal();
-    renderNumbers(parentEl);
-  });
-
-  document.getElementById('ed-dest-type').onchange = (e) => {
-    const type = e.target.value;
-    const sel = document.getElementById('ed-dest-id');
-    const directBox = document.getElementById('ed-direct-ext');
-    const targetGroup = document.getElementById('ed-target-group');
-    if (type === 'direct') {
-      targetGroup.style.display = 'none';
-      directBox.style.display = 'block';
-    } else {
-      targetGroup.style.display = '';
-      directBox.style.display = 'none';
-      sel.innerHTML = optionsFor(type);
-    }
-  };
-}
-
-function showAddNumberModal(suppliers, ivrMenus, ringGroups) {
+function showAddNumberModal(suppliers, ivrMenus) {
   showModal('Add Numbers', `
     <div class="form-row-3">
       <div class="form-group">
@@ -765,23 +712,11 @@ function showAddNumberModal(suppliers, ivrMenus, ringGroups) {
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Destination Type</label>
-        <select class="form-control" id="num-dest-type">
-          <option value="ivr">IVR Menu</option>
-          <option value="ring_group">Ring Group</option>
-          <option value="direct">Direct Extension</option>
-        </select>
-      </div>
-      <div class="form-group" id="num-target-group">
-        <label>Target</label>
+        <label>IVR Destination</label>
         <select class="form-control" id="num-dest-id">
           ${(ivrMenus || []).map(m => `<option value="${m.id}">${m.name}</option>`).join('')}
         </select>
       </div>
-    </div>
-    <div class="form-group" id="num-direct-ext" style="display:none">
-      <label>Extension Number</label>
-      <input class="form-control" id="num-direct-ext-val" placeholder="e.g. 2001">
     </div>
     <div class="form-group">
       <label style="display:flex;align-items:center;gap:12px">
@@ -838,14 +773,8 @@ function showAddNumberModal(suppliers, ivrMenus, ringGroups) {
     if (!prefix) { toast('Prefix is required', 'error'); return; }
     if (!extensions.length) { toast('Enter at least one extension', 'error'); return; }
 
-    const destinationType = document.getElementById('num-dest-type').value;
-    let destinationId;
-    if (destinationType === 'direct') {
-      destinationId = document.getElementById('num-direct-ext-val').value.trim();
-    } else {
-      destinationId = document.getElementById('num-dest-id').value;
-    }
-    const nums = extensions.map(ext => ({ country, countryCode, prefix, extension: ext, rate, supplierId, destinationType, destinationId }));
+    const destinationId = document.getElementById('num-dest-id').value;
+    const nums = extensions.map(ext => ({ country, countryCode, prefix, extension: ext, rate, supplierId, destinationType: 'ivr', destinationId }));
     await API.addBulkNumbers(nums);
     toast(`Added ${nums.length} numbers`);
     closeModal();
@@ -891,283 +820,81 @@ function showAddNumberModal(suppliers, ivrMenus, ringGroups) {
   };
   document.getElementById('num-range-to').oninput = document.getElementById('num-range-from').oninput;
 
-  document.getElementById('num-dest-type').onchange = (e) => {
-    const type = e.target.value;
-    const sel = document.getElementById('num-dest-id');
-    const directBox = document.getElementById('num-direct-ext');
-    const targetGroup = document.getElementById('num-target-group');
-    if (type === 'direct') {
-      targetGroup.style.display = 'none';
-      directBox.style.display = 'block';
-    } else {
-      targetGroup.style.display = '';
-      directBox.style.display = 'none';
-      if (type === 'ivr') {
-        sel.innerHTML = (ivrMenus || []).map(m => `<option value="${m.id}">${m.name}</option>`).join('');
-      } else {
-        sel.innerHTML = (ringGroups || []).map(g => `<option value="${g.id}">${g.name}</option>`).join('');
-      }
-    }
-  };
 }
 
-// ---- IVR MENUS ----
+// ---- IVR AUDIO ----
 async function renderIvrMenus(el) {
-  const menus = await API.getIvrMenus();
-  const ringGroups = await API.getRingGroups();
-
-  el.innerHTML = `
-    <div class="card">
-      <div class="card-header">
-        <h3>IVR Menus (${menus.length})</h3>
-        <button class="btn btn-primary" id="btn-add-ivr">+ Add IVR Menu</button>
-      </div>
-      <div class="card-body">
-        ${menus.length ? `
-        <table>
-          <thead><tr><th>Name</th><th>Audio File</th><th>Options</th><th>Timeout</th><th></th></tr></thead>
-          <tbody>${menus.map(m => `<tr>
-            <td><strong>${escHtml(m.name)}</strong></td>
-            <td><code>${escHtml(m.audioFile)}</code></td>
-            <td>${(m.options||[]).map(o => `<span class="badge badge-ivr" style="margin-right:4px">${o.digit}: ${o.label || o.actionTarget}</span>`).join('')}</td>
-            <td>${m.timeoutAction}</td>
-            <td>
-              <button class="btn-icon edit-ivr" data-id="${m.id}">&#9998;</button>
-              <button class="btn-icon del-ivr" data-id="${m.id}">&#128465;</button>
-            </td>
-          </tr>`).join('')}</tbody>
-        </table>` : '<div class="empty-state">No IVR menus configured</div>'}
-      </div>
-    </div>`;
-
-  document.getElementById('btn-add-ivr').onclick = () => showIvrModal(null, ringGroups, menus);
-  el.querySelectorAll('.edit-ivr').forEach(b => b.onclick = () => {
-    const menu = menus.find(m => m.id === b.dataset.id);
-    showIvrModal(menu, ringGroups, menus);
-  });
-  el.querySelectorAll('.del-ivr').forEach(b => b.onclick = async () => {
-    if (!confirm('Delete this IVR menu?')) return;
-    await API.deleteIvrMenu(b.dataset.id);
-    markChanged();
-    toast('IVR menu deleted');
-    renderIvrMenus(el);
-  });
-}
-
-async function showIvrModal(menu, ringGroups, allMenus) {
-  const isEdit = !!menu;
-  const options = menu?.options || [{ digit: '1', actionType: 'ring_group', actionTarget: '', label: '' }];
-
-  function renderOptions(opts) {
-    return opts.map((o, i) => `
-      <div class="ivr-option-row">
-        <input class="form-control ivr-digit" value="${o.digit}" placeholder="#">
-        <select class="form-control ivr-action-type">
-          <option value="ring_group" ${o.actionType === 'ring_group' ? 'selected' : ''}>Ring Group</option>
-          <option value="ivr" ${o.actionType === 'ivr' ? 'selected' : ''}>IVR Menu</option>
-          <option value="direct" ${o.actionType === 'direct' ? 'selected' : ''}>Extension</option>
-        </select>
-        <select class="form-control ivr-action-target">
-          ${o.actionType === 'ring_group' ? ringGroups.map(g => `<option value="${g.id}" ${o.actionTarget === g.id ? 'selected' : ''}>${g.name}</option>`).join('') : ''}
-          ${o.actionType === 'ivr' ? allMenus.map(m => `<option value="${m.id}" ${o.actionTarget === m.id ? 'selected' : ''}>${m.name}</option>`).join('') : ''}
-        </select>
-        <input class="form-control ivr-label" value="${o.label || ''}" placeholder="Label">
-        <button class="btn-icon ivr-del-opt" data-idx="${i}">&#10005;</button>
-      </div>
-    `).join('');
-  }
-
+  const ivrMenus = await API.getIvrMenus();
   const audioFiles = await API.getAudioFiles();
 
-  showModal(isEdit ? 'Edit IVR Menu' : 'Add IVR Menu', `
-    <div class="form-group">
-      <label>Menu Name</label>
-      <input class="form-control" id="ivr-name" value="${menu?.name || ''}" placeholder="e.g. Main IVR">
-    </div>
-    <div class="form-group">
-      <label>Audio File</label>
-      <div style="display:flex;gap:8px;margin-bottom:8px">
-        <select class="form-control" id="ivr-audio-select" style="flex:1">
-          <option value="">— Select uploaded file —</option>
-          ${audioFiles.map(f => `<option value="${f.path}" ${menu?.audioFile === f.path ? 'selected' : ''}>${f.name} (${f.path})</option>`).join('')}
-        </select>
-        <label class="btn btn-outline" style="cursor:pointer;flex-shrink:0;margin:0">
-          Upload
-          <input type="file" id="ivr-file-upload" accept=".wav,.gsm,.mp3,.sln,.ulaw,.alaw" style="display:none">
-        </label>
-      </div>
-      <input class="form-control" id="ivr-audio" value="${menu?.audioFile || ''}" placeholder="Or type path: custom/main-menu">
-      <div id="ivr-upload-status" style="font-size:12px;margin-top:4px;color:var(--success);display:none"></div>
-    </div>
-    <div class="form-group">
-      <label>DTMF Options</label>
-      <div id="ivr-options">${renderOptions(options)}</div>
-      <button class="btn btn-outline btn-sm" id="ivr-add-opt" style="margin-top:8px">+ Add Option</button>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Timeout Action</label>
-        <select class="form-control" id="ivr-timeout">
-          <option value="hangup" ${menu?.timeoutAction === 'hangup' ? 'selected' : ''}>Hangup</option>
-          <option value="replay" ${menu?.timeoutAction === 'replay' ? 'selected' : ''}>Replay</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Invalid Input Action</label>
-        <select class="form-control" id="ivr-invalid">
-          <option value="replay" ${menu?.invalidAction === 'replay' ? 'selected' : ''}>Replay Menu</option>
-          <option value="hangup" ${menu?.invalidAction === 'hangup' ? 'selected' : ''}>Hangup</option>
-        </select>
-      </div>
-    </div>
-  `, async () => {
-    const name = document.getElementById('ivr-name').value.trim();
-    const audioFile = document.getElementById('ivr-audio').value.trim();
-    const timeoutAction = document.getElementById('ivr-timeout').value;
-    const invalidAction = document.getElementById('ivr-invalid').value;
-    if (!name) { toast('Name is required', 'error'); return; }
-
-    const optRows = document.querySelectorAll('.ivr-option-row');
-    const opts = Array.from(optRows).map(row => ({
-      digit: row.querySelector('.ivr-digit').value.trim(),
-      actionType: row.querySelector('.ivr-action-type').value,
-      actionTarget: row.querySelector('.ivr-action-target')?.value || row.querySelector('.ivr-label')?.value || '',
-      label: row.querySelector('.ivr-label').value.trim()
-    })).filter(o => o.digit);
-
-    const data = { name, audioFile, options: opts, timeoutAction, invalidAction };
-    if (isEdit) {
-      await API.updateIvrMenu(menu.id, data);
-      toast('IVR menu updated');
-    } else {
-      await API.addIvrMenu(data);
-      toast('IVR menu added');
-    }
-    markChanged();
-    closeModal();
-    renderPage('ivr-menus');
-  });
-
-  document.getElementById('ivr-add-opt').onclick = () => {
-    const container = document.getElementById('ivr-options');
-    const div = document.createElement('div');
-    div.innerHTML = renderOptions([{ digit: '', actionType: 'ring_group', actionTarget: '', label: '' }]);
-    container.appendChild(div.firstElementChild);
-  };
-
-  document.getElementById('ivr-audio-select').onchange = (e) => {
-    if (e.target.value) document.getElementById('ivr-audio').value = e.target.value;
-  };
-
-  document.getElementById('ivr-file-upload').onchange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const status = document.getElementById('ivr-upload-status');
-    status.style.display = 'block';
-    status.style.color = 'var(--text-muted)';
-    status.textContent = 'Uploading ' + file.name + '...';
-    try {
-      const result = await API.uploadAudio(file);
-      if (result.ok && result.files.length) {
-        const path = 'custom/' + result.files[0].replace(/\.[^.]+$/, '');
-        document.getElementById('ivr-audio').value = path;
-        const sel = document.getElementById('ivr-audio-select');
-        const opt = document.createElement('option');
-        opt.value = path;
-        opt.textContent = result.files[0] + ' (' + path + ')';
-        opt.selected = true;
-        sel.appendChild(opt);
-        status.style.color = 'var(--success)';
-        status.textContent = 'Uploaded: ' + result.files[0];
-      } else {
-        status.style.color = 'var(--danger)';
-        status.textContent = 'Upload failed: ' + (result.error || 'unknown error');
-      }
-    } catch (err) {
-      status.style.color = 'var(--danger)';
-      status.textContent = 'Upload error: ' + err.message;
-    }
-  };
-}
-
-// ---- RING GROUPS ----
-async function renderRingGroups(el) {
-  const groups = await API.getRingGroups();
-
   el.innerHTML = `
     <div class="card">
-      <div class="card-header">
-        <h3>Ring Groups (${groups.length})</h3>
-        <button class="btn btn-primary" id="btn-add-rg">+ Add Ring Group</button>
-      </div>
-      <div class="card-body">
-        ${groups.length ? `
-        <table>
-          <thead><tr><th>Name</th><th>Extensions</th><th>Ring Timeout</th><th>Voicemail</th><th></th></tr></thead>
-          <tbody>${groups.map(g => `<tr>
-            <td><strong>${escHtml(g.name)}</strong></td>
-            <td>${g.extensions.map(e => `<span class="badge badge-ring">${e}</span>`).join(' ')}</td>
-            <td>${g.ringTimeout}s</td>
-            <td>${g.voicemailExt || '-'}</td>
-            <td>
-              <button class="btn-icon edit-rg" data-id="${g.id}">&#9998;</button>
-              <button class="btn-icon del-rg" data-id="${g.id}">&#128465;</button>
-            </td>
-          </tr>`).join('')}</tbody>
-        </table>` : '<div class="empty-state">No ring groups configured</div>'}
+      <div class="card-header"><h3>IVR Audio Slots (1-10)</h3></div>
+      <div class="card-body padded">
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Upload audio files for each IVR slot. Assign IVR slots to number prefixes in the Numbers page.</p>
+        <div id="ivr-slots">
+          ${ivrMenus.map(ivr => `
+            <div class="ivr-slot" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)">
+              <strong style="width:60px;flex-shrink:0">${escHtml(ivr.name)}</strong>
+              <select class="form-control ivr-audio-sel" data-id="${ivr.id}" style="flex:1">
+                <option value="">— No audio —</option>
+                ${audioFiles.map(f => `<option value="${f.path}" ${ivr.audioFile === f.path ? 'selected' : ''}>${f.name}</option>`).join('')}
+              </select>
+              <label class="btn btn-outline btn-sm" style="cursor:pointer;margin:0;flex-shrink:0">
+                Upload
+                <input type="file" class="ivr-upload-input" data-id="${ivr.id}" accept=".wav,.gsm,.mp3,.sln,.ulaw,.alaw" style="display:none">
+              </label>
+              <span class="ivr-slot-status" data-id="${ivr.id}" style="font-size:12px;min-width:80px;color:${ivr.audioFile ? 'var(--success)' : 'var(--text-muted)'}">${ivr.audioFile ? ivr.audioFile : 'No file'}</span>
+            </div>
+          `).join('')}
+        </div>
       </div>
     </div>`;
 
-  document.getElementById('btn-add-rg').onclick = () => showRgModal(null);
-  el.querySelectorAll('.edit-rg').forEach(b => b.onclick = () => showRgModal(groups.find(g => g.id === b.dataset.id)));
-  el.querySelectorAll('.del-rg').forEach(b => b.onclick = async () => {
-    if (!confirm('Delete this ring group?')) return;
-    await API.deleteRingGroup(b.dataset.id);
-    markChanged();
-    toast('Ring group deleted');
-    renderRingGroups(el);
+  el.querySelectorAll('.ivr-audio-sel').forEach(sel => {
+    sel.onchange = async () => {
+      const id = sel.dataset.id;
+      await API.updateIvrMenu(id, { audioFile: sel.value });
+      const status = el.querySelector(`.ivr-slot-status[data-id="${id}"]`);
+      status.textContent = sel.value || 'No file';
+      status.style.color = sel.value ? 'var(--success)' : 'var(--text-muted)';
+      markChanged();
+      toast(`IVR ${id} updated`);
+    };
   });
-}
 
-function showRgModal(group) {
-  const isEdit = !!group;
-  showModal(isEdit ? 'Edit Ring Group' : 'Add Ring Group', `
-    <div class="form-group">
-      <label>Group Name</label>
-      <input class="form-control" id="rg-name" value="${group?.name || ''}" placeholder="e.g. Sales Team">
-    </div>
-    <div class="form-group">
-      <label>Extensions (comma-separated)</label>
-      <input class="form-control" id="rg-ext" value="${group?.extensions?.join(', ') || ''}" placeholder="e.g. 2001, 2002, 2003">
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Ring Timeout (seconds)</label>
-        <input class="form-control" type="number" id="rg-timeout" value="${group?.ringTimeout || 25}" min="5" max="120">
-      </div>
-      <div class="form-group">
-        <label>Voicemail Extension</label>
-        <input class="form-control" id="rg-vm" value="${group?.voicemailExt || ''}" placeholder="e.g. 2001">
-      </div>
-    </div>
-  `, async () => {
-    const name = document.getElementById('rg-name').value.trim();
-    const extensions = document.getElementById('rg-ext').value.split(',').map(s => s.trim()).filter(Boolean);
-    const ringTimeout = parseInt(document.getElementById('rg-timeout').value) || 25;
-    const voicemailExt = document.getElementById('rg-vm').value.trim();
-    if (!name || !extensions.length) { toast('Name and at least one extension required', 'error'); return; }
-
-    const data = { name, extensions, ringTimeout, voicemailExt };
-    if (isEdit) {
-      await API.updateRingGroup(group.id, data);
-      toast('Ring group updated');
-    } else {
-      await API.addRingGroup(data);
-      toast('Ring group added');
-    }
-    markChanged();
-    closeModal();
-    renderPage('ring-groups');
+  el.querySelectorAll('.ivr-upload-input').forEach(input => {
+    input.onchange = async () => {
+      const id = input.dataset.id;
+      const file = input.files[0];
+      if (!file) return;
+      const status = el.querySelector(`.ivr-slot-status[data-id="${id}"]`);
+      status.textContent = 'Uploading...';
+      status.style.color = 'var(--text-muted)';
+      try {
+        const result = await API.uploadAudio(file);
+        if (result.ok && result.files.length) {
+          const path = 'custom/' + result.files[0].replace(/\.[^.]+$/, '');
+          await API.updateIvrMenu(id, { audioFile: path });
+          const sel = el.querySelector(`.ivr-audio-sel[data-id="${id}"]`);
+          const opt = document.createElement('option');
+          opt.value = path;
+          opt.textContent = result.files[0];
+          opt.selected = true;
+          sel.appendChild(opt);
+          status.textContent = path;
+          status.style.color = 'var(--success)';
+          markChanged();
+          toast(`IVR ${id}: uploaded ${result.files[0]}`);
+        } else {
+          status.textContent = 'Upload failed';
+          status.style.color = 'var(--danger)';
+        }
+      } catch (err) {
+        status.textContent = 'Error';
+        status.style.color = 'var(--danger)';
+      }
+    };
   });
 }
 

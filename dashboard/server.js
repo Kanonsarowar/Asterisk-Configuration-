@@ -180,6 +180,7 @@ async function handleApi(req, res) {
       return sendJson(res, 200, store.getNumbers());
     }
     if (path === '/api/numbers/upload-csv' && method === 'POST') {
+      const supplierId = url.searchParams.get('supplier') || '';
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
       const content = Buffer.concat(chunks).toString('utf8');
@@ -286,7 +287,7 @@ async function handleApi(req, res) {
             prefix,
             extension: extension || rest,
             rate: '0.01',
-            supplierId: '',
+            supplierId: supplierId,
             destinationType: 'ivr',
             destinationId: '1'
           });
@@ -365,42 +366,15 @@ async function handleApi(req, res) {
       }
     }
 
-    // IVR Menus
+    // IVR Menus (fixed 10 slots - GET and PUT only)
     if (path === '/api/ivr-menus' && method === 'GET') {
       return sendJson(res, 200, store.getIvrMenus());
-    }
-    if (path === '/api/ivr-menus' && method === 'POST') {
-      const body = await parseBody(req);
-      return sendJson(res, 201, store.addIvrMenu(body));
     }
     if (path.startsWith('/api/ivr-menus/') && method === 'PUT') {
       const id = path.split('/').pop();
       const body = await parseBody(req);
       const updated = store.updateIvrMenu(id, body);
       return updated ? sendJson(res, 200, updated) : sendJson(res, 404, { error: 'Not found' });
-    }
-    if (path.startsWith('/api/ivr-menus/') && method === 'DELETE') {
-      const id = path.split('/').pop();
-      return store.deleteIvrMenu(id) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
-    }
-
-    // Ring Groups
-    if (path === '/api/ring-groups' && method === 'GET') {
-      return sendJson(res, 200, store.getRingGroups());
-    }
-    if (path === '/api/ring-groups' && method === 'POST') {
-      const body = await parseBody(req);
-      return sendJson(res, 201, store.addRingGroup(body));
-    }
-    if (path.startsWith('/api/ring-groups/') && method === 'PUT') {
-      const id = path.split('/').pop();
-      const body = await parseBody(req);
-      const updated = store.updateRingGroup(id, body);
-      return updated ? sendJson(res, 200, updated) : sendJson(res, 404, { error: 'Not found' });
-    }
-    if (path.startsWith('/api/ring-groups/') && method === 'DELETE') {
-      const id = path.split('/').pop();
-      return store.deleteRingGroup(id) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
     }
 
     // Trunk Config

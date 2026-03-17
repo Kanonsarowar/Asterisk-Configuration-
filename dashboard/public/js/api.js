@@ -37,7 +37,7 @@ const API = {
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text });
     return res.json();
   },
-  uploadNumbersCsv(text) { return this.postRaw('/api/numbers/upload-csv', text); },
+  uploadNumbersCsv(text, supplierId) { return this.postRaw(`/api/numbers/upload-csv?supplier=${encodeURIComponent(supplierId)}`, text); },
 
   // Numbers
   getNumbers() { return this.get('/api/numbers'); },
@@ -47,17 +47,9 @@ const API = {
   deleteNumber(id) { return this.del(`/api/numbers/${id}`); },
   deletePrefix(country, countryCode, prefix) { return this.post('/api/numbers/delete-prefix', { country, countryCode, prefix }); },
 
-  // IVR
+  // IVR (fixed 10 slots - only update)
   getIvrMenus() { return this.get('/api/ivr-menus'); },
-  addIvrMenu(menu) { return this.post('/api/ivr-menus', menu); },
   updateIvrMenu(id, menu) { return this.put(`/api/ivr-menus/${id}`, menu); },
-  deleteIvrMenu(id) { return this.del(`/api/ivr-menus/${id}`); },
-
-  // Ring Groups
-  getRingGroups() { return this.get('/api/ring-groups'); },
-  addRingGroup(group) { return this.post('/api/ring-groups', group); },
-  updateRingGroup(id, group) { return this.put(`/api/ring-groups/${id}`, group); },
-  deleteRingGroup(id) { return this.del(`/api/ring-groups/${id}`); },
 
   // Trunk
   getTrunkConfig() { return this.get('/api/trunk-config'); },

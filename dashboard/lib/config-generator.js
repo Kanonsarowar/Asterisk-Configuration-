@@ -11,7 +11,7 @@ function slugify(name) {
 
 export function generateExtensionsConf(store) {
   const data = store.getAll();
-  const { ivrMenus, ringGroups, globals, suppliers } = data;
+  const { ivrMenus, globals, suppliers } = data;
   const lines = [];
 
   lines.push('; ================================');
@@ -72,57 +72,26 @@ export function generateExtensionsConf(store) {
     prefixGroups[prefixKey].numbers.push(n);
   }
 
-  // Check if all numbers in a prefix group have the same destination
   for (const [prefixKey, group] of Object.entries(prefixGroups)) {
-    const allSameDest = group.numbers.every(n => n.destinationType === group.destType && n.destinationId === group.destId);
-    
+    const allSameDest = group.numbers.every(n => n.destinationId === group.destId);
+    const n = group.numbers[0];
+    const sup = (suppliers || []).find(s => s.id === n.supplierId);
+    const desc = sup ? sup.name : '';
+    const ivr = ivrMenus.find(m => m.id === n.destinationId);
+    const target = ivr ? `ivr-${ivr.id}` : 'ivr-1';
+
     if (allSameDest && group.numbers.length >= 2) {
-      // Use pattern matching for the whole prefix
-      const n = group.numbers[0];
-      const sup = (suppliers || []).find(s => s.id === n.supplierId);
-      const desc = sup ? sup.name : '';
-      
-      if (n.destinationType === 'ivr') {
-        const ivr = ivrMenus.find(m => m.id === n.destinationId);
-        const target = ivr ? `ivr-${ivr.id}` : 'ivr-1';
-        lines.push(`; Prefix ${prefixKey} (${group.numbers.length} numbers) ${desc}`);
-        lines.push(`exten => _${prefixKey}.,1,NoOp(Route prefix ${prefixKey} ${desc})`);
-        lines.push(` same => n,Goto(${target},s,1)`);
-      } else if (n.destinationType === 'ring_group') {
-        const rg = ringGroups.find(g => g.id === n.destinationId);
-        const target = rg ? `ring-group-${rg.id}` : 'ring-group-1';
-        lines.push(`; Prefix ${prefixKey} (${group.numbers.length} numbers) ${desc}`);
-        lines.push(`exten => _${prefixKey}.,1,NoOp(Route prefix ${prefixKey} ${desc})`);
-        lines.push(` same => n,Goto(${target},s,1)`);
-      } else if (n.destinationType === 'direct') {
-        lines.push(`; Prefix ${prefixKey} (${group.numbers.length} numbers) ${desc}`);
-        lines.push(`exten => _${prefixKey}.,1,NoOp(Route prefix ${prefixKey} ${desc})`);
-        lines.push(` same => n,Dial(PJSIP/${n.destinationId},30)`);
-        lines.push(` same => n,Hangup()`);
-      }
+      lines.push(`; Prefix ${prefixKey} (${group.numbers.length} numbers) → ${ivr?.name || 'IVR'} ${desc}`);
+      lines.push(`exten => _${prefixKey}.,1,NoOp(Route prefix ${prefixKey} ${desc})`);
+      lines.push(` same => n,Goto(${target},s,1)`);
       lines.push('');
     } else {
-      // Different destinations within prefix - add individual entries
-      for (const n of group.numbers) {
-        const did = n.countryCode + n.prefix + n.extension;
-        const sup = (suppliers || []).find(s => s.id === n.supplierId);
-        const desc = sup ? sup.name : '';
-        
-        if (n.destinationType === 'ivr') {
-          const ivr = ivrMenus.find(m => m.id === n.destinationId);
-          const target = ivr ? `ivr-${ivr.id}` : 'ivr-1';
-          lines.push(`exten => ${did},1,NoOp(Route DID \${EXTEN} ${desc})`);
-          lines.push(` same => n,Goto(${target},s,1)`);
-        } else if (n.destinationType === 'ring_group') {
-          const rg = ringGroups.find(g => g.id === n.destinationId);
-          const target = rg ? `ring-group-${rg.id}` : 'ring-group-1';
-          lines.push(`exten => ${did},1,NoOp(Route DID \${EXTEN} ${desc})`);
-          lines.push(` same => n,Goto(${target},s,1)`);
-        } else if (n.destinationType === 'direct') {
-          lines.push(`exten => ${did},1,NoOp(Route DID \${EXTEN} ${desc})`);
-          lines.push(` same => n,Dial(PJSIP/${n.destinationId},30)`);
-          lines.push(` same => n,Hangup()`);
-        }
+      for (const num of group.numbers) {
+        const did = num.countryCode + num.prefix + num.extension;
+        const numIvr = ivrMenus.find(m => m.id === num.destinationId);
+        const numTarget = numIvr ? `ivr-${numIvr.id}` : 'ivr-1';
+        lines.push(`exten => ${did},1,NoOp(Route DID \${EXTEN} ${desc})`);
+        lines.push(` same => n,Goto(${numTarget},s,1)`);
         lines.push('');
       }
     }
@@ -132,55 +101,16 @@ export function generateExtensionsConf(store) {
   lines.push(' same => n,Hangup()');
   lines.push('');
 
-  // IVR contexts
+  // IVR contexts (simple audio playback)
   for (const ivr of ivrMenus) {
+    if (!ivr.audioFile) continue;
     lines.push(`[ivr-${ivr.id}]`);
-    lines.push(`exten => s,1,NoOp(${ivr.name} IVR start)`);
+    lines.push(`exten => s,1,NoOp(${ivr.name} start)`);
     lines.push(' same => n,Answer()');
-    lines.push(' same => n,Set(TIMEOUT(response)=${IVR_RESPONSE_TIMEOUT})');
-    lines.push(' same => n,Set(TIMEOUT(digit)=${IVR_DIGIT_TIMEOUT})');
-    lines.push(` same => n(loop),Background(${ivr.audioFile})`);
-    lines.push(' same => n,WaitExten(5)');
-    lines.push('');
-
-    for (const opt of (ivr.options || [])) {
-      if (opt.actionType === 'ring_group') {
-        lines.push(`exten => ${opt.digit},1,Goto(ring-group-${opt.actionTarget},s,1)`);
-      } else if (opt.actionType === 'ivr') {
-        lines.push(`exten => ${opt.digit},1,Goto(ivr-${opt.actionTarget},s,1)`);
-      } else {
-        lines.push(`exten => ${opt.digit},1,Dial(PJSIP/${opt.actionTarget},30)`);
-      }
-    }
-    lines.push('');
-    lines.push('exten => i,1,Playback(pbx-invalid)');
-    lines.push(' same => n,Goto(s,loop)');
-    lines.push('');
-    lines.push('exten => t,1,Playback(vm-goodbye)');
+    lines.push(` same => n,Playback(${ivr.audioFile})`);
     lines.push(' same => n,Hangup()');
     lines.push('');
   }
-
-  // Ring group contexts
-  for (const rg of ringGroups) {
-    lines.push(`[ring-group-${rg.id}]`);
-    lines.push(`exten => s,1,NoOp(Dial ${rg.name})`);
-    const dialTargets = rg.extensions.map(e => `PJSIP/${e}`).join('&');
-    lines.push(` same => n,Dial(${dialTargets},${rg.ringTimeout})`);
-    if (rg.voicemailExt) {
-      lines.push(` same => n,Voicemail(${rg.voicemailExt}@default,u)`);
-    }
-    lines.push(' same => n,Hangup()');
-    lines.push('');
-  }
-
-  // Outbound route
-  lines.push('; Optional outbound route using same IP-auth trunk');
-  lines.push('[from-internal]');
-  lines.push('exten => _X.,1,NoOp(Outbound call via supplier trunk to ${EXTEN})');
-  lines.push(' same => n,Dial(PJSIP/${EXTEN}@supplier-trunk,60)');
-  lines.push(' same => n,Hangup()');
-  lines.push('');
 
   return lines.join('\n');
 }
