@@ -76,6 +76,61 @@
       "supplierId": "4",
       "destinationType": "ivr",
       "destinationId": "1"
+    },
+    {
+      "country": "IT",
+      "countryCode": "39",
+      "prefix": "31990302",
+      "extension": "20",
+      "rate": "0.01",
+      "supplierId": "",
+      "destinationType": "ivr",
+      "destinationId": "1",
+      "id": "8"
+    },
+    {
+      "country": "IT",
+      "countryCode": "39",
+      "prefix": "31990302",
+      "extension": "21",
+      "rate": "0.01",
+      "supplierId": "",
+      "destinationType": "ivr",
+      "destinationId": "1",
+      "id": "9"
+    },
+    {
+      "country": "IT",
+      "countryCode": "39",
+      "prefix": "31990302",
+      "extension": "22",
+      "rate": "0.01",
+      "supplierId": "",
+      "destinationType": "ivr",
+      "destinationId": "1",
+      "id": "10"
+    },
+    {
+      "country": "UK",
+      "countryCode": "44",
+      "prefix": "20712340",
+      "extension": "01",
+      "rate": "0.01",
+      "supplierId": "",
+      "destinationType": "ivr",
+      "destinationId": "1",
+      "id": "11"
+    },
+    {
+      "country": "UK",
+      "countryCode": "44",
+      "prefix": "20712340",
+      "extension": "02",
+      "rate": "0.01",
+      "supplierId": "",
+      "destinationType": "ivr",
+      "destinationId": "1",
+      "id": "12"
     }
   ],
   "suppliers": [

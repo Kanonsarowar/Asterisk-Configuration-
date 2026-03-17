@@ -51,7 +51,7 @@ cd /workspace/dashboard && node server.js
 # Runs at http://localhost:3000
 ```
 
-Features: Number management with integrated DID routing (each number has a destination), IVR menu management, ring group management, trunk configuration, live Asterisk status, call statistics (CDR), config preview. The dashboard requires authentication — default credentials are `admin` / `admin123` (override with `DASH_USER` and `DASH_PASS` env vars). Clicking **Apply Changes** regenerates `asterisk/extensions.conf` and `asterisk/pjsip.conf`, copies them to `/etc/asterisk/`, and reloads Asterisk.
+Features: Number management with integrated DID routing (each number has a destination), IVR menu management, ring group management, trunk configuration, live Asterisk status, call statistics (CDR), SIP invite log, CSV/file upload for bulk number import, ACL-based IP security, prefix pattern matching in dialplan, and config preview. The dashboard requires authentication — default credentials are `admin` / `admin123` (override with `DASH_USER` and `DASH_PASS` env vars). Clicking **Apply Changes** regenerates `asterisk/extensions.conf`, `asterisk/pjsip.conf`, and `asterisk/acl.conf`, copies them to `/etc/asterisk/`, and reloads Asterisk.
 
 **Note:** Numbers and DID Routes have been merged — there is no separate DID Routes page or `/api/did-routes` endpoint. Each number entry in `db.json` carries `destinationType` and `destinationId` fields that define its DID routing behavior. The config generator reads routing info directly from numbers.
 
