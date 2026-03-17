@@ -83,11 +83,18 @@ export async function reloadPjsip() {
 }
 
 export async function reloadAll() {
-  const [dp, pj] = await Promise.all([
-    reloadDialplan(),
-    reloadPjsip()
+  const dp = await reloadDialplan();
+  const pj = await reloadPjsip();
+  const acl = await runCmd('module reload acl');
+  return { dialplan: dp, pjsip: pj, acl };
+}
+
+export async function getPjsipStatus() {
+  const [endpoints, identifies] = await Promise.all([
+    runCmd('pjsip show endpoints'),
+    runCmd('pjsip show identifies')
   ]);
-  return { dialplan: dp, pjsip: pj };
+  return { endpoints, identifies };
 }
 
 export async function getDialplanContext(context) {
