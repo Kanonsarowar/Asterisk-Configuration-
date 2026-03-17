@@ -185,8 +185,26 @@ async function handleApi(req, res) {
       for await (const chunk of req) chunks.push(chunk);
       const content = Buffer.concat(chunks).toString('utf8');
       
-      const lines = content.split('\n').map(l => l.trim().replace(/[",]/g, '')).filter(l => /^\d{5,}$/.test(l));
-      if (!lines.length) return sendJson(res, 400, { error: 'No valid numbers found. Each line should be a full number (digits only).' });
+      // Extract numbers from CSV: find any 7+ digit sequence in each line
+      const rawLines = content.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
+      const lines = [];
+      for (const line of rawLines) {
+        // Split by common delimiters and find digit-only fields
+        const fields = line.split(/[,;\t|]+/).map(f => f.replace(/["'\s]/g, ''));
+        for (const field of fields) {
+          if (/^\+?\d{7,}$/.test(field)) {
+            lines.push(field.replace(/^\+/, ''));
+          }
+        }
+        // Also try extracting any long digit sequence from the whole line
+        if (!fields.some(f => /^\+?\d{7,}$/.test(f.replace(/["'\s]/g, '')))) {
+          const match = line.match(/(\d{7,})/);
+          if (match) lines.push(match[1]);
+        }
+      }
+      // Deduplicate
+      const unique = [...new Set(lines)];
+      if (!unique.length) return sendJson(res, 400, { error: 'No valid numbers found. Upload a file with phone numbers (7+ digits).' });
       
       const DIAL_CODES = [
         { code: 'BD', dial: '880' }, { code: 'TW', dial: '886' }, { code: 'HK', dial: '852' },
@@ -253,7 +271,7 @@ async function handleApi(req, res) {
         return { country: 'XX', countryCode: '', rest: num };
       }
 
-      const detected = lines.map(num => {
+      const detected = unique.map(num => {
         const d = detectCountry(num);
         return { ...d, fullNumber: num };
       });
