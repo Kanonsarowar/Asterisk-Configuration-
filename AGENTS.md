@@ -5,7 +5,7 @@
 This repository contains **Asterisk PBX configuration files** (not a buildable application). The two config files live under `asterisk/`:
 
 - `asterisk/pjsip.conf` – PJSIP transport & IP-authenticated trunk
-- `asterisk/extensions.conf` – Dialplan with DID routing, IVR menus, and ring groups
+- `asterisk/extensions.conf` – Dialplan with DID routing and IVR audio playback (no ring groups)
 
 ### Running Asterisk locally
 
@@ -51,9 +51,9 @@ cd /workspace/dashboard && node server.js
 # Runs at http://localhost:3000
 ```
 
-Features: Number management with integrated DID routing (each number has a destination), IVR menu management, ring group management, trunk configuration, live Asterisk status, call statistics (CDR), SIP invite log, CSV/file upload for bulk number import, ACL-based IP security, prefix pattern matching in dialplan, and config preview. The dashboard requires authentication — default credentials are `admin` / `admin123` (override with `DASH_USER` and `DASH_PASS` env vars). Clicking **Apply Changes** regenerates `asterisk/extensions.conf`, `asterisk/pjsip.conf`, and `asterisk/acl.conf`, copies them to `/etc/asterisk/`, and reloads Asterisk.
+Features: Number management with integrated DID routing (each number has a destination), 10 fixed IVR audio slots, trunk configuration, live Asterisk status, call statistics (CDR), SIP invite log, CSV/file upload for bulk number import (with supplier selector), ACL-based IP security, prefix pattern matching in dialplan, and config preview. Ring groups have been removed; all routing goes directly to IVR slots. The dashboard requires authentication — default credentials are `admin` / `admin123` (override with `DASH_USER` and `DASH_PASS` env vars). Clicking **Apply Changes** regenerates `asterisk/extensions.conf`, `asterisk/pjsip.conf`, and `asterisk/acl.conf`, copies them to `/etc/asterisk/`, and reloads Asterisk.
 
-**Note:** Numbers and DID Routes have been merged — there is no separate DID Routes page or `/api/did-routes` endpoint. Each number entry in `db.json` carries `destinationType` and `destinationId` fields that define its DID routing behavior. The config generator reads routing info directly from numbers.
+**Note:** Numbers and DID Routes have been merged — there is no separate DID Routes page or `/api/did-routes` endpoint. Each number entry in `db.json` carries `destinationType` (always `ivr`) and `destinationId` fields that define its DID routing behavior. IVR destination is set at the prefix level in the Numbers page. The IVR page shows 10 fixed slots (IVR 1-10) with audio file upload only — no DTMF options or add/delete.
 
 - The dashboard stores data in `dashboard/data/db.json` (auto-created on first run with defaults matching the original repo configs).
 - Config files under `asterisk/` are **overwritten** when Apply is clicked from the dashboard; the dashboard is the source of truth once used.
