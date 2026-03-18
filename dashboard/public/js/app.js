@@ -843,9 +843,14 @@ async function renderAccessAnalyzer(el) {
     API.getAnalyzerRuns(5)
   ]);
 
-  const activeRun = currentRun && currentRun.status === 'running' ? currentRun : null;
+  const activeRun = currentRun && ['running', 'mobile_pending'].includes(currentRun.status) ? currentRun : null;
   const lastRun = activeRun || runs[0] || null;
   const enabledCount = testNumbers.filter(n => n.enabled !== false).length;
+  const selectedDialMode = settings?.dialMode || 'mobile-sim';
+  const isMobileMode = selectedDialMode === 'mobile-sim';
+  const nextPending = lastRun?.mode === 'mobile-sim'
+    ? (lastRun.results || []).find(r => !r.completedAt)
+    : null;
 
   el.innerHTML = `
     <div class="stats-grid">
@@ -856,7 +861,7 @@ async function renderAccessAnalyzer(el) {
       </div>
       <div class="stat-card">
         <div class="label">Run Status</div>
-        <div class="value ${activeRun ? 'amber' : 'green'}">${activeRun ? 'Running' : 'Idle'}</div>
+        <div class="value ${activeRun ? 'amber' : 'green'}">${activeRun ? (activeRun.status === 'mobile_pending' ? 'Mobile Pending' : 'Running') : 'Idle'}</div>
         <div class="sub">${activeRun ? `${activeRun.completed}/${activeRun.total} complete` : 'Ready to analyze'}</div>
       </div>
       <div class="stat-card">
@@ -875,13 +880,20 @@ async function renderAccessAnalyzer(el) {
       <div class="card-header">
         <h3>Test Number Dialer</h3>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-outline" id="btn-save-analyzer-settings">Save Delay</button>
-          <button class="btn btn-primary" id="btn-run-analyzer" ${activeRun ? 'disabled' : ''}>${activeRun ? 'Run In Progress...' : 'Auto Call All Enabled'}</button>
+          <button class="btn btn-outline" id="btn-save-analyzer-settings">Save Settings</button>
+          <button class="btn btn-primary" id="btn-run-analyzer" ${activeRun ? 'disabled' : ''}>${activeRun ? 'Run In Progress...' : (isMobileMode ? 'Start SIM Dial Session' : 'Auto Call All Enabled')}</button>
           <button class="btn btn-outline" id="btn-add-test-number">+ Add Test Number</button>
         </div>
       </div>
       <div class="card-body padded">
         <div class="form-row">
+          <div class="form-group">
+            <label>Dial mode</label>
+            <select class="form-control" id="analyzer-dial-mode">
+              <option value="mobile-sim" ${selectedDialMode === 'mobile-sim' ? 'selected' : ''}>Mobile SIM (phone dialer)</option>
+              <option value="asterisk" ${selectedDialMode === 'asterisk' ? 'selected' : ''}>Asterisk originate</option>
+            </select>
+          </div>
           <div class="form-group">
             <label>Dial delay between numbers (ms)</label>
             <input class="form-control" id="analyzer-delay-ms" type="number" min="500" max="15000" value="${settings?.dialDelayMs || 2000}">
@@ -891,6 +903,20 @@ async function renderAccessAnalyzer(el) {
             <div class="analyzer-progress-box">${activeRun ? `${activeRun.completed}/${activeRun.total} (${activeRun.progress || 0}%)` : 'No run active'}</div>
           </div>
         </div>
+
+        ${lastRun?.mode === 'mobile-sim' ? `
+          <div class="analyzer-mobile-box">
+            <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Mobile SIM workflow: tap call, complete call on your phone, then mark result.</div>
+            ${nextPending ? `
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <a class="btn btn-primary" href="tel:${escHtml(nextPending.number)}">Call ${escHtml(nextPending.number)}</a>
+                <button class="btn btn-outline mobile-mark" data-run-id="${lastRun.id}" data-result-id="${nextPending.id}" data-detection="IVR" data-reason="Detected IVR from SIM call">Mark IVR</button>
+                <button class="btn btn-outline mobile-mark" data-run-id="${lastRun.id}" data-result-id="${nextPending.id}" data-detection="IPRN" data-reason="Detected IPRN/no-route from SIM call">Mark IPRN</button>
+                <button class="btn btn-outline mobile-mark" data-run-id="${lastRun.id}" data-result-id="${nextPending.id}" data-detection="UNKNOWN" data-reason="Could not classify">Mark Unknown</button>
+              </div>
+            ` : '<div style="font-size:13px;color:var(--success)">SIM dial session complete.</div>'}
+          </div>
+        ` : ''}
 
         ${testNumbers.length ? `
         <table>
@@ -926,8 +952,10 @@ async function renderAccessAnalyzer(el) {
                   ? '<span class="badge badge-ring">IVR</span>'
                   : r.detection === 'IPRN'
                     ? '<span class="badge badge-direct">IPRN</span>'
-                    : '<span class="badge badge-ivr">UNKNOWN</span>'}</td>
-                <td>${r.dialOk ? '<span class="badge badge-ring">OK</span>' : '<span class="badge badge-direct">FAILED</span>'}</td>
+                    : r.detection === 'PENDING'
+                      ? '<span class="badge badge-ivr">PENDING</span>'
+                      : '<span class="badge badge-ivr">UNKNOWN</span>'}</td>
+                <td>${r.dialOk === null ? '<span class="badge badge-ivr">PENDING</span>' : (r.dialOk ? '<span class="badge badge-ring">OK</span>' : '<span class="badge badge-direct">FAILED</span>')}</td>
                 <td style="font-size:12px;color:var(--text-muted)">${escHtml(r.reason || '-')}</td>
               </tr>
             `).join('')}</tbody>
@@ -940,8 +968,10 @@ async function renderAccessAnalyzer(el) {
   document.getElementById('btn-add-test-number').onclick = () => showAnalyzerNumberModal(null, () => renderAccessAnalyzer(el));
   document.getElementById('btn-save-analyzer-settings').onclick = async () => {
     const dialDelayMs = parseInt(document.getElementById('analyzer-delay-ms').value) || 2000;
-    await API.updateAnalyzerSettings({ dialDelayMs });
-    toast('Analyzer delay saved');
+    const dialMode = document.getElementById('analyzer-dial-mode').value;
+    await API.updateAnalyzerSettings({ dialDelayMs, dialMode });
+    toast('Analyzer settings saved');
+    renderAccessAnalyzer(el);
   };
 
   const runBtn = document.getElementById('btn-run-analyzer');
@@ -949,12 +979,13 @@ async function renderAccessAnalyzer(el) {
     runBtn.onclick = async () => {
       try {
         const dialDelayMs = parseInt(document.getElementById('analyzer-delay-ms').value) || 2000;
-        const started = await API.startAnalyzerRun({ dialDelayMs });
+        const mode = document.getElementById('analyzer-dial-mode').value;
+        const started = await API.startAnalyzerRun({ dialDelayMs, mode });
         if (started.error) {
           toast(started.error, 'error');
           return;
         }
-        toast('Analyzer started');
+        toast(mode === 'mobile-sim' ? 'SIM dial session started' : 'Analyzer started');
         renderAccessAnalyzer(el);
       } catch (err) {
         toast('Failed to start analyzer: ' + err.message, 'error');
@@ -985,6 +1016,18 @@ async function renderAccessAnalyzer(el) {
     };
   });
 
+  el.querySelectorAll('.mobile-mark').forEach(btn => {
+    btn.onclick = async () => {
+      const runId = btn.dataset.runId;
+      const resultId = btn.dataset.resultId;
+      const detection = btn.dataset.detection;
+      const reason = btn.dataset.reason;
+      await API.updateAnalyzerRunResult(runId, resultId, { detection, reason, dialOk: true });
+      toast(`Marked ${detection}`);
+      renderAccessAnalyzer(el);
+    };
+  });
+
   if (activeRun && !statusInterval) {
     statusInterval = setInterval(async () => {
       if (currentPage !== 'access-analyzer') {
@@ -993,7 +1036,7 @@ async function renderAccessAnalyzer(el) {
         return;
       }
       const latest = await API.getAnalyzerCurrentRun();
-      if (!latest || latest.status !== 'running') {
+      if (!latest || !['running', 'mobile_pending'].includes(latest.status)) {
         clearInterval(statusInterval);
         statusInterval = null;
       }

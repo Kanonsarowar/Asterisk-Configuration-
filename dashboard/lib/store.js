@@ -52,7 +52,8 @@ const DEFAULT_DATA = {
   accessAnalyzer: {
     testNumbers: [],
     settings: {
-      dialDelayMs: 2000
+      dialDelayMs: 2000,
+      dialMode: 'mobile-sim'
     }
   }
 };
@@ -78,6 +79,9 @@ function load() {
     }
     if (typeof data.accessAnalyzer.settings.dialDelayMs !== 'number') {
       data.accessAnalyzer.settings.dialDelayMs = DEFAULT_DATA.accessAnalyzer.settings.dialDelayMs;
+    }
+    if (!['asterisk', 'mobile-sim'].includes(data.accessAnalyzer.settings.dialMode)) {
+      data.accessAnalyzer.settings.dialMode = DEFAULT_DATA.accessAnalyzer.settings.dialMode;
     }
     return data;
   } catch {

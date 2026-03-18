@@ -83,6 +83,9 @@ const API = {
   getAnalyzerCurrentRun() { return this.get('/api/access-analyzer/runs/current'); },
   getAnalyzerRuns(limit = 10) { return this.get(`/api/access-analyzer/runs?limit=${limit}`); },
   getAnalyzerRun(id) { return this.get(`/api/access-analyzer/runs/${id}`); },
+  updateAnalyzerRunResult(runId, resultId, payload) {
+    return this.put(`/api/access-analyzer/runs/${runId}/results/${resultId}`, payload);
+  },
 };
 
 export default API;

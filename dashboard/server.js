@@ -115,6 +115,11 @@ function coerceDialDelay(value, fallback = 2000) {
   return Math.max(500, Math.min(safe, 15000));
 }
 
+function coerceDialMode(value, fallback = 'mobile-sim') {
+  const mode = String(value || '').trim();
+  return mode === 'asterisk' || mode === 'mobile-sim' ? mode : fallback;
+}
+
 function getRouteSignal(numberDigits) {
   const match = store.getNumbers().find(n => `${n.countryCode}${n.prefix}${n.extension}` === numberDigits);
   if (!match) {
@@ -180,6 +185,19 @@ function summarizeRun(run) {
     settings: run.settings,
     summary: run.summary
   };
+}
+
+function recalcRunSummary(run) {
+  const summary = { ivrDetected: 0, iprnDetected: 0, unknown: 0, dialFailed: 0 };
+  for (const r of run.results || []) {
+    if (r.detection === 'IVR') summary.ivrDetected += 1;
+    else if (r.detection === 'IPRN') summary.iprnDetected += 1;
+    else if (r.detection === 'UNKNOWN') summary.unknown += 1;
+    if (r.dialOk === false) summary.dialFailed += 1;
+  }
+  run.summary = summary;
+  run.completed = (run.results || []).filter(r => !!r.completedAt).length;
+  run.progress = run.total ? Math.round((run.completed / run.total) * 100) : 100;
 }
 
 function sanitizeTestNumberPayload(body) {
@@ -542,14 +560,18 @@ async function handleApi(req, res) {
     if (path === '/api/access-analyzer/settings' && method === 'PUT') {
       const body = await parseBody(req);
       const dialDelayMs = coerceDialDelay(body.dialDelayMs, 2000);
-      return sendJson(res, 200, store.updateAnalyzerSettings({ dialDelayMs }));
+      const current = store.getAnalyzerSettings();
+      const dialMode = coerceDialMode(body.dialMode, current.dialMode || 'mobile-sim');
+      return sendJson(res, 200, store.updateAnalyzerSettings({ dialDelayMs, dialMode }));
     }
     if (path === '/api/access-analyzer/run' && method === 'POST') {
-      if (currentAnalyzerRun && currentAnalyzerRun.status === 'running') {
+      if (currentAnalyzerRun && ['running', 'mobile_pending'].includes(currentAnalyzerRun.status)) {
         return sendJson(res, 409, { error: 'Analyzer run already in progress', run: summarizeRun(currentAnalyzerRun) });
       }
 
       const body = await parseBody(req);
+      const analyzerSettings = store.getAnalyzerSettings();
+      const mode = coerceDialMode(body.mode, analyzerSettings.dialMode || 'mobile-sim');
       const numberIds = Array.isArray(body.numberIds) ? body.numberIds.map(String) : [];
       const all = store.getAnalyzerTestNumbers();
       const selected = numberIds.length
@@ -563,6 +585,7 @@ async function handleApi(req, res) {
       const run = {
         id: `run-${Date.now()}-${++analyzerRunSeq}`,
         status: 'queued',
+        mode,
         startedAt: new Date().toISOString(),
         completedAt: null,
         total: selected.length,
@@ -576,6 +599,24 @@ async function handleApi(req, res) {
       currentAnalyzerRun = run;
       analyzerRuns.unshift(run);
       if (analyzerRuns.length > 25) analyzerRuns.length = 25;
+      if (mode === 'mobile-sim') {
+        run.status = 'mobile_pending';
+        run.settings = { dialMode: mode };
+        run.results = selected.map((test, idx) => ({
+          id: `${run.id}-item-${idx + 1}`,
+          label: test.label,
+          number: normalizeDigits(test.number),
+          detection: 'PENDING',
+          reason: 'Pending manual SIM call',
+          dialOk: null,
+          dialOutput: '',
+          dialError: '',
+          completedAt: null
+        }));
+        recalcRunSummary(run);
+        return sendJson(res, 202, { ok: true, run });
+      }
+
       executeAnalyzerRun(run, selected, body.dialDelayMs);
       return sendJson(res, 202, { ok: true, run });
     }
@@ -591,6 +632,35 @@ async function handleApi(req, res) {
       const id = path.split('/').pop();
       const run = analyzerRuns.find(r => r.id === id);
       return run ? sendJson(res, 200, run) : sendJson(res, 404, { error: 'Not found' });
+    }
+    const runResultMatch = path.match(/^\/api\/access-analyzer\/runs\/([^/]+)\/results\/([^/]+)$/);
+    if (runResultMatch && method === 'PUT') {
+      const [, runId, resultId] = runResultMatch;
+      const run = analyzerRuns.find(r => r.id === runId);
+      if (!run) return sendJson(res, 404, { error: 'Run not found' });
+      const result = (run.results || []).find(r => r.id === resultId);
+      if (!result) return sendJson(res, 404, { error: 'Result not found' });
+
+      const body = await parseBody(req);
+      const detection = ['IVR', 'IPRN', 'UNKNOWN'].includes(body.detection) ? body.detection : 'UNKNOWN';
+      result.detection = detection;
+      result.reason = String(body.reason || result.reason || '').slice(0, 240);
+      result.dialOk = typeof body.dialOk === 'boolean' ? body.dialOk : true;
+      result.completedAt = new Date().toISOString();
+
+      recalcRunSummary(run);
+      const pending = (run.results || []).some(r => !r.completedAt);
+      if (!pending) {
+        run.status = 'completed';
+        run.completedAt = new Date().toISOString();
+        if (currentAnalyzerRun && currentAnalyzerRun.id === run.id) {
+          currentAnalyzerRun = null;
+        }
+      } else if (run.status !== 'running') {
+        run.status = 'mobile_pending';
+      }
+
+      return sendJson(res, 200, run);
     }
 
     // Audio file upload & list
