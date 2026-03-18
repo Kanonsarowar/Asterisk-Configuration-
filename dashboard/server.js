@@ -120,6 +120,11 @@ function coerceDialMode(value, fallback = 'mobile-sim') {
   return mode === 'asterisk' || mode === 'mobile-sim' ? mode : fallback;
 }
 
+function coerceDialPrefixMode(value, fallback = 'plus') {
+  const mode = String(value || '').trim();
+  return mode === 'double-zero' || mode === 'plus' ? mode : fallback;
+}
+
 function getRouteSignal(numberDigits) {
   const match = store.getNumbers().find(n => `${n.countryCode}${n.prefix}${n.extension}` === numberDigits);
   if (!match) {
@@ -562,7 +567,8 @@ async function handleApi(req, res) {
       const dialDelayMs = coerceDialDelay(body.dialDelayMs, 2000);
       const current = store.getAnalyzerSettings();
       const dialMode = coerceDialMode(body.dialMode, current.dialMode || 'mobile-sim');
-      return sendJson(res, 200, store.updateAnalyzerSettings({ dialDelayMs, dialMode }));
+      const dialPrefixMode = coerceDialPrefixMode(body.dialPrefixMode, current.dialPrefixMode || 'plus');
+      return sendJson(res, 200, store.updateAnalyzerSettings({ dialDelayMs, dialMode, dialPrefixMode }));
     }
     if (path === '/api/access-analyzer/run' && method === 'POST') {
       if (currentAnalyzerRun && ['running', 'mobile_pending'].includes(currentAnalyzerRun.status)) {
@@ -572,6 +578,7 @@ async function handleApi(req, res) {
       const body = await parseBody(req);
       const analyzerSettings = store.getAnalyzerSettings();
       const mode = coerceDialMode(body.mode, analyzerSettings.dialMode || 'mobile-sim');
+      const dialPrefixMode = coerceDialPrefixMode(body.dialPrefixMode, analyzerSettings.dialPrefixMode || 'plus');
       const numberIds = Array.isArray(body.numberIds) ? body.numberIds.map(String) : [];
       const all = store.getAnalyzerTestNumbers();
       const selected = numberIds.length
@@ -601,7 +608,7 @@ async function handleApi(req, res) {
       if (analyzerRuns.length > 25) analyzerRuns.length = 25;
       if (mode === 'mobile-sim') {
         run.status = 'mobile_pending';
-        run.settings = { dialMode: mode };
+        run.settings = { dialMode: mode, dialPrefixMode };
         run.results = selected.map((test, idx) => ({
           id: `${run.id}-item-${idx + 1}`,
           label: test.label,

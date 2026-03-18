@@ -835,6 +835,26 @@ function showAddNumberModal(suppliers, ivrMenus) {
 }
 
 // ---- ACCESS ANALYZER ----
+function extractPastedNumbers(rawText) {
+  const normalized = String(rawText || '').replace(/\u00a0/g, ' ');
+  const lines = normalized.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const out = [];
+  for (const line of lines) {
+    const hit = line.match(/\+?\d[\d\s().-]{5,}\d/);
+    if (!hit) continue;
+    const digits = hit[0].replace(/\D/g, '');
+    if (digits.length >= 7) out.push(digits);
+  }
+  return [...new Set(out)];
+}
+
+function formatDialTarget(number, dialPrefixMode) {
+  const digits = String(number || '').replace(/\D/g, '');
+  if (!digits) return '';
+  const canonical = digits.startsWith('00') ? digits.slice(2) : digits;
+  return dialPrefixMode === 'double-zero' ? `00${canonical}` : `+${canonical}`;
+}
+
 async function renderAccessAnalyzer(el) {
   const [testNumbers, settings, currentRun, runs] = await Promise.all([
     API.getAnalyzerTestNumbers(),
@@ -847,10 +867,13 @@ async function renderAccessAnalyzer(el) {
   const lastRun = activeRun || runs[0] || null;
   const enabledCount = testNumbers.filter(n => n.enabled !== false).length;
   const selectedDialMode = settings?.dialMode || 'mobile-sim';
+  const selectedDialPrefixMode = settings?.dialPrefixMode || 'plus';
+  const runDialPrefixMode = lastRun?.settings?.dialPrefixMode || selectedDialPrefixMode;
   const isMobileMode = selectedDialMode === 'mobile-sim';
   const nextPending = lastRun?.mode === 'mobile-sim'
     ? (lastRun.results || []).find(r => !r.completedAt)
     : null;
+  const pendingDialTarget = nextPending ? formatDialTarget(nextPending.number, runDialPrefixMode) : '';
 
   el.innerHTML = `
     <div class="stats-grid">
@@ -895,6 +918,13 @@ async function renderAccessAnalyzer(el) {
             </select>
           </div>
           <div class="form-group">
+            <label>SIM dialing prefix</label>
+            <select class="form-control" id="analyzer-dial-prefix-mode">
+              <option value="plus" ${selectedDialPrefixMode === 'plus' ? 'selected' : ''}>Use + (e.g. +393194010262)</option>
+              <option value="double-zero" ${selectedDialPrefixMode === 'double-zero' ? 'selected' : ''}>Use 00 (e.g. 00393194010262)</option>
+            </select>
+          </div>
+          <div class="form-group">
             <label>Dial delay between numbers (ms)</label>
             <input class="form-control" id="analyzer-delay-ms" type="number" min="500" max="15000" value="${settings?.dialDelayMs || 2000}">
           </div>
@@ -909,7 +939,7 @@ async function renderAccessAnalyzer(el) {
             <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Mobile SIM workflow: tap call, complete call on your phone, then mark result.</div>
             ${nextPending ? `
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-                <a class="btn btn-primary" href="tel:${escHtml(nextPending.number)}">Call ${escHtml(nextPending.number)}</a>
+                <a class="btn btn-primary" href="tel:${escHtml(pendingDialTarget)}">Call ${escHtml(pendingDialTarget)}</a>
                 <button class="btn btn-outline mobile-mark" data-run-id="${lastRun.id}" data-result-id="${nextPending.id}" data-detection="IVR" data-reason="Detected IVR from SIM call">Mark IVR</button>
                 <button class="btn btn-outline mobile-mark" data-run-id="${lastRun.id}" data-result-id="${nextPending.id}" data-detection="IPRN" data-reason="Detected IPRN/no-route from SIM call">Mark IPRN</button>
                 <button class="btn btn-outline mobile-mark" data-run-id="${lastRun.id}" data-result-id="${nextPending.id}" data-detection="UNKNOWN" data-reason="Could not classify">Mark Unknown</button>
@@ -969,7 +999,8 @@ async function renderAccessAnalyzer(el) {
   document.getElementById('btn-save-analyzer-settings').onclick = async () => {
     const dialDelayMs = parseInt(document.getElementById('analyzer-delay-ms').value) || 2000;
     const dialMode = document.getElementById('analyzer-dial-mode').value;
-    await API.updateAnalyzerSettings({ dialDelayMs, dialMode });
+    const dialPrefixMode = document.getElementById('analyzer-dial-prefix-mode').value;
+    await API.updateAnalyzerSettings({ dialDelayMs, dialMode, dialPrefixMode });
     toast('Analyzer settings saved');
     renderAccessAnalyzer(el);
   };
@@ -1047,14 +1078,19 @@ async function renderAccessAnalyzer(el) {
 
 function showAnalyzerNumberModal(testNumber, onSaved) {
   const isEdit = !!testNumber;
-  showModal(isEdit ? 'Edit Test Number' : 'Add Test Number', `
+  showModal(isEdit ? 'Edit Test Number' : 'Add Test Numbers', `
     <div class="form-group">
       <label>Label</label>
-      <input class="form-control" id="anl-label" value="${escHtml(testNumber?.label || '')}" placeholder="e.g. Italy IPRN probe">
+      <input class="form-control" id="anl-label" value="${escHtml(testNumber?.label || '')}" placeholder="${isEdit ? 'e.g. Italy IPRN probe' : 'Optional base label (applied to pasted numbers)'}">
     </div>
     <div class="form-group">
-      <label>Test Number</label>
-      <input class="form-control" id="anl-number" value="${escHtml(testNumber?.number || '')}" placeholder="e.g. 393199030220">
+      <label>${isEdit ? 'Test Number' : 'Paste Test Numbers (one per line)'}</label>
+      ${isEdit
+        ? `<input class="form-control" id="anl-number" value="${escHtml(testNumber?.number || '')}" placeholder="e.g. 393194010262">`
+        : `<textarea class="form-control" id="anl-number-list" rows="8" style="font-family:monospace" placeholder="393194010262
+393194010267
+393194010268
+393194010265"></textarea>`}
     </div>
     <div class="form-group">
       <label>Notes</label>
@@ -1067,17 +1103,17 @@ function showAnalyzerNumberModal(testNumber, onSaved) {
       </label>
     </div>
   `, async () => {
-    const payload = {
-      label: document.getElementById('anl-label').value.trim(),
-      number: document.getElementById('anl-number').value.trim(),
-      notes: document.getElementById('anl-notes').value.trim(),
-      enabled: document.getElementById('anl-enabled').checked
-    };
-    if (!payload.number) {
-      toast('Number is required', 'error');
-      return;
-    }
     if (isEdit) {
+      const payload = {
+        label: document.getElementById('anl-label').value.trim(),
+        number: document.getElementById('anl-number').value.trim(),
+        notes: document.getElementById('anl-notes').value.trim(),
+        enabled: document.getElementById('anl-enabled').checked
+      };
+      if (!payload.number) {
+        toast('Number is required', 'error');
+        return;
+      }
       const updated = await API.updateAnalyzerTestNumber(testNumber.id, payload);
       if (updated.error) {
         toast(updated.error, 'error');
@@ -1085,12 +1121,24 @@ function showAnalyzerNumberModal(testNumber, onSaved) {
       }
       toast('Test number updated');
     } else {
-      const created = await API.addAnalyzerTestNumber(payload);
-      if (created.error) {
-        toast(created.error, 'error');
+      const baseLabel = document.getElementById('anl-label').value.trim();
+      const notes = document.getElementById('anl-notes').value.trim();
+      const enabled = document.getElementById('anl-enabled').checked;
+      const pasted = extractPastedNumbers(document.getElementById('anl-number-list').value);
+      if (!pasted.length) {
+        toast('Paste at least one valid number', 'error');
         return;
       }
-      toast('Test number added');
+      for (let i = 0; i < pasted.length; i++) {
+        const number = pasted[i];
+        const label = baseLabel ? (pasted.length === 1 ? baseLabel : `${baseLabel} ${i + 1}`) : '';
+        const created = await API.addAnalyzerTestNumber({ label, number, notes, enabled });
+        if (created.error) {
+          toast(created.error, 'error');
+          return;
+        }
+      }
+      toast(`Added ${pasted.length} test number${pasted.length > 1 ? 's' : ''}`);
     }
     closeModal();
     if (typeof onSaved === 'function') onSaved();
