@@ -97,6 +97,7 @@ export function generateExtensionsConf(store) {
     lines.push(`[ivr-${ivr.id}]`);
     lines.push(`exten => s,1,NoOp(${ivr.name})`);
     lines.push(' same => n,Answer()');
+    lines.push(' same => n,Set(TIMEOUT(absolute)=3600)');
     if (ivr.audioFile) {
       lines.push(` same => n(loop),Playback(${ivr.audioFile})`);
       lines.push(' same => n,Wait(1)');
@@ -106,7 +107,7 @@ export function generateExtensionsConf(store) {
       lines.push(' same => n,Wait(1)');
       lines.push(' same => n,Goto(loop)');
     } else {
-      lines.push(' same => n(loop),Wait(300)');
+      lines.push(' same => n(loop),Wait(3600)');
       lines.push(' same => n,Goto(loop)');
     }
     lines.push(' same => n,Hangup()');
