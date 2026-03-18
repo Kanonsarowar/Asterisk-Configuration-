@@ -109,6 +109,12 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function coerceDialDelay(value, fallback = 2000) {
+  const parsed = parseInt(value, 10);
+  const safe = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.max(500, Math.min(safe, 15000));
+}
+
 function getRouteSignal(numberDigits) {
   const match = store.getNumbers().find(n => `${n.countryCode}${n.prefix}${n.extension}` === numberDigits);
   if (!match) {
@@ -190,7 +196,7 @@ function sanitizeTestNumberPayload(body) {
 async function executeAnalyzerRun(run, testNumbers, dialDelayMs) {
   try {
     const savedSettings = store.getAnalyzerSettings();
-    const delay = Math.max(500, Math.min(parseInt(dialDelayMs || savedSettings.dialDelayMs || 2000), 15000));
+    const delay = coerceDialDelay(dialDelayMs, savedSettings.dialDelayMs || 2000);
     run.settings = { dialDelayMs: delay };
     run.status = 'running';
 
@@ -535,7 +541,7 @@ async function handleApi(req, res) {
     }
     if (path === '/api/access-analyzer/settings' && method === 'PUT') {
       const body = await parseBody(req);
-      const dialDelayMs = Math.max(500, Math.min(parseInt(body.dialDelayMs || 2000), 15000));
+      const dialDelayMs = coerceDialDelay(body.dialDelayMs, 2000);
       return sendJson(res, 200, store.updateAnalyzerSettings({ dialDelayMs }));
     }
     if (path === '/api/access-analyzer/run' && method === 'POST') {
