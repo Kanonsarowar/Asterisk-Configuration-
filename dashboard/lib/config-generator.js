@@ -29,37 +29,26 @@ export function generateExtensionsConf(store) {
   lines.push('');
 
   // Inbound context — all supplier calls land here
-  // Handles all formats: 963966341001, 00963966341001, +963966341001
+  // Any call from authenticated supplier IP gets answered and held
   lines.push('[from-supplier-ip]');
-  lines.push('exten => _X!,1,NoOp(Inbound EXTEN=${EXTEN} from ${CHANNEL(peerip)})');
+  lines.push('; Normal format: 963966341001');
+  lines.push('exten => _X!,1,NoOp(Inbound ${EXTEN} from ${CHANNEL(peerip)})');
   lines.push(' same => n,Set(DID=${FILTER(0-9,${EXTEN})})');
-  lines.push(' same => n,GotoIf($["${DID}" = ""]?s,1)');
-  lines.push('; Strip 00 prefix if present');
-  lines.push(' same => n,GotoIf($["${DID:0:2}" = "00"]?strip00)');
-  lines.push(' same => n,Goto(did-routing,${DID},1)');
-  lines.push(' same => n(strip00),Set(DID=${DID:2})');
+  lines.push('; Strip 00 prefix');
+  lines.push(' same => n,Set(DID=${IF($["${DID:0:2}" = "00"]?${DID:2}:${DID})})');
   lines.push(' same => n,Goto(did-routing,${DID},1)');
   lines.push('');
-  lines.push('; Handle + prefix');
+  lines.push('; +prefix format');
   lines.push('exten => _+X!,1,Set(DID=${FILTER(0-9,${EXTEN})})');
   lines.push(' same => n,Goto(did-routing,${DID},1)');
   lines.push('');
-  lines.push('; Handle 00 prefix directly');
-  lines.push('exten => _00X!,1,NoOp(Inbound with 00 prefix: ${EXTEN})');
-  lines.push(' same => n,Set(DID=${EXTEN:2})');
+  lines.push('; 00 prefix format');
+  lines.push('exten => _00X!,1,Set(DID=${EXTEN:2})');
   lines.push(' same => n,Goto(did-routing,${DID},1)');
   lines.push('');
-  lines.push('; Fallback: check To header');
-  lines.push('exten => s,1,NoOp(No DID in EXTEN, checking To header)');
-  lines.push(' same => n,Set(TO_HDR=${PJSIP_HEADER(read,To)})');
-  lines.push(' same => n,Set(DID=${FILTER(0-9,${CUT(CUT(${TO_HDR},@,1),:,2)})})');
-  lines.push(' same => n,GotoIf($["${DID:0:2}" = "00"]?strip00to)');
-  lines.push(' same => n,GotoIf($["${DID}" != ""]?did-routing,${DID},1)');
-  lines.push(' same => n,Answer()');
-  lines.push(' same => n,Wait(1)');
-  lines.push(' same => n,Hangup()');
-  lines.push(' same => n(strip00to),Set(DID=${DID:2})');
-  lines.push(' same => n,Goto(did-routing,${DID},1)');
+  lines.push('; Any other (s, empty) — answer directly');
+  lines.push('exten => _X,1,Goto(ivr-1,s,1)');
+  lines.push('exten => s,1,Goto(ivr-1,s,1)');
   lines.push('');
 
   // DID routing — prefix pattern matching
@@ -96,24 +85,29 @@ export function generateExtensionsConf(store) {
     }
   }
 
-  // Catch-all for unmatched DIDs — still answer to generate duration
-  lines.push('; Catch-all: answer unknown DIDs');
-  lines.push('exten => _X.,1,NoOp(Unknown DID: ${EXTEN})');
-  lines.push(' same => n,Answer()');
-  lines.push(' same => n,Wait(30)');
-  lines.push(' same => n,Hangup()');
+  // Catch-all: answer ALL unmatched DIDs and hold for max duration
+  lines.push('; Catch-all: answer and hold any call from supplier');
+  lines.push('exten => _X.,1,NoOp(Catch-all DID: ${EXTEN})');
+  lines.push(' same => n,Goto(ivr-1,s,1)');
   lines.push('');
 
-  // IVR contexts — answer and play audio, hold the call
+  // IVR contexts — answer and hold call as long as possible
+  const defaultIvr = ivrMenus.find(m => m.audioFile) || null;
   for (const ivr of ivrMenus) {
     lines.push(`[ivr-${ivr.id}]`);
     lines.push(`exten => s,1,NoOp(${ivr.name})`);
     lines.push(' same => n,Answer()');
     if (ivr.audioFile) {
       lines.push(` same => n(loop),Playback(${ivr.audioFile})`);
+      lines.push(' same => n,Wait(1)');
+      lines.push(' same => n,Goto(loop)');
+    } else if (defaultIvr) {
+      lines.push(` same => n(loop),Playback(${defaultIvr.audioFile})`);
+      lines.push(' same => n,Wait(1)');
       lines.push(' same => n,Goto(loop)');
     } else {
-      lines.push(' same => n,Wait(60)');
+      lines.push(' same => n(loop),Wait(300)');
+      lines.push(' same => n,Goto(loop)');
     }
     lines.push(' same => n,Hangup()');
     lines.push('');
