@@ -19,15 +19,20 @@ export function getCdrStats(hours = 24) {
       const startTime = new Date(fields[9]?.replace(/"/g, '')).getTime();
       if (isNaN(startTime) || startTime < cutoff) continue;
 
+      const src = fields[1]?.replace(/"/g, '') || '';
+      const dst = fields[2]?.replace(/"/g, '') || '';
+      const channel = fields[0]?.replace(/"/g, '') || '';
+      const ipMatch = channel.match(/(\d+\.\d+\.\d+\.\d+)/);
       calls.push({
-        src: fields[1]?.replace(/"/g, '') || '',
-        dst: fields[2]?.replace(/"/g, '') || '',
+        src,
+        dst,
         context: fields[4]?.replace(/"/g, '') || '',
         duration: parseInt(fields[12]?.replace(/"/g, '')) || 0,
         billsec: parseInt(fields[13]?.replace(/"/g, '')) || 0,
         disposition: fields[14]?.replace(/"/g, '') || '',
         start: fields[9]?.replace(/"/g, '') || '',
-        channel: fields[0]?.replace(/"/g, '') || '',
+        channel,
+        sourceIp: ipMatch ? ipMatch[1] : '',
       });
     }
 

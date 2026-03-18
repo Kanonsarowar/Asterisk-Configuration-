@@ -317,7 +317,13 @@ async function refreshDashboard() {
 
 // ---- CALL STATS ----
 async function renderCallStats(el) {
-  const stats = await API.getCallStats(24);
+  const [stats, suppliers] = await Promise.all([API.getCallStats(24), API.getSuppliers()]);
+
+  // Map supplier IPs to names
+  const ipToSupplier = {};
+  for (const s of suppliers) {
+    for (const ip of s.ips) ipToSupplier[ip] = s.name;
+  }
 
   el.innerHTML = `
     <div class="stats-grid">
@@ -359,14 +365,18 @@ async function renderCallStats(el) {
       <div class="card-body">
         ${stats.recentCalls.length ? `
         <table>
-          <thead><tr><th>Time</th><th>Source</th><th>Destination</th><th>Duration</th><th>Status</th></tr></thead>
-          <tbody>${stats.recentCalls.map(c => {
+          <thead><tr><th>SL</th><th>Prefix</th><th>Caller Number</th><th>Calling Number</th><th>Duration</th><th>Supplier</th><th>Status</th></tr></thead>
+          <tbody>${stats.recentCalls.map((c, i) => {
             const statusClass = c.disposition === 'ANSWERED' ? 'badge-ring' : 'badge-direct';
+            const prefix = c.dst.length > 4 ? c.dst.substring(0, c.dst.length - 4) : c.dst;
+            const supplierName = c.sourceIp && ipToSupplier[c.sourceIp] ? ipToSupplier[c.sourceIp] : c.sourceIp || '-';
             return `<tr>
-              <td style="font-size:12px">${escHtml(c.start)}</td>
+              <td>${i + 1}</td>
+              <td style="font-family:monospace;font-size:12px"><span class="badge badge-ivr">${escHtml(prefix)}</span></td>
               <td style="font-family:monospace;font-size:12px">${escHtml(c.src)}</td>
               <td style="font-family:monospace;font-size:12px"><strong>${escHtml(c.dst)}</strong></td>
               <td>${c.billsec}s</td>
+              <td><span class="badge badge-direct" style="font-size:11px">${escHtml(supplierName)}</span></td>
               <td><span class="badge ${statusClass}">${c.disposition}</span></td>
             </tr>`;
           }).join('')}</tbody>
