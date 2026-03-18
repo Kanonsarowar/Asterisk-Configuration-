@@ -396,3 +396,17 @@ select.form-control { cursor: pointer; }
 .prefix-numbers td { padding: 6px 12px; }
 
 .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+/* Access analyzer */
+.analyzer-progress-box {
+  width: 100%;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 14px;
+}

@@ -71,6 +71,18 @@ const API = {
   // Apply
   apply() { return this.post('/api/apply', {}); },
   previewConfig() { return this.get('/api/preview-config'); },
+
+  // Access Analyzer
+  getAnalyzerTestNumbers() { return this.get('/api/access-analyzer/test-numbers'); },
+  addAnalyzerTestNumber(payload) { return this.post('/api/access-analyzer/test-numbers', payload); },
+  updateAnalyzerTestNumber(id, payload) { return this.put(`/api/access-analyzer/test-numbers/${id}`, payload); },
+  deleteAnalyzerTestNumber(id) { return this.del(`/api/access-analyzer/test-numbers/${id}`); },
+  getAnalyzerSettings() { return this.get('/api/access-analyzer/settings'); },
+  updateAnalyzerSettings(payload) { return this.put('/api/access-analyzer/settings', payload); },
+  startAnalyzerRun(payload = {}) { return this.post('/api/access-analyzer/run', payload); },
+  getAnalyzerCurrentRun() { return this.get('/api/access-analyzer/runs/current'); },
+  getAnalyzerRuns(limit = 10) { return this.get(`/api/access-analyzer/runs?limit=${limit}`); },
+  getAnalyzerRun(id) { return this.get(`/api/access-analyzer/runs/${id}`); },
 };
 
 export default API;

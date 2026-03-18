@@ -239,6 +239,7 @@ const pageTitles = {
   'sip-log': 'SIP Invite Log',
   suppliers: 'Suppliers',
   numbers: 'Numbers',
+  'access-analyzer': 'Access Analyzer',
   'ivr-menus': 'IVR Audio',
   trunk: 'Trunk Configuration',
   config: 'Config Preview'
@@ -254,6 +255,7 @@ async function renderPage(page) {
     case 'sip-log': return renderSipLog(content);
     case 'suppliers': return renderSuppliers(content);
     case 'numbers': return renderNumbers(content);
+    case 'access-analyzer': return renderAccessAnalyzer(content);
     case 'ivr-menus': return renderIvrMenus(content);
     case 'trunk': return renderTrunk(content);
     case 'config': return renderConfig(content);
@@ -830,6 +832,226 @@ function showAddNumberModal(suppliers, ivrMenus) {
   };
   document.getElementById('num-range-to').oninput = document.getElementById('num-range-from').oninput;
 
+}
+
+// ---- ACCESS ANALYZER ----
+async function renderAccessAnalyzer(el) {
+  const [testNumbers, settings, currentRun, runs] = await Promise.all([
+    API.getAnalyzerTestNumbers(),
+    API.getAnalyzerSettings(),
+    API.getAnalyzerCurrentRun(),
+    API.getAnalyzerRuns(5)
+  ]);
+
+  const activeRun = currentRun && currentRun.status === 'running' ? currentRun : null;
+  const lastRun = activeRun || runs[0] || null;
+  const enabledCount = testNumbers.filter(n => n.enabled !== false).length;
+
+  el.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="label">Test Numbers</div>
+        <div class="value blue">${testNumbers.length}</div>
+        <div class="sub">${enabledCount} enabled</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Run Status</div>
+        <div class="value ${activeRun ? 'amber' : 'green'}">${activeRun ? 'Running' : 'Idle'}</div>
+        <div class="sub">${activeRun ? `${activeRun.completed}/${activeRun.total} complete` : 'Ready to analyze'}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Last IVR Detected</div>
+        <div class="value green">${lastRun?.summary?.ivrDetected || 0}</div>
+        <div class="sub">in latest run</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Last IPRN Detected</div>
+        <div class="value" style="color:var(--danger)">${lastRun?.summary?.iprnDetected || 0}</div>
+        <div class="sub">in latest run</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3>Test Number Dialer</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-outline" id="btn-save-analyzer-settings">Save Delay</button>
+          <button class="btn btn-primary" id="btn-run-analyzer" ${activeRun ? 'disabled' : ''}>${activeRun ? 'Run In Progress...' : 'Auto Call All Enabled'}</button>
+          <button class="btn btn-outline" id="btn-add-test-number">+ Add Test Number</button>
+        </div>
+      </div>
+      <div class="card-body padded">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Dial delay between numbers (ms)</label>
+            <input class="form-control" id="analyzer-delay-ms" type="number" min="500" max="15000" value="${settings?.dialDelayMs || 2000}">
+          </div>
+          <div class="form-group">
+            <label>Current run progress</label>
+            <div class="analyzer-progress-box">${activeRun ? `${activeRun.completed}/${activeRun.total} (${activeRun.progress || 0}%)` : 'No run active'}</div>
+          </div>
+        </div>
+
+        ${testNumbers.length ? `
+        <table>
+          <thead><tr><th>Enabled</th><th>Label</th><th>Test Number</th><th>Notes</th><th></th></tr></thead>
+          <tbody>${testNumbers.map(n => `<tr>
+            <td><input type="checkbox" class="analyzer-enable-toggle" data-id="${n.id}" ${n.enabled !== false ? 'checked' : ''}></td>
+            <td><strong>${escHtml(n.label || '-')}</strong></td>
+            <td style="font-family:monospace">${escHtml(n.number)}</td>
+            <td style="font-size:12px;color:var(--text-muted)">${escHtml(n.notes || '-')}</td>
+            <td style="white-space:nowrap">
+              <button class="btn btn-outline btn-sm edit-test-number" data-id="${n.id}">Edit</button>
+              <button class="btn btn-danger btn-sm del-test-number" data-id="${n.id}">Delete</button>
+            </td>
+          </tr>`).join('')}</tbody>
+        </table>` : '<div class="empty-state">No test numbers added yet. Add numbers, then click "Auto Call All Enabled".</div>'}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3>Detection Results ${lastRun ? `<span style="font-size:12px;color:var(--text-muted);font-weight:400">(${escHtml(lastRun.id)})</span>` : ''}</h3>
+      </div>
+      <div class="card-body">
+        ${lastRun?.results?.length ? `
+          <table>
+            <thead><tr><th>#</th><th>Label</th><th>Number</th><th>Detection</th><th>Dial</th><th>Reason</th></tr></thead>
+            <tbody>${lastRun.results.map((r, idx) => `
+              <tr>
+                <td>${idx + 1}</td>
+                <td>${escHtml(r.label || '-')}</td>
+                <td style="font-family:monospace">${escHtml(r.number)}</td>
+                <td>${r.detection === 'IVR'
+                  ? '<span class="badge badge-ring">IVR</span>'
+                  : r.detection === 'IPRN'
+                    ? '<span class="badge badge-direct">IPRN</span>'
+                    : '<span class="badge badge-ivr">UNKNOWN</span>'}</td>
+                <td>${r.dialOk ? '<span class="badge badge-ring">OK</span>' : '<span class="badge badge-direct">FAILED</span>'}</td>
+                <td style="font-size:12px;color:var(--text-muted)">${escHtml(r.reason || '-')}</td>
+              </tr>
+            `).join('')}</tbody>
+          </table>
+        ` : '<div class="empty-state">No analyzer run results yet.</div>'}
+      </div>
+    </div>
+  `;
+
+  document.getElementById('btn-add-test-number').onclick = () => showAnalyzerNumberModal(null, () => renderAccessAnalyzer(el));
+  document.getElementById('btn-save-analyzer-settings').onclick = async () => {
+    const dialDelayMs = parseInt(document.getElementById('analyzer-delay-ms').value) || 2000;
+    await API.updateAnalyzerSettings({ dialDelayMs });
+    toast('Analyzer delay saved');
+  };
+
+  const runBtn = document.getElementById('btn-run-analyzer');
+  if (runBtn) {
+    runBtn.onclick = async () => {
+      try {
+        const dialDelayMs = parseInt(document.getElementById('analyzer-delay-ms').value) || 2000;
+        const started = await API.startAnalyzerRun({ dialDelayMs });
+        if (started.error) {
+          toast(started.error, 'error');
+          return;
+        }
+        toast('Analyzer started');
+        renderAccessAnalyzer(el);
+      } catch (err) {
+        toast('Failed to start analyzer: ' + err.message, 'error');
+      }
+    };
+  }
+
+  el.querySelectorAll('.analyzer-enable-toggle').forEach(input => {
+    input.onchange = async () => {
+      await API.updateAnalyzerTestNumber(input.dataset.id, { enabled: input.checked });
+      toast(`Test number ${input.checked ? 'enabled' : 'disabled'}`);
+    };
+  });
+
+  el.querySelectorAll('.edit-test-number').forEach(btn => {
+    btn.onclick = () => {
+      const row = testNumbers.find(n => n.id === btn.dataset.id);
+      if (row) showAnalyzerNumberModal(row, () => renderAccessAnalyzer(el));
+    };
+  });
+
+  el.querySelectorAll('.del-test-number').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('Delete this test number?')) return;
+      await API.deleteAnalyzerTestNumber(btn.dataset.id);
+      toast('Test number deleted');
+      renderAccessAnalyzer(el);
+    };
+  });
+
+  if (activeRun && !statusInterval) {
+    statusInterval = setInterval(async () => {
+      if (currentPage !== 'access-analyzer') {
+        clearInterval(statusInterval);
+        statusInterval = null;
+        return;
+      }
+      const latest = await API.getAnalyzerCurrentRun();
+      if (!latest || latest.status !== 'running') {
+        clearInterval(statusInterval);
+        statusInterval = null;
+      }
+      renderAccessAnalyzer(document.getElementById('content'));
+    }, 2500);
+  }
+}
+
+function showAnalyzerNumberModal(testNumber, onSaved) {
+  const isEdit = !!testNumber;
+  showModal(isEdit ? 'Edit Test Number' : 'Add Test Number', `
+    <div class="form-group">
+      <label>Label</label>
+      <input class="form-control" id="anl-label" value="${escHtml(testNumber?.label || '')}" placeholder="e.g. Italy IPRN probe">
+    </div>
+    <div class="form-group">
+      <label>Test Number</label>
+      <input class="form-control" id="anl-number" value="${escHtml(testNumber?.number || '')}" placeholder="e.g. 393199030220">
+    </div>
+    <div class="form-group">
+      <label>Notes</label>
+      <textarea class="form-control" id="anl-notes" rows="3" placeholder="Optional notes">${escHtml(testNumber?.notes || '')}</textarea>
+    </div>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="anl-enabled" ${testNumber?.enabled !== false ? 'checked' : ''}>
+        Enabled for auto-dial
+      </label>
+    </div>
+  `, async () => {
+    const payload = {
+      label: document.getElementById('anl-label').value.trim(),
+      number: document.getElementById('anl-number').value.trim(),
+      notes: document.getElementById('anl-notes').value.trim(),
+      enabled: document.getElementById('anl-enabled').checked
+    };
+    if (!payload.number) {
+      toast('Number is required', 'error');
+      return;
+    }
+    if (isEdit) {
+      const updated = await API.updateAnalyzerTestNumber(testNumber.id, payload);
+      if (updated.error) {
+        toast(updated.error, 'error');
+        return;
+      }
+      toast('Test number updated');
+    } else {
+      const created = await API.addAnalyzerTestNumber(payload);
+      if (created.error) {
+        toast(created.error, 'error');
+        return;
+      }
+      toast('Test number added');
+    }
+    closeModal();
+    if (typeof onSaved === 'function') onSaved();
+  });
 }
 
 // ---- IVR AUDIO ----

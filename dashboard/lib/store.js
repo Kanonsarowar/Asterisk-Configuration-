@@ -48,6 +48,12 @@ const DEFAULT_DATA = {
   globals: {
     ivrResponseTimeout: 7,
     ivrDigitTimeout: 5
+  },
+  accessAnalyzer: {
+    testNumbers: [],
+    settings: {
+      dialDelayMs: 2000
+    }
   }
 };
 
@@ -60,6 +66,19 @@ function load() {
     const data = JSON.parse(readFileSync(DB_FILE, 'utf8'));
     if (!data.suppliers) data.suppliers = DEFAULT_DATA.suppliers;
     if (!data.numbers) data.numbers = DEFAULT_DATA.numbers;
+    if (!data.ivrMenus) data.ivrMenus = DEFAULT_DATA.ivrMenus;
+    if (!data.trunkConfig) data.trunkConfig = DEFAULT_DATA.trunkConfig;
+    if (!data.globals) data.globals = DEFAULT_DATA.globals;
+    if (!data.accessAnalyzer) data.accessAnalyzer = structuredClone(DEFAULT_DATA.accessAnalyzer);
+    if (!Array.isArray(data.accessAnalyzer.testNumbers)) {
+      data.accessAnalyzer.testNumbers = [];
+    }
+    if (!data.accessAnalyzer.settings) {
+      data.accessAnalyzer.settings = structuredClone(DEFAULT_DATA.accessAnalyzer.settings);
+    }
+    if (typeof data.accessAnalyzer.settings.dialDelayMs !== 'number') {
+      data.accessAnalyzer.settings.dialDelayMs = DEFAULT_DATA.accessAnalyzer.settings.dialDelayMs;
+    }
     return data;
   } catch {
     save(DEFAULT_DATA);
@@ -168,6 +187,56 @@ export class Store {
     this.data.globals = { ...this.data.globals, ...globals };
     save(this.data);
     return this.data.globals;
+  }
+
+  // Access Analyzer
+  getAccessAnalyzer() {
+    if (!this.data.accessAnalyzer) {
+      this.data.accessAnalyzer = structuredClone(DEFAULT_DATA.accessAnalyzer);
+      save(this.data);
+    }
+    return this.data.accessAnalyzer;
+  }
+  getAnalyzerTestNumbers() {
+    return this.getAccessAnalyzer().testNumbers;
+  }
+  addAnalyzerTestNumber(testNumber) {
+    const analyzer = this.getAccessAnalyzer();
+    testNumber.id = nextId(analyzer.testNumbers);
+    analyzer.testNumbers.push({
+      id: testNumber.id,
+      label: testNumber.label || `Test ${testNumber.number}`,
+      number: testNumber.number,
+      enabled: testNumber.enabled !== false,
+      notes: testNumber.notes || ''
+    });
+    save(this.data);
+    return analyzer.testNumbers[analyzer.testNumbers.length - 1];
+  }
+  updateAnalyzerTestNumber(id, updates) {
+    const analyzer = this.getAccessAnalyzer();
+    const idx = analyzer.testNumbers.findIndex(n => n.id === id);
+    if (idx === -1) return null;
+    analyzer.testNumbers[idx] = { ...analyzer.testNumbers[idx], ...updates, id };
+    save(this.data);
+    return analyzer.testNumbers[idx];
+  }
+  deleteAnalyzerTestNumber(id) {
+    const analyzer = this.getAccessAnalyzer();
+    const idx = analyzer.testNumbers.findIndex(n => n.id === id);
+    if (idx === -1) return false;
+    analyzer.testNumbers.splice(idx, 1);
+    save(this.data);
+    return true;
+  }
+  getAnalyzerSettings() {
+    return this.getAccessAnalyzer().settings;
+  }
+  updateAnalyzerSettings(settings) {
+    const analyzer = this.getAccessAnalyzer();
+    analyzer.settings = { ...analyzer.settings, ...settings };
+    save(this.data);
+    return analyzer.settings;
   }
 
   getAll() { return this.data; }

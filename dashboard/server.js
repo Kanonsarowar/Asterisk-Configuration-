@@ -17,6 +17,9 @@ const execAsync = promisify(exec);
 const PUBLIC_DIR = join(__dirname, 'public');
 const PORT = process.env.PORT || 3000;
 const store = new Store();
+const analyzerRuns = [];
+let analyzerRunSeq = 0;
+let currentAnalyzerRun = null;
 
 const MIME_TYPES = {
   '.html': 'text/html',
@@ -95,6 +98,159 @@ async function deployConfigs() {
     return { ok: true, reload, message: 'Configs deployed and Asterisk reloaded' };
   } catch (err) {
     return { ok: false, message: err.message };
+  }
+}
+
+function normalizeDigits(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getRouteSignal(numberDigits) {
+  const match = store.getNumbers().find(n => `${n.countryCode}${n.prefix}${n.extension}` === numberDigits);
+  if (!match) {
+    return {
+      detection: 'IPRN',
+      reason: 'No DID route found for this number',
+      route: null
+    };
+  }
+
+  if (match.destinationType === 'ivr') {
+    const ivr = store.getIvrMenu(match.destinationId);
+    return {
+      detection: 'IVR',
+      reason: ivr ? `Matched ${ivr.name}${ivr.audioFile ? ' with audio' : ' (audio not set)'}` : 'Matched IVR route',
+      route: match
+    };
+  }
+
+  return {
+    detection: 'UNKNOWN',
+    reason: `Matched route type ${match.destinationType || 'unknown'}`,
+    route: match
+  };
+}
+
+function getCdrSignal(numberDigits) {
+  const stats = getCdrStats(1);
+  const hit = (stats.recentCalls || []).find(c =>
+    normalizeDigits(c.dst) === numberDigits || normalizeDigits(c.src) === numberDigits
+  );
+  if (!hit) return null;
+  if (hit.disposition === 'ANSWERED' && hit.billsec > 0) {
+    return { detection: 'IVR', reason: `CDR answered (${hit.billsec}s)` };
+  }
+  if (hit.disposition && hit.disposition !== 'ANSWERED') {
+    return { detection: 'IPRN', reason: `CDR status ${hit.disposition}` };
+  }
+  return null;
+}
+
+function getSipSignal(numberDigits) {
+  const events = getRecentInvites(200);
+  const hit = events.find(e => normalizeDigits(e.did) === numberDigits || String(e.raw || '').includes(numberDigits));
+  if (!hit) return null;
+  if (hit.type === 'BLOCKED') {
+    return { detection: 'IPRN', reason: 'SIP event blocked/rejected' };
+  }
+  if (hit.type === 'INVITE') {
+    return { detection: 'UNKNOWN', reason: 'SIP INVITE seen' };
+  }
+  return null;
+}
+
+function summarizeRun(run) {
+  return {
+    id: run.id,
+    status: run.status,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
+    total: run.total,
+    completed: run.completed,
+    settings: run.settings,
+    summary: run.summary
+  };
+}
+
+function sanitizeTestNumberPayload(body) {
+  const number = normalizeDigits(body.number);
+  if (number.length < 7) return { error: 'Number must contain at least 7 digits' };
+  return {
+    label: String(body.label || `Test ${number}`).trim().slice(0, 80),
+    number,
+    enabled: body.enabled !== false,
+    notes: String(body.notes || '').trim().slice(0, 240)
+  };
+}
+
+async function executeAnalyzerRun(run, testNumbers, dialDelayMs) {
+  try {
+    const savedSettings = store.getAnalyzerSettings();
+    const delay = Math.max(500, Math.min(parseInt(dialDelayMs || savedSettings.dialDelayMs || 2000), 15000));
+    run.settings = { dialDelayMs: delay };
+    run.status = 'running';
+
+    for (let i = 0; i < testNumbers.length; i++) {
+      const test = testNumbers[i];
+      const numberDigits = normalizeDigits(test.number);
+      const routeSignal = getRouteSignal(numberDigits);
+      const dial = await asterisk.originateLocalCall(numberDigits, 'from-supplier-ip');
+      await sleep(Math.min(delay, 5000));
+      const cdrSignal = getCdrSignal(numberDigits);
+      const sipSignal = getSipSignal(numberDigits);
+
+      let detection = routeSignal.detection;
+      let reason = routeSignal.reason;
+      if (cdrSignal && cdrSignal.detection !== 'UNKNOWN') {
+        detection = cdrSignal.detection;
+        reason = `${reason}; ${cdrSignal.reason}`;
+      } else if (sipSignal && sipSignal.detection !== 'UNKNOWN') {
+        detection = sipSignal.detection;
+        reason = `${reason}; ${sipSignal.reason}`;
+      }
+
+      if (!dial.ok && detection === 'UNKNOWN') {
+        detection = 'IPRN';
+        reason = `${reason}; dial failed`;
+      }
+
+      const result = {
+        id: `${run.id}-item-${i + 1}`,
+        label: test.label,
+        number: numberDigits,
+        detection,
+        reason,
+        dialOk: dial.ok,
+        dialOutput: dial.ok ? (dial.output || 'Originate queued') : '',
+        dialError: dial.ok ? '' : (dial.error || 'Dial command failed'),
+        completedAt: new Date().toISOString()
+      };
+
+      if (detection === 'IVR') run.summary.ivrDetected += 1;
+      else if (detection === 'IPRN') run.summary.iprnDetected += 1;
+      else run.summary.unknown += 1;
+      if (!dial.ok) run.summary.dialFailed += 1;
+
+      run.results.push(result);
+      run.completed = run.results.length;
+      run.progress = Math.round((run.completed / run.total) * 100);
+      if (i < testNumbers.length - 1) {
+        await sleep(delay);
+      }
+    }
+
+    run.status = 'completed';
+    run.completedAt = new Date().toISOString();
+  } catch (err) {
+    run.status = 'failed';
+    run.error = err.message;
+    run.completedAt = new Date().toISOString();
+  } finally {
+    currentAnalyzerRun = null;
   }
 }
 
@@ -343,6 +499,92 @@ async function handleApi(req, res) {
     if (path.startsWith('/api/numbers/') && method === 'DELETE') {
       const id = path.split('/').pop();
       return store.deleteNumber(id) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
+    }
+
+    // Access Analyzer
+    if (path === '/api/access-analyzer/test-numbers' && method === 'GET') {
+      return sendJson(res, 200, store.getAnalyzerTestNumbers());
+    }
+    if (path === '/api/access-analyzer/test-numbers' && method === 'POST') {
+      const body = await parseBody(req);
+      const payload = sanitizeTestNumberPayload(body);
+      if (payload.error) return sendJson(res, 400, { error: payload.error });
+      return sendJson(res, 201, store.addAnalyzerTestNumber(payload));
+    }
+    if (path.startsWith('/api/access-analyzer/test-numbers/') && method === 'PUT') {
+      const id = path.split('/').pop();
+      const body = await parseBody(req);
+      const updates = { ...body };
+      if ('number' in updates) {
+        const parsed = sanitizeTestNumberPayload({ number: updates.number, label: updates.label, notes: updates.notes, enabled: updates.enabled });
+        if (parsed.error) return sendJson(res, 400, { error: parsed.error });
+        updates.number = parsed.number;
+        if ('label' in body) updates.label = parsed.label;
+        if ('notes' in body) updates.notes = parsed.notes;
+      }
+      if ('enabled' in updates) updates.enabled = updates.enabled !== false;
+      const updated = store.updateAnalyzerTestNumber(id, updates);
+      return updated ? sendJson(res, 200, updated) : sendJson(res, 404, { error: 'Not found' });
+    }
+    if (path.startsWith('/api/access-analyzer/test-numbers/') && method === 'DELETE') {
+      const id = path.split('/').pop();
+      return store.deleteAnalyzerTestNumber(id) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
+    }
+    if (path === '/api/access-analyzer/settings' && method === 'GET') {
+      return sendJson(res, 200, store.getAnalyzerSettings());
+    }
+    if (path === '/api/access-analyzer/settings' && method === 'PUT') {
+      const body = await parseBody(req);
+      const dialDelayMs = Math.max(500, Math.min(parseInt(body.dialDelayMs || 2000), 15000));
+      return sendJson(res, 200, store.updateAnalyzerSettings({ dialDelayMs }));
+    }
+    if (path === '/api/access-analyzer/run' && method === 'POST') {
+      if (currentAnalyzerRun && currentAnalyzerRun.status === 'running') {
+        return sendJson(res, 409, { error: 'Analyzer run already in progress', run: summarizeRun(currentAnalyzerRun) });
+      }
+
+      const body = await parseBody(req);
+      const numberIds = Array.isArray(body.numberIds) ? body.numberIds.map(String) : [];
+      const all = store.getAnalyzerTestNumbers();
+      const selected = numberIds.length
+        ? all.filter(n => numberIds.includes(String(n.id)))
+        : all.filter(n => n.enabled !== false);
+
+      if (!selected.length) {
+        return sendJson(res, 400, { error: 'No enabled test numbers found' });
+      }
+
+      const run = {
+        id: `run-${Date.now()}-${++analyzerRunSeq}`,
+        status: 'queued',
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        total: selected.length,
+        completed: 0,
+        progress: 0,
+        summary: { ivrDetected: 0, iprnDetected: 0, unknown: 0, dialFailed: 0 },
+        settings: {},
+        results: []
+      };
+
+      currentAnalyzerRun = run;
+      analyzerRuns.unshift(run);
+      if (analyzerRuns.length > 25) analyzerRuns.length = 25;
+      executeAnalyzerRun(run, selected, body.dialDelayMs);
+      return sendJson(res, 202, { ok: true, run });
+    }
+    if (path === '/api/access-analyzer/runs/current' && method === 'GET') {
+      if (!currentAnalyzerRun) return sendJson(res, 200, null);
+      return sendJson(res, 200, currentAnalyzerRun);
+    }
+    if (path === '/api/access-analyzer/runs' && method === 'GET') {
+      const limit = Math.max(1, Math.min(parseInt(url.searchParams.get('limit')) || 10, 50));
+      return sendJson(res, 200, analyzerRuns.slice(0, limit));
+    }
+    if (path.startsWith('/api/access-analyzer/runs/') && method === 'GET') {
+      const id = path.split('/').pop();
+      const run = analyzerRuns.find(r => r.id === id);
+      return run ? sendJson(res, 200, run) : sendJson(res, 404, { error: 'Not found' });
     }
 
     // Audio file upload & list

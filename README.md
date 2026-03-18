@@ -8,6 +8,7 @@ Web dashboard for managing multi-supplier Asterisk PBX — DID number ranges, IV
 |---------|-------------|
 | **Dashboard** | Live Asterisk status, active calls, memory, uptime |
 | **Call Statistics** | CDR-based stats — ASR, ACD, calls/min, recent calls |
+| **Access Analyzer** | Test-number auto-dial runner with IVR/IPRN detection results |
 | **Suppliers** | Named SIP providers with IP-auth (per-supplier PJSIP identify) |
 | **Numbers** | Number inventory grouped by country/prefix with rates, range import |
 | **DID Routes** | Route DIDs to IVR/ring groups/extensions, pick from inventory |

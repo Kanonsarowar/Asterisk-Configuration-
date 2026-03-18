@@ -112,3 +112,12 @@ export async function getLoadedModules() {
 export async function getPjsipEndpoints() {
   return runCmd('pjsip show endpoints');
 }
+
+export async function originateLocalCall(number, context = 'from-supplier-ip') {
+  const digits = String(number || '').replace(/[^\d*#+]/g, '');
+  if (!digits) {
+    return { ok: false, output: '', error: 'Invalid number' };
+  }
+  const safeContext = String(context || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  return runCmd(`channel originate Local/${digits}@${safeContext} application Wait 1`);
+}
