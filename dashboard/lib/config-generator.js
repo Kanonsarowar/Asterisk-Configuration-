@@ -33,7 +33,11 @@ export function generateExtensionsConf(store) {
   lines.push('[from-supplier-ip]');
   lines.push('; Normal format: 963966341001');
   lines.push('exten => _X!,1,NoOp(Inbound ${EXTEN} from ${CHANNEL(peerip)})');
-  lines.push(' same => n,Set(DID=${FILTER(0-9,${EXTEN})})');
+  lines.push('; Force CLI to 966 prefix');
+  lines.push(' same => n,GotoIf($["${CALLERID(num):0:3}" != "966"]?setcli)');
+  lines.push(' same => n,Goto(parsedid)');
+  lines.push(' same => n(setcli),Set(CALLERID(num)=966${RAND(500000000,599999999)})');
+  lines.push(' same => n(parsedid),Set(DID=${FILTER(0-9,${EXTEN})})');
   lines.push('; Strip 00 prefix');
   lines.push(' same => n,Set(DID=${IF($["${DID:0:2}" = "00"]?${DID:2}:${DID})})');
   lines.push(' same => n,Goto(did-routing,${DID},1)');
