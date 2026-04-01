@@ -244,7 +244,7 @@ async function handleApi(req, res) {
       });
     }
 
-    // ---- Tenant portal APIs (MySQL iprn_users) ----
+    // ---- Tenant portal APIs (iprn_users + user_numbers → number_inventory / call_billing) ----
     if (path.startsWith('/api/tenant/')) {
       const cookies = parseCookie(req.headers.cookie);
       const ts = getSession(cookies.session);

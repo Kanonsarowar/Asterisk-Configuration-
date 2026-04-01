@@ -1,6 +1,9 @@
 /**
- * Multi-tenant IPRN users (MySQL). Tables: iprn_users, iprn_user_numbers, iprn_invoices.
- * Panel admins use /api/panel/iprn-* ; tenant logins use /api/tenant/*.
+ * Multi-tenant IPRN portal on existing iprn_system.
+ * - Portal users: iprn_users (login, role, parent_user_id, balance)
+ * - DID assignment: user_numbers.user_id → number (number must exist in number_inventory / ODBC)
+ * - Rates for display: number_inventory.rate_per_min
+ * - Billing rows: call_billing when TENANT_CDR_PRIMARY_SOURCE=call_billing|auto
  */
 import { hashPassword } from './auth.js';
 import { getCdrHistory } from './cdr.js';
@@ -9,6 +12,16 @@ const ROLES = new Set(['admin', 'user', 'subuser']);
 
 function digits(s) {
   return String(s || '').replace(/\D/g, '');
+}
+
+/** Sanitized mapping table name (default user_numbers). */
+export function userNumbersTable() {
+  const t = String(process.env.DASHBOARD_USER_NUMBERS_TABLE || 'user_numbers').trim();
+  return /^[a-zA-Z0-9_]+$/.test(t) ? t : 'user_numbers';
+}
+
+function qUn() {
+  return `\`${userNumbersTable()}\``;
 }
 
 export async function verifyTenantLogin(pool, username, password) {
@@ -140,22 +153,23 @@ export function isTenantClient(sess) {
   return r === 'admin' || r === 'user';
 }
 
-/** Numbers assigned to any of userIds (active) */
+/** Numbers assigned to any of userIds (active) — table user_numbers (configurable). */
 export async function getNumbersForUsers(pool, userIds) {
   if (!userIds.length) return [];
   const ph = userIds.map(() => '?').join(',');
   const [rows] = await pool.execute(
-    `SELECT id, user_id, number, assigned_at, status FROM iprn_user_numbers
+    `SELECT id, user_id, number, assigned_at, status FROM ${qUn()}
      WHERE user_id IN (${ph}) AND status = 'active' ORDER BY number ASC`,
     userIds
   );
   return rows;
 }
 
+/** DID must exist in number_inventory (same rows Asterisk ODBC / ROUTE_INFO uses). */
 export async function numberExistsInInventory(pool, number) {
   const n = digits(number);
   if (!n) return false;
-  const [rows] = await pool.execute('SELECT 1 FROM numbers WHERE number = ? LIMIT 1', [n]);
+  const [rows] = await pool.execute('SELECT 1 FROM number_inventory WHERE number = ? LIMIT 1', [n]);
   return rows.length > 0;
 }
 
@@ -164,10 +178,10 @@ export async function assignNumberToUser(pool, userId, number) {
   const n = digits(number);
   if (!Number.isFinite(uid) || !n) return { ok: false, error: 'Invalid' };
   const ex = await numberExistsInInventory(pool, n);
-  if (!ex) return { ok: false, error: 'Number not in platform inventory (numbers table)' };
+  if (!ex) return { ok: false, error: 'Number not in number_inventory (ODBC inventory)' };
   try {
     await pool.execute(
-      `INSERT INTO iprn_user_numbers (user_id, number, status) VALUES (?, ?, 'active')
+      `INSERT INTO ${qUn()} (user_id, number, status) VALUES (?, ?, 'active')
        ON DUPLICATE KEY UPDATE status = 'active', assigned_at = CURRENT_TIMESTAMP`,
       [uid, n]
     );
@@ -180,17 +194,69 @@ export async function assignNumberToUser(pool, userId, number) {
 export async function unassignNumber(pool, userId, number) {
   const uid = parseInt(String(userId), 10);
   const n = digits(number);
-  await pool.execute('DELETE FROM iprn_user_numbers WHERE user_id = ? AND number = ?', [uid, n]);
+  await pool.execute(`DELETE FROM ${qUn()} WHERE user_id = ? AND number = ?`, [uid, n]);
   return { ok: true };
 }
 
+/** rate_per_min from number_inventory (aligns with func_odbc / ROUTE_INFO). */
 export async function getRateMap(pool) {
-  const [rows] = await pool.execute('SELECT number, rate FROM numbers');
+  const [rows] = await pool.execute('SELECT number, rate_per_min FROM number_inventory');
   const map = {};
   for (const r of rows) {
-    map[digits(r.number)] = parseFloat(String(r.rate || '0').replace(',', '.')) || 0;
+    const key = digits(r.number);
+    map[key] = parseFloat(String(r.rate_per_min ?? '0').replace(',', '.')) || 0;
   }
   return map;
+}
+
+/**
+ * Tenant-visible rows from existing call_billing (filtered by assigned numbers).
+ */
+export async function getTenantCallBillingRows(pool, sess, { hours = 168, limit = 500, dateFrom = '', dateTo = '' } = {}) {
+  const ids = await effectiveScopedUserIds(pool, sess);
+  const assigns = await getNumbersForUsers(pool, ids);
+  const numberSet = [...new Set(assigns.map((a) => digits(a.number)).filter(Boolean))];
+  if (!numberSet.length) {
+    return { ok: true, calls: [], total: 0, source: 'call_billing' };
+  }
+  const ph = numberSet.map(() => '?').join(',');
+  const params = [...numberSet];
+  let sql = `SELECT call_id, number, supplier, start_time, end_time, duration, rate, cost, profit
+    FROM call_billing WHERE number IN (${ph})`;
+  if (dateFrom && /^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
+    sql += ' AND start_time >= ?';
+    params.push(`${dateFrom} 00:00:00`);
+  }
+  if (dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+    sql += ' AND start_time <= ?';
+    params.push(`${dateTo} 23:59:59`);
+  }
+  if (!dateFrom && !dateTo) {
+    const h = Math.min(24 * 366, Math.max(1, parseInt(String(hours), 10) || 168));
+    sql += ' AND start_time >= DATE_SUB(NOW(), INTERVAL ? HOUR)';
+    params.push(h);
+  }
+  const cap = Math.min(5000, Math.max(1, parseInt(String(limit), 10) || 500));
+  sql += ` ORDER BY start_time DESC LIMIT ${cap}`;
+  const [rows] = await pool.execute(sql, params);
+  const calls = rows.map((r) => ({
+    call_id: r.call_id,
+    src: '',
+    dst: r.number,
+    duration: r.duration || 0,
+    billsec: r.duration || 0,
+    disposition: '',
+    start:
+      r.start_time instanceof Date
+        ? r.start_time.toISOString()
+        : r.start_time
+          ? String(r.start_time)
+          : '',
+    supplier: r.supplier || '',
+    rate: Number(r.rate) || 0,
+    cost: Number(r.cost) || 0,
+  }));
+  return { ok: true, calls, total: calls.length, source: 'call_billing' };
 }
 
 export function filterCallsByNumberSet(calls, numberSet) {
@@ -240,6 +306,22 @@ export async function getTenantLiveCalls(pool, sess, channelsPayload) {
 }
 
 export async function getTenantCdrRows(pool, sess, { hours = 168, limit = 500, dateFrom = '', dateTo = '' } = {}) {
+  const primary = String(process.env.TENANT_CDR_PRIMARY_SOURCE || 'auto').toLowerCase();
+  if (primary !== 'cdr_csv') {
+    const cb = await getTenantCallBillingRows(pool, sess, { hours, limit, dateFrom, dateTo });
+    if (cb.calls && cb.calls.length > 0) {
+      return {
+        ok: true,
+        calls: (cb.calls || []).slice(0, limit),
+        total: cb.total,
+        source: 'call_billing',
+      };
+    }
+    if (primary === 'call_billing') {
+      return { ok: true, calls: [], total: 0, source: 'call_billing' };
+    }
+  }
+
   const ids = await effectiveScopedUserIds(pool, sess);
   const assigns = await getNumbersForUsers(pool, ids);
   const numberSet = new Set(assigns.map((a) => digits(a.number)).filter(Boolean));
@@ -286,7 +368,7 @@ export async function getTenantCdrRows(pool, sess, { hours = 168, limit = 500, d
         cost,
       };
     });
-  return { ok: true, calls: calls.slice(0, limit), total: calls.length };
+  return { ok: true, calls: calls.slice(0, limit), total: calls.length, source: 'cdr_csv' };
 }
 
 export async function getTenantDashboardSummary(pool, sess, { status, tenantLive }) {
@@ -343,7 +425,7 @@ export async function generateInvoice(pool, userId, periodStart, periodEnd) {
   const sess = { kind: 'tenant', userId: uid, role: 'user' };
   const cdr = await getTenantCdrRows(pool, sess, {
     hours: 24 * 400,
-    limit: 10000,
+    limit: 100000,
     dateFrom: periodStart,
     dateTo: periodEnd,
   });
@@ -354,6 +436,7 @@ export async function generateInvoice(pool, userId, periodStart, periodEnd) {
     total_calls: calls.length,
     total_duration_sec: totalDur,
     total_cost: +totalCost.toFixed(4),
+    billing_source: cdr.source || 'unknown',
   };
   const [res] = await pool.execute(
     `INSERT INTO iprn_invoices (user_id, amount, period_start, period_end, status, meta)

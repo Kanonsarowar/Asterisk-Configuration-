@@ -156,17 +156,18 @@ CREATE TABLE IF NOT EXISTS \`iprn_users\` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 `;
 
-const DDL_IPRN_USER_NUMBERS = `
-CREATE TABLE IF NOT EXISTS \`iprn_user_numbers\` (
+/** Maps portal users → DIDs; rows must exist in existing number_inventory (ODBC source of truth). */
+const DDL_USER_NUMBERS = `
+CREATE TABLE IF NOT EXISTS \`user_numbers\` (
   \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   \`user_id\` INT UNSIGNED NOT NULL,
   \`number\` VARCHAR(64) NOT NULL,
   \`assigned_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   \`status\` VARCHAR(24) NOT NULL DEFAULT 'active',
   PRIMARY KEY (\`id\`),
-  UNIQUE KEY \`uk_iprn_unum\` (\`user_id\`, \`number\`),
-  KEY \`idx_iprn_unum_number\` (\`number\`),
-  CONSTRAINT \`fk_iprn_unum_user\` FOREIGN KEY (\`user_id\`) REFERENCES \`iprn_users\` (\`id\`) ON DELETE CASCADE
+  UNIQUE KEY \`uk_user_numbers_user_num\` (\`user_id\`, \`number\`),
+  KEY \`idx_user_numbers_number\` (\`number\`),
+  CONSTRAINT \`fk_user_numbers_user\` FOREIGN KEY (\`user_id\`) REFERENCES \`iprn_users\` (\`id\`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 `;
 
@@ -244,7 +245,7 @@ export async function ensureMysqlSchema() {
   await p.execute(DDL_CALL_BILLING);
   await p.execute(DDL_DAILY_USAGE);
   await p.execute(DDL_IPRN_USERS);
-  await p.execute(DDL_IPRN_USER_NUMBERS);
+  await p.execute(DDL_USER_NUMBERS);
   await p.execute(DDL_IPRN_INVOICES);
   return { ok: true };
 }

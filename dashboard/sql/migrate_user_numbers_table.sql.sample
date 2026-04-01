@@ -1,0 +1,7 @@
+-- If an older dashboard created `iprn_user_numbers`, rename once to match the production mapping name `user_numbers`:
+-- RENAME TABLE iprn_user_numbers TO user_numbers;
+--
+-- If both tables exist, merge then drop old (backup first):
+-- INSERT IGNORE INTO user_numbers (user_id, number, assigned_at, status)
+--   SELECT user_id, number, assigned_at, status FROM iprn_user_numbers;
+-- DROP TABLE iprn_user_numbers;

@@ -92,7 +92,7 @@ Requires **MySQL** (`MYSQL_ENABLED=1` and a working pool). Adds **three tables**
 | Table | Purpose |
 |-------|---------|
 | `iprn_users` | Client logins: `username`, `password_hash`, `role` (`admin` / `user` / `subuser`), `parent_user_id`, `balance`, `status` |
-| `iprn_user_numbers` | Which full numbers (must exist in `numbers`) are assigned to which `iprn_users.id` |
+| `user_numbers` | Maps `iprn_users.id` → DID; number must exist in **`number_inventory`** (same as ODBC / `ROUTE_INFO`) |
 | `iprn_invoices` | Generated invoice rows (amount, period, JSON `meta` with call aggregates) |
 
 **Operator (panel) login** — unchanged (`DASH_USER`, `adminUsers`, or env admin). Sidebar shows **IPRN clients** when MySQL numbers are ready: create users, set balance, assign numbers from inventory.
@@ -105,7 +105,9 @@ Requires **MySQL** (`MYSQL_ENABLED=1` and a working pool). Adds **three tables**
 - **User / admin** (root client, `parent_user_id` null): can create subusers, assign numbers they hold to subusers, generate invoices for users in their subtree.
 - **Panel** sessions cannot call `/api/tenant/*`; **tenant** sessions cannot call operator `/api/*` (403).
 
-**CDR and cost** — Tenant CDR is filtered from Asterisk `Master.csv` by matching `src`/`dst` to assigned numbers. Cost is estimated as `(billsec/60) * rate` using the `numbers.rate` row when the destination matches.
+**CDR and cost** — Prefer rows from **`call_billing`** when `TENANT_CDR_PRIMARY_SOURCE=auto` (default) or `call_billing`. Otherwise (or when billing is empty in `auto` mode) tenant CDR is filtered from Asterisk **`Master.csv`**, with cost from **`number_inventory.rate_per_min`** (same as func_odbc / `ROUTE_INFO`). Set `TENANT_CDR_PRIMARY_SOURCE=cdr_csv` to force CSV only.
+
+**Existing DB** — Do not rename **`number_inventory`** or ODBC DSN **`iprn_db`**. If you previously used table `iprn_user_numbers`, run `dashboard/sql/migrate_user_numbers_table.sql.sample` once to rename to **`user_numbers`**.
 
 **Call generator** — Set **`TENANT_ORIGINATE_CMD`** to a full `channel originate ...` string for `sudo asterisk -rx`. Placeholders: **`{DEST}`** (called party, digits), **`{FROM}`** (assigned DID, digits). Example:  
 `channel originate Local/7001@from-internal application Dial PJSIP/{DEST}@your-trunk`  
