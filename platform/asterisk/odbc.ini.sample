@@ -1,0 +1,9 @@
+; /etc/odbc.ini (system) — PostgreSQL driver
+[iprn_pg]
+Description = IPRN PostgreSQL
+Driver = PostgreSQL Unicode
+Servername = 127.0.0.1
+Port = 5432
+Database = iprn
+Username = asterisk
+Password = your_password

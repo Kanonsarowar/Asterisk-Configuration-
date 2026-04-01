@@ -1,21 +1,21 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import {
+  parseClientName,
+  isAllocatedRecord,
+  normalizeAllocationStatus,
+  ALLOCATED_STATUS,
+  POOL_STATUS,
+} from './numbers-allocation.js';
+import { hashPassword } from './auth.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, '..', 'data');
 const DB_FILE = join(DATA_DIR, 'db.json');
 
 const DEFAULT_DATA = {
-  numbers: [
-    { id: '1', country: 'US', countryCode: '1', prefix: '202', extension: '5550100', rate: '0.01', supplierId: '1', destinationType: 'ivr', destinationId: '1' },
-    { id: '2', country: 'US', countryCode: '1', prefix: '202', extension: '5550101', rate: '0.01', supplierId: '1', destinationType: 'ivr', destinationId: '1' },
-    { id: '3', country: 'US', countryCode: '1', prefix: '202', extension: '5550102', rate: '0.01', supplierId: '1', destinationType: 'ivr', destinationId: '1' },
-    { id: '4', country: 'US', countryCode: '1', prefix: '800', extension: '5551234', rate: '0.005', supplierId: '2', destinationType: 'ivr', destinationId: '1' },
-    { id: '5', country: 'UK', countryCode: '44', prefix: '20', extension: '71234567', rate: '0.02', supplierId: '3', destinationType: 'ivr', destinationId: '1' },
-    { id: '6', country: 'UK', countryCode: '44', prefix: '20', extension: '71234568', rate: '0.02', supplierId: '3', destinationType: 'ivr', destinationId: '1' },
-    { id: '7', country: 'DE', countryCode: '49', prefix: '30', extension: '12345678', rate: '0.015', supplierId: '4', destinationType: 'ivr', destinationId: '1' }
-  ],
+  numbers: [],
   suppliers: [
     { id: '1', name: 'Supplier 1 (Vultr)', ips: ['108.61.70.46'] },
     { id: '2', name: 'Supplier 2 (Hetzner)', ips: ['157.90.193.196'] },
@@ -43,12 +43,29 @@ const DEFAULT_DATA = {
     userAgent: 'Asterisk-IPAuth-IVR',
     bindPort: 5060,
     codecs: ['g729', 'alaw', 'ulaw', 'gsm'],
-    qualifyFrequency: 60
+    qualifyFrequency: 60,
+    rtpStart: 10000,
+    rtpEnd: 20000
   },
   globals: {
     ivrResponseTimeout: 7,
-    ivrDigitTimeout: 5
-  }
+    ivrDigitTimeout: 5,
+    dialplanMode: 'iprn',
+    defaultContext: 'from-external',
+    fallbackIvrId: '1',
+    localExtension: '7001',
+    localSecret: 'ChangeMe7001',
+    /** When true, matched DIDs use ODBC number_inventory + PJSIP Dial instead of IVR (see extensions.conf). */
+    iprnOdbcRouting: false,
+  },
+  balance: {
+    eurPerUsd: 0.92,
+    sarPerUsd: 3.75,
+    weeklySnapshots: {},
+    monthlySnapshots: {}
+  },
+  /** Extra PBX panel admins (SHA256 password). Env DASH_USER always works too. */
+  adminUsers: []
 };
 
 function load() {
@@ -60,6 +77,40 @@ function load() {
     const data = JSON.parse(readFileSync(DB_FILE, 'utf8'));
     if (!data.suppliers) data.suppliers = DEFAULT_DATA.suppliers;
     if (!data.numbers) data.numbers = DEFAULT_DATA.numbers;
+    if (!data.ivrMenus) data.ivrMenus = DEFAULT_DATA.ivrMenus;
+    if (!data.trunkConfig) data.trunkConfig = DEFAULT_DATA.trunkConfig;
+    data.trunkConfig = { ...DEFAULT_DATA.trunkConfig, ...data.trunkConfig };
+    data.globals = { ...DEFAULT_DATA.globals, ...(data.globals || {}) };
+    if (data.globals.iprnOdbcRouting === undefined) data.globals.iprnOdbcRouting = false;
+    if (!Array.isArray(data.adminUsers)) data.adminUsers = [];
+    if (!data.balance || typeof data.balance !== 'object') {
+      data.balance = structuredClone(DEFAULT_DATA.balance);
+    } else {
+      data.balance = {
+        eurPerUsd: data.balance.eurPerUsd ?? DEFAULT_DATA.balance.eurPerUsd,
+        sarPerUsd: data.balance.sarPerUsd ?? DEFAULT_DATA.balance.sarPerUsd,
+        weeklySnapshots: data.balance.weeklySnapshots && typeof data.balance.weeklySnapshots === 'object'
+          ? data.balance.weeklySnapshots
+          : {},
+        monthlySnapshots: data.balance.monthlySnapshots && typeof data.balance.monthlySnapshots === 'object'
+          ? data.balance.monthlySnapshots
+          : {}
+      };
+    }
+    if (Array.isArray(data.numbers)) {
+      let numMig = false;
+      for (const n of data.numbers) {
+        if (n.rateCurrency === undefined) { n.rateCurrency = 'usd'; numMig = true; }
+        if (n.paymentTerm === undefined) { n.paymentTerm = 'weekly'; numMig = true; }
+      }
+      if (numMig) save(data);
+    }
+    // One-time migration: clear legacy seeded DID data.
+    if (!data.globals.didDataResetDone) {
+      data.numbers = [];
+      data.globals.didDataResetDone = true;
+      save(data);
+    }
     return data;
   } catch {
     save(DEFAULT_DATA);
@@ -76,6 +127,46 @@ function nextId(collection) {
   return String(maxId + 1);
 }
 
+function pickClientName(n) {
+  if (n.clientName !== undefined) {
+    if (n.clientName === null || n.clientName === '') return null;
+    return String(n.clientName);
+  }
+  if (n.client_name !== undefined) {
+    if (n.client_name === null || n.client_name === '') return null;
+    return String(n.client_name);
+  }
+  return undefined;
+}
+
+function pickAllocationDate(n) {
+  if (n.allocationDate !== undefined) {
+    if (n.allocationDate === null || n.allocationDate === '') return null;
+    return String(n.allocationDate);
+  }
+  if (n.allocation_date !== undefined) {
+    if (n.allocation_date === null || n.allocation_date === '') return null;
+    return String(n.allocation_date);
+  }
+  return undefined;
+}
+
+/** rateCurrency: usd | eur; paymentTerm: weekly | monthly | daily (daily uses weekly wallet). */
+export function normalizeNumberRecord(n) {
+  const rateCurrency = String(n.rateCurrency || 'usd').toLowerCase() === 'eur' ? 'eur' : 'usd';
+  let paymentTerm = String(n.paymentTerm || 'weekly').toLowerCase();
+  if (!['weekly', 'monthly', 'daily'].includes(paymentTerm)) paymentTerm = 'weekly';
+  const status = normalizeAllocationStatus(n.status);
+  const out = { ...n, rateCurrency, paymentTerm, status };
+  const pc = pickClientName(n);
+  if (pc !== undefined) out.clientName = pc;
+  const pd = pickAllocationDate(n);
+  if (pd !== undefined) out.allocationDate = pd;
+  delete out.client_name;
+  delete out.allocation_date;
+  return out;
+}
+
 export class Store {
   constructor() {
     this.data = load();
@@ -85,17 +176,19 @@ export class Store {
   getNumbers() { return this.data.numbers; }
   getNumber(id) { return this.data.numbers.find(n => n.id === id); }
   addNumber(num) {
-    num.id = nextId(this.data.numbers);
-    this.data.numbers.push(num);
+    const n = normalizeNumberRecord(num);
+    n.id = nextId(this.data.numbers);
+    this.data.numbers.push(n);
     save(this.data);
-    return num;
+    return n;
   }
   updateNumber(id, updates) {
     const idx = this.data.numbers.findIndex(n => n.id === id);
     if (idx === -1) return null;
-    this.data.numbers[idx] = { ...this.data.numbers[idx], ...updates, id };
+    const merged = normalizeNumberRecord({ ...this.data.numbers[idx], ...updates, id });
+    this.data.numbers[idx] = merged;
     save(this.data);
-    return this.data.numbers[idx];
+    return merged;
   }
   deleteNumber(id) {
     const idx = this.data.numbers.findIndex(n => n.id === id);
@@ -111,12 +204,59 @@ export class Store {
     return before - this.data.numbers.length;
   }
   addBulkNumbers(nums) {
+    const out = [];
     for (const num of nums) {
-      num.id = nextId(this.data.numbers);
-      this.data.numbers.push(num);
+      const n = normalizeNumberRecord(num);
+      n.id = nextId(this.data.numbers);
+      this.data.numbers.push(n);
+      out.push(n);
     }
     save(this.data);
-    return nums;
+    return out;
+  }
+
+  /**
+   * @returns {{ ok: true, number: object } | { ok: false, status: number, code: string, error: string }}
+   */
+  assignNumber(id, clientName) {
+    const idx = this.data.numbers.findIndex(n => n.id === id);
+    if (idx === -1) return { ok: false, status: 404, code: 'NOT_FOUND', error: 'Number not found' };
+    const ex = this.data.numbers[idx];
+    if (isAllocatedRecord(ex)) {
+      return { ok: false, status: 409, code: 'ALREADY_ALLOCATED', error: 'This DID is already allocated' };
+    }
+    const parsed = parseClientName(clientName);
+    if (!parsed.ok) return { ok: false, status: 400, code: 'VALIDATION_ERROR', error: parsed.error };
+    const merged = normalizeNumberRecord({
+      ...ex,
+      status: ALLOCATED_STATUS,
+      clientName: parsed.value,
+      allocationDate: new Date().toISOString(),
+    });
+    this.data.numbers[idx] = { ...merged, id: ex.id };
+    save(this.data);
+    return { ok: true, number: this.data.numbers[idx] };
+  }
+
+  /**
+   * @returns {{ ok: true, number: object } | { ok: false, status: number, code: string, error: string }}
+   */
+  releaseNumber(id) {
+    const idx = this.data.numbers.findIndex(n => n.id === id);
+    if (idx === -1) return { ok: false, status: 404, code: 'NOT_FOUND', error: 'Number not found' };
+    const ex = this.data.numbers[idx];
+    if (!isAllocatedRecord(ex)) {
+      return { ok: false, status: 400, code: 'NOT_ALLOCATED', error: 'Number is not allocated' };
+    }
+    const merged = normalizeNumberRecord({
+      ...ex,
+      status: POOL_STATUS,
+      clientName: null,
+      allocationDate: null,
+    });
+    this.data.numbers[idx] = { ...merged, id: ex.id };
+    save(this.data);
+    return { ok: true, number: this.data.numbers[idx] };
   }
 
   // Suppliers
@@ -168,6 +308,115 @@ export class Store {
     this.data.globals = { ...this.data.globals, ...globals };
     save(this.data);
     return this.data.globals;
+  }
+
+  getBalanceConfig() {
+    if (!this.data.balance) {
+      this.data.balance = structuredClone(DEFAULT_DATA.balance);
+      save(this.data);
+    } else if (!this.data.balance.monthlySnapshots || typeof this.data.balance.monthlySnapshots !== 'object') {
+      this.data.balance.monthlySnapshots = {};
+      save(this.data);
+    }
+    return this.data.balance;
+  }
+
+  /** Partial update. Snapshot objects replace whole maps when provided. */
+  updateBalanceConfig(updates) {
+    const b = this.getBalanceConfig();
+    if (updates.eurPerUsd !== undefined) b.eurPerUsd = parseFloat(updates.eurPerUsd) || 0;
+    if (updates.sarPerUsd !== undefined) b.sarPerUsd = parseFloat(updates.sarPerUsd) || 0;
+    if (updates.weeklySnapshots !== undefined) b.weeklySnapshots = updates.weeklySnapshots;
+    if (updates.monthlySnapshots !== undefined) b.monthlySnapshots = updates.monthlySnapshots;
+    save(this.data);
+    return {
+      eurPerUsd: b.eurPerUsd,
+      sarPerUsd: b.sarPerUsd,
+      weeklySnapshots: { ...b.weeklySnapshots },
+      monthlySnapshots: { ...b.monthlySnapshots },
+    };
+  }
+
+  applyStandardDefaults() {
+    this.data.trunkConfig = {
+      publicIp: this.data.trunkConfig?.publicIp || '127.0.0.1',
+      userAgent: 'Asterisk-IPAuth-IVR',
+      bindPort: 5060,
+      codecs: ['g729', 'alaw', 'ulaw', 'gsm'],
+      qualifyFrequency: 60,
+      rtpStart: 10000,
+      rtpEnd: 20000
+    };
+    const keepOdbc = this.data.globals?.iprnOdbcRouting;
+    this.data.globals = {
+      ...this.data.globals,
+      ivrResponseTimeout: 7,
+      ivrDigitTimeout: 5,
+      dialplanMode: 'iprn',
+      defaultContext: 'from-supplier-ip',
+      fallbackIvrId: '1',
+      localExtension: '7001',
+      localSecret: 'ChangeMe7001',
+      iprnOdbcRouting: keepOdbc === true,
+    };
+    save(this.data);
+    return {
+      trunkConfig: this.data.trunkConfig,
+      globals: this.data.globals
+    };
+  }
+
+  getAdminUsers() {
+    if (!Array.isArray(this.data.adminUsers)) this.data.adminUsers = [];
+    return this.data.adminUsers.filter((x) => x && x.username && x.passwordHash);
+  }
+
+  /** API: no password hashes */
+  listAdminUsernames() {
+    return this.getAdminUsers().map((x) => ({ username: x.username }));
+  }
+
+  addAdminUser(username, password) {
+    const envUser = (process.env.DASH_USER || 'admin').trim();
+    const u = String(username || '').trim();
+    if (!/^[a-zA-Z0-9_.-]{3,64}$/.test(u)) {
+      return { ok: false, error: 'Username: 3–64 chars, letters, numbers, _ . -' };
+    }
+    if (u === envUser) {
+      return { ok: false, error: `Username "${u}" is reserved for the server env account (DASH_USER)` };
+    }
+    if (!password || String(password).length < 8) {
+      return { ok: false, error: 'Password must be at least 8 characters' };
+    }
+    if (!Array.isArray(this.data.adminUsers)) this.data.adminUsers = [];
+    if (this.data.adminUsers.some((x) => x && String(x.username) === u)) {
+      return { ok: false, error: 'Username already exists' };
+    }
+    this.data.adminUsers.push({ username: u, passwordHash: hashPassword(password) });
+    save(this.data);
+    return { ok: true };
+  }
+
+  removeAdminUser(username) {
+    const u = String(username || '').trim();
+    if (!Array.isArray(this.data.adminUsers)) return { ok: false, error: 'No users' };
+    const idx = this.data.adminUsers.findIndex((x) => x && String(x.username) === u);
+    if (idx === -1) return { ok: false, error: 'User not found' };
+    this.data.adminUsers.splice(idx, 1);
+    save(this.data);
+    return { ok: true };
+  }
+
+  updateAdminPassword(username, newPassword) {
+    const u = String(username || '').trim();
+    if (!newPassword || String(newPassword).length < 8) {
+      return { ok: false, error: 'Password must be at least 8 characters' };
+    }
+    const row = this.getAdminUsers().find((x) => String(x.username) === u);
+    if (!row) return { ok: false, error: 'User not found' };
+    row.passwordHash = hashPassword(newPassword);
+    save(this.data);
+    return { ok: true };
   }
 
   getAll() { return this.data; }

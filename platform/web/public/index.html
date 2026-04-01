@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IPRN Platform</title>
+  <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body>
+  <div id="login-screen" class="login-screen">
+    <div class="login-card">
+      <h1>IPRN Platform</h1>
+      <p class="muted">Sign in (JWT)</p>
+      <input type="text" id="login-user" placeholder="Username" autocomplete="username" />
+      <input type="password" id="login-pass" placeholder="Password" autocomplete="current-password" />
+      <button type="button" id="login-btn" class="btn primary">Login</button>
+      <p id="login-err" class="err"></p>
+    </div>
+  </div>
+  <div id="app-shell" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand">IPRN</div>
+      <nav id="nav"></nav>
+      <div class="sidebar-foot">
+        <span id="user-label" class="muted"></span>
+        <button type="button" id="logout-btn" class="btn small">Logout</button>
+      </div>
+    </aside>
+    <main class="main">
+      <header class="topbar"><h2 id="page-title">Dashboard</h2></header>
+      <div id="content" class="content"></div>
+    </main>
+  </div>
+  <script src="/js/app.js" type="module"></script>
+</body>
+</html>

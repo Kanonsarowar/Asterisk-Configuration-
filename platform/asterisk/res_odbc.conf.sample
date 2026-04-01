@@ -1,0 +1,8 @@
+; /etc/asterisk/res_odbc.conf — DSN must match /etc/odbc.ini
+
+[iprn_pg]
+enabled => yes
+dsn => iprn_pg
+username => asterisk
+password => your_password
+pre-connect => yes

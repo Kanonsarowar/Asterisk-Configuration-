@@ -1,0 +1,7 @@
+-- Run as MySQL root on the server (adjust host/user if needed).
+-- Database name per spec: iprn_system
+
+CREATE DATABASE IF NOT EXISTS iprn_system CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+GRANT ALL PRIVILEGES ON iprn_system.* TO 'asterisk'@'localhost';
+FLUSH PRIVILEGES;

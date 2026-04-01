@@ -1,0 +1,19 @@
+; Sample ODBC DSN for Asterisk res_odbc / func_odbc (Linux: /etc/odbc.ini).
+; DSN name must match func_odbc.conf (dashboard generates) — iprn_db
+;
+; [iprn_db]
+; Description = IPRN MySQL
+; Driver = MySQL ODBC 8.0 Unicode Driver
+; Server = 127.0.0.1
+; Database = iprn_system
+; User = asterisk
+; Password = your_password
+; Option = 3
+;
+; Then in /etc/asterisk/res_odbc.conf:
+; [iprn_db]
+; enabled => yes
+; dsn => iprn_db
+; username => asterisk
+; password => your_password
+; preconnect => yes

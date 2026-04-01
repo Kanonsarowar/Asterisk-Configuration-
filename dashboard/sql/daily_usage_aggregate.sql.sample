@@ -1,0 +1,18 @@
+-- Background / cron job: aggregate call_billing into daily_usage (MySQL 8+).
+-- Schedule with cron, e.g. daily after midnight UTC.
+-- Review GROUP BY if your engine disallows non-aggregated selected columns.
+
+INSERT INTO daily_usage (number, date, total_calls, total_minutes, cost)
+SELECT
+  number,
+  DATE(start_time) AS d,
+  COUNT(*),
+  COALESCE(SUM(duration), 0),
+  COALESCE(SUM(cost), 0)
+FROM call_billing
+WHERE start_time IS NOT NULL
+GROUP BY number, DATE(start_time)
+ON DUPLICATE KEY UPDATE
+  total_calls = VALUES(total_calls),
+  total_minutes = VALUES(total_minutes),
+  cost = VALUES(cost);

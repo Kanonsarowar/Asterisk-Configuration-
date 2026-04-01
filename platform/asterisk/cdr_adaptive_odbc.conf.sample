@@ -1,0 +1,16 @@
+; Copy to /etc/asterisk/cdr_adaptive_odbc.conf
+; Requires: res_odbc + cdr_adaptive_odbc modules, unixODBC + psqlodbc, /etc/odbc.ini DSN "iprn_pg"
+
+[first]
+connection=iprn_pg
+table=cdr
+alias start => "start"
+alias answer => "answer"
+alias end => "end"
+alias clid => "caller"
+alias dst => "destination"
+alias duration => "duration_seconds"
+alias billsec => "duration_seconds"
+alias disposition => "disposition"
+alias uniqueid => "call_id"
+; Map any extra columns your Asterisk emits via additional alias lines.

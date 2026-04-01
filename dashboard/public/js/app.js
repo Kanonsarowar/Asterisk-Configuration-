@@ -197,6 +197,7 @@ const COUNTRIES = [
 let currentPage = 'dashboard';
 let hasUnsavedChanges = false;
 let statusInterval = null;
+let tenantLiveInterval = null;
 
 // Toast notifications
 function toast(msg, type = 'success') {
@@ -228,50 +229,250 @@ document.querySelectorAll('.nav-item').forEach(btn => {
 
 function navigateTo(page) {
   currentPage = page;
-  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.page === page));
+  const navTenant = document.getElementById('nav-tenant');
+  const navPanel = document.getElementById('nav-panel');
+  const tenantVisible = navTenant && navTenant.style.display !== 'none';
+  const root = tenantVisible ? navTenant : navPanel;
+  if (root) {
+    root.querySelectorAll('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
+  } else {
+    document.querySelectorAll('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
+  }
   document.getElementById('page-title').textContent = pageTitles[page] || page;
   renderPage(page);
+}
+
+function hashCallerColorClass(callerId) {
+  const k = String(callerId || '').replace(/\D/g, '') || 'x';
+  let h = 0;
+  for (let i = 0; i < k.length; i++) h = Math.imul(31, h) + k.charCodeAt(i) | 0;
+  return `live-c${Math.abs(h) % 8}`;
+}
+
+function digitsOnly(s) {
+  return String(s || '').replace(/\D/g, '');
+}
+
+function fullNumberDigits(n) {
+  return digitsOnly(n.countryCode) + digitsOnly(n.prefix) + digitsOnly(n.extension);
+}
+
+function matchNumberForDst(dst, numbers) {
+  const d = digitsOnly(dst);
+  if (!d || !Array.isArray(numbers)) return null;
+  let best = null;
+  let bestLen = 0;
+  for (const n of numbers) {
+    const fn = fullNumberDigits(n);
+    if (!fn) continue;
+    if (d === fn) return n;
+    if (d.length >= fn.length && d.endsWith(fn) && fn.length > bestLen) {
+      best = n;
+      bestLen = fn.length;
+    }
+  }
+  return best;
+}
+
+function supplierIdForCall(sourceIp, matchedNumber, suppliers) {
+  if (matchedNumber && matchedNumber.supplierId) return String(matchedNumber.supplierId);
+  for (const s of suppliers || []) {
+    if (s.ips && s.ips.includes(sourceIp)) return String(s.id);
+  }
+  return '';
+}
+
+function formatCdrDateDisplay(isoOrStr) {
+  const d = new Date(isoOrStr);
+  if (isNaN(d.getTime())) return String(isoOrStr || '');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${dd}.${mm}.${yy} - ${hh}:${mi}`;
+}
+
+function formatCdrStatusLabel(disposition) {
+  const u = String(disposition || '').toUpperCase();
+  if (u === 'ANSWERED') return 'ANSWER';
+  return u.replace(/_/g, ' ') || '-';
+}
+
+function formatUsdRate(rate) {
+  const n = parseFloat(rate);
+  if (!isFinite(n) || n <= 0) return '$0';
+  return '$' + n.toFixed(3);
+}
+
+function formatUsdAmount(amount) {
+  const n = parseFloat(amount);
+  if (!isFinite(n) || n < 0) return '$0';
+  return '$' + n.toFixed(4);
+}
+
+function formatCdrNativeRate(rate, currency) {
+  const n = parseFloat(rate);
+  const cur = currency === 'eur' ? 'eur' : 'usd';
+  if (!isFinite(n) || n <= 0) return cur === 'eur' ? '€0' : '$0';
+  return (cur === 'eur' ? '€' : '$') + n.toFixed(3) + '/min';
+}
+
+function formatCdrNativeAmount(amount, currency) {
+  const n = parseFloat(amount);
+  const cur = currency === 'eur' ? 'eur' : 'usd';
+  if (!isFinite(n) || n < 0) return cur === 'eur' ? '€0' : '$0';
+  return (cur === 'eur' ? '€' : '$') + n.toFixed(4);
+}
+
+function formatPrefixTariff(pg) {
+  const nums = pg.numbers || [];
+  if (!nums.length) return '-';
+  const rcSet = new Set(nums.map((n) => (String(n.rateCurrency).toLowerCase() === 'eur' ? 'eur' : 'usd')));
+  const tSet = new Set(nums.map((n) => String(n.paymentTerm || 'weekly').toLowerCase()));
+  const sym = rcSet.size > 1 ? '…' : (rcSet.has('eur') ? '€' : '$');
+  const sameRate = nums.every((n) => String(n.rate) === String(nums[0].rate));
+  const rateStr = sameRate ? escHtml(String(nums[0].rate)) : 'mixed';
+  const termStr = tSet.size > 1 ? 'mixed' : escHtml(String(nums[0].paymentTerm || 'weekly'));
+  return `${sym}${rateStr}/min <span style="color:var(--text-muted);font-size:10px;text-transform:capitalize">${termStr}</span>`;
+}
+
+function formatBillMinutes(billsec) {
+  const m = (Number(billsec) || 0) / 60;
+  return m.toFixed(2) + ' min';
+}
+
+/** Live dashboard strip: MySQL + IPRN / ODBC mode from /api/iprn/panel-status */
+function buildIprnLiveBanner(iprn) {
+  if (!iprn || typeof iprn !== 'object') {
+    return '<p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">IPRN: panel status unavailable</p>';
+  }
+  if (iprn.skipped) {
+    return '<p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">IPRN DB: not configured — set <code>MYSQL_ENABLED=1</code> and <code>MYSQL_HOST</code> / <code>MYSQL_DATABASE</code> / <code>MYSQL_USER</code> (see <code>dashboard/.env.example</code>), then restart the dashboard service.</p>';
+  }
+  if (iprn.error) {
+    return `<p style="font-size:12px;color:var(--danger);margin-bottom:10px">IPRN DB: ${escHtml(iprn.error)}</p>`;
+  }
+  const bits = [];
+  bits.push(iprn.poolOk ? 'MySQL OK' : 'MySQL down');
+  bits.push(iprn.numbersFromDb ? 'DIDs from DB' : 'DIDs from db.json');
+  if (iprn.numbersCount != null) bits.push(`numbers ${iprn.numbersCount}`);
+  if (iprn.inventoryCount != null) bits.push(`inventory ${iprn.inventoryCount}`);
+  if (iprn.billing24hCount != null) bits.push(`billed 24h ${iprn.billing24hCount}`);
+  if (iprn.lastBillingAt) bits.push(`last bill ${escHtml(String(iprn.lastBillingAt).slice(0, 19))}`);
+  bits.push(iprn.odbcRoutingEnabled ? 'ODBC routing ON' : 'ODBC off (IVR only)');
+  let html = `<p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">IPRN · ${bits.join(' · ')}</p>`;
+  if (iprn.tableErrors && iprn.tableErrors.length) {
+    html += `<p style="font-size:11px;color:var(--danger);margin-bottom:10px">${escHtml(iprn.tableErrors.join('; '))}</p>`;
+  }
+  return html;
 }
 
 const pageTitles = {
   dashboard: 'Dashboard',
   'call-stats': 'Call Statistics',
+  'cdr-history': 'CDR',
+  balance: 'Balance',
   'sip-log': 'SIP Invite Log',
   suppliers: 'Suppliers',
-  numbers: 'Numbers',
+  numbers: 'Number inventory',
   'ivr-menus': 'IVR Audio',
   trunk: 'Trunk Configuration',
-  config: 'Config Preview'
+  'did-test': 'DID Test',
+  config: 'Config Preview',
+  'admin-users': 'Panel admins',
+  'iprn-clients': 'IPRN clients',
+  'tenant-dashboard': 'Overview',
+  'tenant-live-calls': 'Live calls',
+  'tenant-cdr': 'CDR',
+  'tenant-billing': 'Balance',
+  'tenant-invoices': 'Invoices',
+  'tenant-subusers': 'Subusers',
+  'tenant-numbers': 'Number allocation',
+  'tenant-call-generator': 'Call generator'
 };
 
 async function renderPage(page) {
   const content = document.getElementById('content');
   if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
+  if (tenantLiveInterval) { clearInterval(tenantLiveInterval); tenantLiveInterval = null; }
 
   switch (page) {
     case 'dashboard': return renderDashboard(content);
     case 'call-stats': return renderCallStats(content);
+    case 'cdr-history': return renderCdrHistory(content);
+    case 'balance': return renderBalance(content);
     case 'sip-log': return renderSipLog(content);
     case 'suppliers': return renderSuppliers(content);
     case 'numbers': return renderNumbers(content);
     case 'ivr-menus': return renderIvrMenus(content);
     case 'trunk': return renderTrunk(content);
+    case 'did-test': return renderDidTest(content);
     case 'config': return renderConfig(content);
+    case 'admin-users': return renderAdminUsers(content);
+    case 'iprn-clients': return renderIprnClients(content);
+    case 'tenant-dashboard': return renderTenantDashboard(content);
+    case 'tenant-live-calls': return renderTenantLiveCalls(content);
+    case 'tenant-cdr': return renderTenantCdr(content);
+    case 'tenant-billing': return renderTenantBilling(content);
+    case 'tenant-invoices': return renderTenantInvoices(content);
+    case 'tenant-subusers': return renderTenantSubusers(content);
+    case 'tenant-numbers': return renderTenantNumbers(content);
+    case 'tenant-call-generator': return renderTenantCallGenerator(content);
   }
 }
 
 // ---- DASHBOARD ----
 async function renderDashboard(el) {
-  el.innerHTML = '<div class="stats-grid" id="stats-grid"></div><div class="card"><div class="card-header"><h3>Live Channels</h3></div><div class="card-body padded" id="channels-box"><p class="empty-state">Loading...</p></div></div>';
+  el.innerHTML = `
+    <div class="stats-grid" id="stats-grid"></div>
+    <div class="card">
+      <div class="card-header">
+        <h3>Live Channels</h3>
+        <div class="live-channels-toolbar">
+          <span class="live-refresh-hint">Auto-refresh every 10s</span>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-live-refresh" title="Refresh live data now">Refresh</button>
+        </div>
+      </div>
+      <div class="card-body padded" id="channels-box"><p class="empty-state">Loading...</p></div>
+    </div>`;
+  const liveBtn = document.getElementById('btn-live-refresh');
+  if (liveBtn) liveBtn.addEventListener('click', () => refreshDashboard());
   await refreshDashboard();
-  statusInterval = setInterval(refreshDashboard, 5000);
+  statusInterval = setInterval(refreshDashboard, 10000);
 }
 
 async function refreshDashboard() {
   try {
-    const [status, modules, numbers, ivrMenus] = await Promise.all([
-      API.getStatus(), API.getModules(), API.getNumbers(), API.getIvrMenus()
+    const [statusRes, modulesRes, numbersRes, ivrRes, suppliersRes, iprnPanelRes] = await Promise.allSettled([
+      API.getStatus(),
+      API.getModules(),
+      API.getNumbers(),
+      API.getIvrMenus(),
+      API.getSuppliers(),
+      API.getIprnPanelStatus(),
     ]);
+    const rawStatus = statusRes.status === 'fulfilled' ? statusRes.value : {
+      running: false, uptime: 'Unavailable', activeCalls: 0, activeChannels: 0, freeRamMB: 0, totalRamMB: 0
+    };
+    const status = (rawStatus && !rawStatus.error) ? rawStatus : {
+      running: false, uptime: 'Unavailable', activeCalls: 0, activeChannels: 0, freeRamMB: 0, totalRamMB: 0
+    };
+    const rawModules = modulesRes.status === 'fulfilled' ? modulesRes.value : { count: 0 };
+    const modules = (rawModules && !rawModules.error) ? rawModules : { count: 0 };
+    const rawNumbers = numbersRes.status === 'fulfilled' ? numbersRes.value : [];
+    const numbers = Array.isArray(rawNumbers) ? rawNumbers : [];
+    const rawIvrMenus = ivrRes.status === 'fulfilled' ? ivrRes.value : [];
+    const ivrMenus = Array.isArray(rawIvrMenus) ? rawIvrMenus : [];
+    const rawSuppliers = suppliersRes.status === 'fulfilled' ? suppliersRes.value : [];
+    const suppliers = Array.isArray(rawSuppliers) ? rawSuppliers : [];
+    let iprn = {};
+    if (iprnPanelRes.status === 'fulfilled' && iprnPanelRes.value && typeof iprnPanelRes.value === 'object') {
+      iprn = iprnPanelRes.value;
+    } else {
+      iprn = { skipped: true };
+    }
+    const iprnBanner = buildIprnLiveBanner(iprn);
 
     document.getElementById('stats-grid').innerHTML = `
       <div class="stat-card">
@@ -304,14 +505,110 @@ async function refreshDashboard() {
         <div class="value amber">${status.freeRamMB}MB</div>
         <div class="sub">free of ${status.totalRamMB}MB</div>
       </div>
+      <div class="stat-card">
+        <div class="label">MySQL / IPRN</div>
+        <div class="value ${iprn.poolOk ? 'green' : ''}">${iprn.skipped ? 'Off' : (iprn.poolOk ? 'Live' : (iprn.error ? 'Err' : '—'))}</div>
+        <div class="sub">${iprn.numbersFromDb ? 'DIDs in DB' : 'JSON store'}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">ODBC routing</div>
+        <div class="value">${iprn.odbcRoutingEnabled ? 'ON' : 'off'}</div>
+        <div class="sub">DSN iprn_db + Apply</div>
+      </div>
     `;
 
-    const ch = await API.getChannels();
-    document.getElementById('channels-box').innerHTML = ch.output
-      ? `<pre style="font-size:12px;color:var(--text-muted);white-space:pre-wrap">${escHtml(ch.output)}</pre>`
-      : '<p class="empty-state">No active channels</p>';
+    let ch;
+    try {
+      ch = await API.getChannels();
+    } catch (e) {
+      ch = { output: '', calls: [], _timeout: true };
+    }
+    if (!ch || typeof ch !== 'object') ch = { output: '', calls: [] };
+    const normalize = (v) => String(v || '').trim();
+    const slugify = (s) => normalize(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const resolveSupplier = (endpoint) => {
+      const ep = normalize(endpoint);
+      if (!ep) return '-';
+      for (const s of suppliers || []) {
+        const slug = slugify(s.name);
+        if (!slug) continue;
+        if (ep === `supplier-${slug}` || ep.includes(slug)) return s.name.toUpperCase();
+      }
+      return ep.toUpperCase();
+    };
+
+    const calls = Array.isArray(ch.calls) ? ch.calls : [];
+    const hasActive = (Number(status.activeCalls) > 0) || (Number(status.activeChannels) > 0);
+    if (ch._timeout) {
+      document.getElementById('channels-box').innerHTML = `${iprnBanner}<p class="empty-state">CHANNEL LIST TIMED OUT — ASTERISK CLI SLOW OR BLOCKED. RETRY OR CHECK SUDO.</p>`;
+      return;
+    }
+    if (!calls.length) {
+      if (hasActive && ch.output) {
+        document.getElementById('channels-box').innerHTML = `${iprnBanner}
+          <p class="empty-state" style="margin-bottom:8px">ACTIVE CALL (RAW — PARSER COULD NOT BUILD TABLE)</p>
+          <pre style="font-size:12px;color:var(--text-muted);white-space:pre-wrap">${escHtml(ch.output)}</pre>
+        `;
+        return;
+      }
+      if (hasActive && !ch.output) {
+        document.getElementById('channels-box').innerHTML = `${iprnBanner}<p class="empty-state">ACTIVE CALL DETECTED BUT CHANNEL LIST EMPTY — CHECK SUDO ASTERISK FOR DASHBOARD USER</p>`;
+        return;
+      }
+      document.getElementById('channels-box').innerHTML = `${iprnBanner}<p class="empty-state">NO ACTIVE CALLS</p>`;
+      return;
+    }
+
+    const sortedCalls = [...calls].sort((a, b) => {
+      const ca = normalize(a.callerid) || '\uffff';
+      const cb = normalize(b.callerid) || '\uffff';
+      if (ca !== cb) return ca.localeCompare(cb);
+      return normalize(a.channel).localeCompare(normalize(b.channel));
+    });
+
+    document.getElementById('channels-box').innerHTML = `${iprnBanner}
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Rows are sorted by caller (NUMBER A). Same caller uses the same row color.</p>
+      <table class="live-channels-table">
+        <thead>
+          <tr>
+            <th>SL NO</th>
+            <th>NUMBER A</th>
+            <th>NUMBER B</th>
+            <th>CALL DURATION</th>
+            <th>SUPPLIER</th>
+            <th>STATE</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sortedCalls.map((c, idx) => {
+            const dur = normalize(c.duration) || '-';
+            const rowClass = hashCallerColorClass(normalize(c.callerid));
+            return `<tr class="${rowClass}">
+            <td>${idx + 1}</td>
+            <td style="font-family:monospace">${escHtml(normalize(c.callerid) || '-')}</td>
+            <td style="font-family:monospace">${escHtml(normalize(c.destinationNumber || c.exten) || '-')}</td>
+            <td style="font-family:monospace;white-space:nowrap">${escHtml(dur)}</td>
+            <td>${escHtml(resolveSupplier(c.endpoint))}</td>
+            <td>${escHtml(normalize(c.state || '').toUpperCase() || '-')}</td>
+          </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
   } catch (err) {
     console.error('Dashboard refresh error:', err);
+    const grid = document.getElementById('stats-grid');
+    const box = document.getElementById('channels-box');
+    if (grid) {
+      grid.innerHTML = `
+        <div class="stat-card">
+          <div class="label">STATUS</div>
+          <div class="value">ERROR</div>
+          <div class="sub">Could not load dashboard data</div>
+        </div>`;
+    }
+    if (box) {
+      box.innerHTML = '<p class="empty-state">DASHBOARD DATA LOAD FAILED</p>';
+    }
   }
 }
 
@@ -391,6 +688,341 @@ window.renderCallStatsForHours = async (h) => {
   renderCallStats(el);
 };
 
+// ---- CDR HISTORY ----
+window.applyCdrFiltersFromForm = function applyCdrFiltersFromForm() {
+  window._cdrFilterState = {
+    supplierId: document.getElementById('cdr-filter-supplier')?.value || '',
+    callerSearch: document.getElementById('cdr-filter-caller')?.value?.trim() || '',
+    didSearch: document.getElementById('cdr-filter-did')?.value?.trim() || '',
+    dateFrom: document.getElementById('cdr-date-from')?.value || '',
+    dateTo: document.getElementById('cdr-date-to')?.value || '',
+  };
+  renderCdrHistory(document.getElementById('content'));
+};
+
+async function renderCdrHistory(el) {
+  const st = window._cdrFilterState || {};
+  const hours = typeof window._cdrHistHours === 'number' ? window._cdrHistHours : 720;
+
+  const [data, suppliers, numbers] = await Promise.all([
+    API.getCdrHistory({
+      hours,
+      limit: 2500,
+      dateFrom: st.dateFrom || undefined,
+      dateTo: st.dateTo || undefined,
+    }),
+    API.getSuppliers(),
+    API.getNumbers(),
+  ]);
+
+  const ipToSupplier = {};
+  for (const s of suppliers) {
+    for (const ip of s.ips) ipToSupplier[ip] = s.name;
+  }
+
+  const numList = Array.isArray(numbers) ? numbers : [];
+  const rawCalls = data.calls || [];
+
+  const enriched = rawCalls.map((c) => {
+    const matched = matchNumberForDst(c.dst, numList);
+    const rateNum = matched ? parseFloat(matched.rate) : 0;
+    const rate = isFinite(rateNum) && rateNum > 0 ? rateNum : 0;
+    const billMin = (c.billsec || 0) / 60;
+    const amount = billMin * rate;
+    const rateCurrency = matched && String(matched.rateCurrency).toLowerCase() === 'eur' ? 'eur' : 'usd';
+    const supplierId = supplierIdForCall(c.sourceIp, matched, suppliers);
+    const destId = matched && matched.destinationId != null ? String(matched.destinationId) : '';
+    return {
+      ...c,
+      matched,
+      rate,
+      amount,
+      rateCurrency,
+      supplierId,
+      destId,
+    };
+  });
+
+  let filtered = enriched;
+  if (st.supplierId) {
+    filtered = filtered.filter((c) => c.supplierId === String(st.supplierId));
+  }
+  const callerQ = digitsOnly(st.callerSearch || '');
+  if (callerQ) {
+    filtered = filtered.filter((c) => digitsOnly(c.src).includes(callerQ));
+  }
+  const didQ = digitsOnly(st.didSearch || '');
+  if (didQ) {
+    filtered = filtered.filter((c) => digitsOnly(c.dst).includes(didQ));
+  }
+
+  filtered.sort((a, b) => {
+    const sa = digitsOnly(a.src) || String(a.src || '');
+    const sb = digitsOnly(b.src) || String(b.src || '');
+    if (sa !== sb) return sa.localeCompare(sb);
+    return new Date(b.start) - new Date(a.start);
+  });
+
+  const totalFetched = data.total ?? rawCalls.length;
+  const shown = filtered.length;
+
+  el.innerHTML = `
+    <div class="card cdr-history-card">
+      <div class="card-header">
+        <h3>CDR</h3>
+        <div class="cdr-range-btns">
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.setCdrHistoryHours(24)">24h</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.setCdrHistoryHours(168)">7d</button>
+          <button type="button" class="btn btn-primary btn-sm" onclick="window.setCdrHistoryHours(720)">30d</button>
+        </div>
+      </div>
+      <div class="card-body padded">
+        <div class="cdr-filters">
+          <div class="cdr-filter-row">
+            <label class="cdr-filter-field">
+              <span>Agents (supplier)</span>
+              <select id="cdr-filter-supplier">
+                <option value="">All agents</option>
+                ${suppliers.map((s) => `<option value="${escHtml(String(s.id))}" ${String(st.supplierId) === String(s.id) ? 'selected' : ''}>${escHtml(s.name)}</option>`).join('')}
+              </select>
+            </label>
+            <label class="cdr-filter-field">
+              <span>Search caller number (source)</span>
+              <input type="text" id="cdr-filter-caller" placeholder="e.g. 966531834217" value="${escHtml(st.callerSearch || '')}" autocomplete="off" />
+            </label>
+            <label class="cdr-filter-field">
+              <span>Search DID number (destination)</span>
+              <input type="text" id="cdr-filter-did" placeholder="e.g. 639989957929" value="${escHtml(st.didSearch || '')}" autocomplete="off" />
+            </label>
+          </div>
+          <div class="cdr-filter-row cdr-filter-row-dates">
+            <label class="cdr-filter-field">
+              <span>From</span>
+              <input type="date" id="cdr-date-from" value="${escHtml(st.dateFrom || '')}" />
+            </label>
+            <label class="cdr-filter-field">
+              <span>To</span>
+              <input type="date" id="cdr-date-to" value="${escHtml(st.dateTo || '')}" />
+            </label>
+            <div class="cdr-filter-actions">
+              <button type="button" class="btn btn-cdr-search" onclick="window.applyCdrFiltersFromForm()">Search</button>
+            </div>
+          </div>
+        </div>
+        <p class="cdr-source-line">Source: <code>/var/log/asterisk/cdr-csv/Master.csv</code> — window <strong>${hours}h</strong>, loaded <strong>${totalFetched}</strong>, shown after filters <strong>${shown}</strong>. Caller/DID search matches any substring of digits. Same caller (source) uses the same row color.</p>
+        ${!data.ok && data.error ? `<p class="empty-state" style="color:var(--danger)">${escHtml(data.error)}</p>` : ''}
+        <div class="cdr-history-wrap">
+        ${filtered.length ? `
+        <table class="cdr-history-table">
+          <thead><tr>
+            <th>Date</th><th>Source</th><th>Destination</th><th>Duration</th><th>Rate</th><th>Amount</th><th>Status</th>
+          </tr></thead>
+          <tbody>${filtered.map((c) => {
+            const statusClass = c.disposition === 'ANSWERED' ? 'badge-ring' : 'badge-direct';
+            const supplierName = c.sourceIp && ipToSupplier[c.sourceIp] ? ipToSupplier[c.sourceIp] : (c.sourceIp || '-');
+            const rowClass = hashCallerColorClass(c.src);
+            const statusLabel = formatCdrStatusLabel(c.disposition);
+            return `<tr class="${rowClass}" title="Supplier: ${escHtml(supplierName)}">
+              <td class="cdr-cell-date">${escHtml(formatCdrDateDisplay(c.start))}</td>
+              <td class="cdr-cell-num">${escHtml(c.src)}</td>
+              <td class="cdr-cell-num"><strong>${escHtml(c.dst)}</strong></td>
+              <td>${escHtml(formatBillMinutes(c.billsec))}</td>
+              <td>${escHtml(formatCdrNativeRate(c.rate, c.rateCurrency))}</td>
+              <td>${escHtml(formatCdrNativeAmount(c.amount, c.rateCurrency))}</td>
+              <td><span class="badge ${statusClass}">${escHtml(statusLabel)}</span></td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>` : '<div class="empty-state">No CDR rows match these filters.</div>'}
+        </div>
+      </div>
+    </div>`;
+}
+
+window.setCdrHistoryHours = (h) => {
+  window._cdrHistHours = h;
+  const el = document.getElementById('content');
+  renderCdrHistory(el);
+};
+
+// ---- BALANCE (UTC weekly Mon 00:00 – Sun 23:59) ----
+function formatBalanceInCurrency(amount, cur) {
+  const n = Number(amount) || 0;
+  if (cur === 'usd') return '$' + n.toFixed(2);
+  if (cur === 'eur') return '€' + n.toFixed(2);
+  return n.toFixed(2) + ' SAR';
+}
+
+window.setBalanceCurrency = function setBalanceCurrency(c) {
+  if (c === 'usd' || c === 'eur' || c === 'sar') window._balanceCurrency = c;
+  const el = document.getElementById('content');
+  if (el && typeof currentPage !== 'undefined' && currentPage === 'balance') renderBalance(el);
+};
+
+window.refreshBalancePage = function refreshBalancePage() {
+  return renderBalance(document.getElementById('content'));
+};
+
+window.saveBalanceRates = async function saveBalanceRates() {
+  const eurEl = document.getElementById('bal-eur-per-usd');
+  const sarEl = document.getElementById('bal-sar-per-usd');
+  const eur = parseFloat(eurEl?.value);
+  const sar = parseFloat(sarEl?.value);
+  try {
+    await API.updateBalance({
+      eurPerUsd: Number.isFinite(eur) ? eur : 0,
+      sarPerUsd: Number.isFinite(sar) ? sar : 0,
+    });
+    toast('Exchange multipliers saved');
+    await renderBalance(document.getElementById('content'));
+  } catch (e) {
+    toast('Save failed: ' + (e.message || e), 'error');
+  }
+};
+
+function walletCardHtml(title, sub, w) {
+  if (!w) return '';
+  return `
+    <div class="balance-wallet-card">
+      <div class="balance-wallet-title">${escHtml(title)}</div>
+      <div class="balance-wallet-sub">${escHtml(sub)}</div>
+      <div class="balance-wallet-lines">
+        <div><span class="balance-wallet-k">USD</span> <span class="balance-wallet-v">${escHtml(formatBalanceInCurrency(w.totalUsd, 'usd'))}</span></div>
+        <div><span class="balance-wallet-k">EUR</span> <span class="balance-wallet-v">${escHtml(formatBalanceInCurrency(w.totalEur, 'eur'))}</span></div>
+        <div class="balance-wallet-sar"><span class="balance-wallet-k">SAR (exchange)</span> <span class="balance-wallet-v">${escHtml(formatBalanceInCurrency(w.totalSar, 'sar'))}</span></div>
+      </div>
+    </div>`;
+}
+
+async function renderBalance(el) {
+  const cur = window._balanceCurrency === 'eur' || window._balanceCurrency === 'sar' ? window._balanceCurrency : 'usd';
+  window._balanceCurrency = cur;
+
+  let report;
+  try {
+    report = await API.getBalance();
+  } catch (e) {
+    el.innerHTML = `<div class="card"><div class="card-body padded"><p class="empty-state">Balance request failed: ${escHtml(e.message || String(e))}</p></div></div>`;
+    return;
+  }
+
+  if (!report || report.error) {
+    el.innerHTML = `<div class="card"><div class="card-body padded"><p class="empty-state">Could not load balance.</p></div></div>`;
+    return;
+  }
+
+  const cfg = report.config || {};
+  const ww = report.weeklyWallet?.current;
+  const mw = report.monthlyWallet?.current;
+  const weeks = report.weeklyWallet?.weeks || [];
+  const months = report.monthlyWallet?.months || [];
+  const colClass = (c) => (cur === c ? 'balance-col-active' : '');
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <h3>Balance</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <div class="balance-currency-toggle">
+            <span style="font-size:11px;color:var(--text-muted);margin-right:4px">Highlight</span>
+            <button type="button" class="btn btn-sm ${cur === 'usd' ? 'btn-primary' : 'btn-outline'}" onclick="window.setBalanceCurrency('usd')">USD</button>
+            <button type="button" class="btn btn-sm ${cur === 'eur' ? 'btn-primary' : 'btn-outline'}" onclick="window.setBalanceCurrency('eur')">EUR</button>
+            <button type="button" class="btn btn-sm ${cur === 'sar' ? 'btn-primary' : 'btn-outline'}" onclick="window.setBalanceCurrency('sar')">SAR</button>
+          </div>
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.refreshBalancePage()">Refresh</button>
+        </div>
+      </div>
+      <div class="card-body padded">
+        <p class="balance-note">${escHtml(report.weekBoundsNote || '')}</p>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Each DID has a per-minute rate in <strong>USD or EUR</strong> and a <strong>payment term</strong> (weekly / monthly / daily). Weekly + daily terms accrue in the <strong>weekly wallet</strong>; monthly terms in the <strong>monthly wallet</strong>. SAR = USD×(SAR/USD) + EUR×(SAR/EUR) using your multipliers.</p>
+        ${report.cdrMissing ? '<p class="empty-state" style="margin-bottom:12px">CDR file missing — totals are 0 until <code>/var/log/asterisk/cdr-csv/Master.csv</code> exists.</p>' : ''}
+        ${report.readError ? '<p class="empty-state" style="margin-bottom:12px;color:var(--danger)">Could not read CDR file.</p>' : ''}
+        <div class="balance-wallet-grid">
+          ${walletCardHtml(
+            'Weekly wallet',
+            ww ? `UTC week ${ww.primaryKey} → ${ww.rangeEndUtc} · resets Mon 00:00 UTC` : '',
+            ww
+          )}
+          ${walletCardHtml(
+            'Monthly wallet',
+            mw ? `UTC month ${mw.primaryKey.slice(0, 7)} → ${mw.rangeEndUtc} · resets 1st 00:00 UTC` : '',
+            mw
+          )}
+        </div>
+        <div class="card" style="margin-top:20px;background:rgba(0,0,0,.15)">
+          <div class="card-header"><h3>FX (for SAR conversion)</h3></div>
+          <div class="card-body padded" style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end">
+            <label class="cdr-filter-field" style="min-width:140px">
+              <span>EUR per 1 USD</span>
+              <input type="number" step="0.0001" id="bal-eur-per-usd" value="${escHtml(String(cfg.eurPerUsd ?? ''))}" />
+            </label>
+            <label class="cdr-filter-field" style="min-width:140px">
+              <span>SAR per 1 USD</span>
+              <input type="number" step="0.0001" id="bal-sar-per-usd" value="${escHtml(String(cfg.sarPerUsd ?? ''))}" />
+            </label>
+            <button type="button" class="btn btn-primary" onclick="window.saveBalanceRates()">Save rates</button>
+          </div>
+        </div>
+        <div class="card" style="margin-top:20px">
+          <div class="card-header"><h3>Weekly wallet history (52 UTC weeks)</h3></div>
+          <div class="card-body padded" style="overflow-x:auto">
+            <table class="balance-weekly-table">
+              <thead>
+                <tr>
+                  <th>Mon (UTC)</th>
+                  <th>Sun (UTC)</th>
+                  <th class="${colClass('usd')}">USD</th>
+                  <th class="${colClass('eur')}">EUR</th>
+                  <th class="${colClass('sar')}">SAR</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${weeks.map((w) => `
+                <tr class="${w.isCurrent ? 'balance-row-current' : ''}">
+                  <td style="font-family:monospace;font-size:12px">${escHtml(w.primaryKey)}</td>
+                  <td style="font-family:monospace;font-size:12px">${escHtml(w.rangeEndUtc)}</td>
+                  <td class="${colClass('usd')}">${escHtml(formatBalanceInCurrency(w.totalUsd, 'usd'))}</td>
+                  <td class="${colClass('eur')}">${escHtml(formatBalanceInCurrency(w.totalEur, 'eur'))}</td>
+                  <td class="${colClass('sar')}">${escHtml(formatBalanceInCurrency(w.totalSar, 'sar'))}</td>
+                  <td>${w.isCurrent ? '<span class="badge badge-ring">Current</span>' : ''}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card" style="margin-top:20px">
+          <div class="card-header"><h3>Monthly wallet history (24 UTC months)</h3></div>
+          <div class="card-body padded" style="overflow-x:auto">
+            <table class="balance-weekly-table">
+              <thead>
+                <tr>
+                  <th>Month start</th>
+                  <th>Month end</th>
+                  <th class="${colClass('usd')}">USD</th>
+                  <th class="${colClass('eur')}">EUR</th>
+                  <th class="${colClass('sar')}">SAR</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${months.map((w) => `
+                <tr class="${w.isCurrent ? 'balance-row-current' : ''}">
+                  <td style="font-family:monospace;font-size:12px">${escHtml(w.primaryKey)}</td>
+                  <td style="font-family:monospace;font-size:12px">${escHtml(w.rangeEndUtc)}</td>
+                  <td class="${colClass('usd')}">${escHtml(formatBalanceInCurrency(w.totalUsd, 'usd'))}</td>
+                  <td class="${colClass('eur')}">${escHtml(formatBalanceInCurrency(w.totalEur, 'eur'))}</td>
+                  <td class="${colClass('sar')}">${escHtml(formatBalanceInCurrency(w.totalSar, 'sar'))}</td>
+                  <td>${w.isCurrent ? '<span class="badge badge-ring">Current</span>' : ''}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <p style="font-size:11px;color:var(--text-muted);margin-top:12px">Parsed CDR rows: ${report.parsedRows ?? 0}. Closed periods are snapshotted in <code>db.json</code> (<code>balance.weeklySnapshots</code>, <code>balance.monthlySnapshots</code>) when first seen after the period ends.</p>
+      </div>
+    </div>`;
+}
+
 // ---- SIP LOG ----
 async function renderSipLog(el) {
   const invites = await API.getSipInvites(200);
@@ -438,6 +1070,435 @@ async function renderSipLog(el) {
     </div>`;
 }
 
+// ---- PANEL ADMINS ----
+async function renderAdminUsers(el) {
+  const data = await API.getAdminUsers();
+  if (data && data.error) {
+    el.innerHTML = `<div class="card"><div class="card-body padded"><p class="empty-state" style="color:var(--danger)">${escHtml(data.error)}</p></div></div>`;
+    return;
+  }
+  const users = (data && data.users) || [];
+  const envU = (data && data.envUsername) || 'admin';
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header"><h3>How logins work</h3></div>
+      <div class="card-body padded">
+        <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">
+          Break-glass account <strong>${escHtml(envU)}</strong> uses <code>DASH_USER</code> / <code>DASH_PASS</code> on the server and is never stored in <code>db.json</code>.
+        </p>
+        <p style="font-size:13px;color:var(--text-muted);margin:0">
+          Optional: set <code>AUTO_APPLY_ASTERISK_ON_LOGIN=1</code> in the dashboard <code>.env</code> so a successful login also copies configs to <code>/etc/asterisk/</code> and reloads Asterisk (same as &quot;Apply &amp; Reload&quot;).
+        </p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3>Extra panel users (${users.length})</h3>
+        <button type="button" class="btn btn-primary" id="btn-add-admin">+ Add user</button>
+      </div>
+      <div class="card-body">
+        ${users.length ? `
+        <table>
+          <thead><tr><th>Username</th><th></th></tr></thead>
+          <tbody>${users.map((u) => `<tr>
+            <td><strong style="font-family:monospace">${escHtml(u.username)}</strong></td>
+            <td style="white-space:nowrap">
+              <button type="button" class="btn btn-outline btn-sm pw-admin" data-u="${escHtml(u.username)}">New password</button>
+              <button type="button" class="btn btn-outline btn-sm del-admin" data-u="${escHtml(u.username)}" style="margin-left:6px;color:var(--danger);border-color:var(--danger)">Remove</button>
+            </td>
+          </tr>`).join('')}</tbody>
+        </table>` : '<div class="empty-state">No extra users — only the env account can sign in until you add one.</div>'}
+      </div>
+    </div>`;
+
+  document.getElementById('btn-add-admin').onclick = () => {
+    showModal('Add panel user', `
+      <div class="form-group">
+        <label>Username</label>
+        <input class="form-control" id="adm-user" placeholder="letters, numbers, _ . -" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label>Password (min 8 characters)</label>
+        <input class="form-control" id="adm-pass" type="password" autocomplete="new-password">
+      </div>
+    `, async () => {
+      const username = document.getElementById('adm-user').value.trim();
+      const password = document.getElementById('adm-pass').value;
+      const r = await API.addAdminUser({ username, password });
+      if (!r.ok) {
+        toast(r.error || 'Could not add user', 'error');
+        return;
+      }
+      closeModal();
+      toast('User added');
+      renderAdminUsers(el);
+    });
+  };
+
+  el.querySelectorAll('.pw-admin').forEach((b) => {
+    b.onclick = () => {
+      const username = b.getAttribute('data-u');
+      showModal(`New password: ${username}`, `
+        <div class="form-group">
+          <label>New password (min 8 characters)</label>
+          <input class="form-control" id="adm-pw2" type="password" autocomplete="new-password">
+        </div>
+      `, async () => {
+        const password = document.getElementById('adm-pw2').value;
+        const r = await API.updateAdminPassword(username, password);
+        if (!r.ok) {
+          toast(r.error || 'Update failed', 'error');
+          return;
+        }
+        closeModal();
+        toast('Password updated');
+        renderAdminUsers(el);
+      });
+    };
+  });
+
+  el.querySelectorAll('.del-admin').forEach((b) => {
+    b.onclick = async () => {
+      const username = b.getAttribute('data-u');
+      if (!confirm(`Remove panel user "${username}"?`)) return;
+      const r = await API.deleteAdminUser(username);
+      if (!r.ok) {
+        toast(r.error || 'Remove failed', 'error');
+        return;
+      }
+      toast('User removed');
+      renderAdminUsers(el);
+    };
+  });
+}
+
+// ---- IPRN TENANT + CLIENT USERS (panel) ----
+async function renderTenantDashboard(el) {
+  const d = await API.getTenantDashboard();
+  if (d && d.error) {
+    el.innerHTML = `<div class="card"><div class="card-body padded"><p class="empty-state">${escHtml(d.error)}</p></div></div>`;
+    return;
+  }
+  const u = d.user || {};
+  el.innerHTML = `
+    <div class="stats-grid" style="margin-bottom:20px">
+      <div class="stat-card"><div class="label">Balance</div><div class="value blue">${escHtml(String(u.balance ?? 0))}</div></div>
+      <div class="stat-card"><div class="label">Assigned numbers</div><div class="value">${d.activeNumbers ?? 0}</div></div>
+      <div class="stat-card"><div class="label">Live calls (your DIDs)</div><div class="value">${d.liveCalls ?? 0}</div></div>
+      <div class="stat-card"><div class="label">CDR est. cost (30d window)</div><div class="value">${escHtml(String(d.cdrCostWindow ?? 0))}</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>Recent invoices</h3></div>
+      <div class="card-body padded">
+        ${(d.recentInvoices || []).length ? `<ul style="font-size:13px">${d.recentInvoices.map((i) => `<li>${escHtml(i.period_start)} → ${escHtml(i.period_end)} · ${escHtml(String(i.amount))} · ${escHtml(i.status)}</li>`).join('')}</ul>` : '<p class="empty-state">No invoices yet</p>'}
+      </div>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted)">Costs are estimated from CDR CSV and <code>numbers</code> rates. Balance enforcement on outbound calls requires <code>TENANT_ENFORCE_BALANCE=1</code> and <code>TENANT_ORIGINATE_CMD</code> for the generator.</p>`;
+}
+
+async function renderTenantLiveCalls(el) {
+  async function refresh() {
+    const live = await API.getTenantLiveCalls();
+    const rows = (live.calls || []).map((c) => `<tr>
+      <td style="font-family:monospace;font-size:12px">${escHtml(c.callerid || '—')}</td>
+      <td style="font-family:monospace;font-size:12px">${escHtml(c.destinationNumber || c.exten || '—')}</td>
+      <td>${escHtml(c.duration || '—')}</td>
+      <td>${escHtml(c.state || '—')}</td>
+      <td>${c.assignedUserId != null ? escHtml(String(c.assignedUserId)) : '—'}</td>
+    </tr>`).join('');
+    el.innerHTML = `
+      <div class="card">
+        <div class="card-header"><h3>Live calls</h3><span style="font-size:12px;color:var(--text-muted)">Refresh every 4s</span></div>
+        <div class="card-body padded">
+          ${rows ? `<table><thead><tr><th>Caller</th><th>Dialed / DID</th><th>Duration</th><th>State</th><th>Assigned user</th></tr></thead><tbody>${rows}</tbody></table>` : '<p class="empty-state">No active channels matching your numbers</p>'}
+        </div>
+      </div>`;
+  }
+  await refresh();
+  tenantLiveInterval = setInterval(refresh, 4000);
+}
+
+async function renderTenantCdr(el) {
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-body padded">
+        <div class="form-row">
+          <div class="form-group"><label>From</label><input type="date" class="form-control" id="tcdr-from"></div>
+          <div class="form-group"><label>To</label><input type="date" class="form-control" id="tcdr-to"></div>
+          <div class="form-group" style="display:flex;align-items:flex-end"><button class="btn btn-primary" type="button" id="tcdr-go">Load</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="card"><div class="card-body padded" id="tcdr-box"><p class="empty-state">Loading…</p></div></div>`;
+  const load = async () => {
+    const df = document.getElementById('tcdr-from').value;
+    const dt = document.getElementById('tcdr-to').value;
+    const data = await API.getTenantCdr({ hours: 24 * 90, limit: 800, dateFrom: df, dateTo: dt });
+    const box = document.getElementById('tcdr-box');
+    if (!data.ok) {
+      box.innerHTML = `<p class="empty-state">${escHtml(data.error || 'Failed')}</p>`;
+      return;
+    }
+    const rows = (data.calls || []).map((c) => `<tr>
+      <td style="font-size:11px">${escHtml(c.start)}</td>
+      <td style="font-family:monospace">${escHtml(c.dst)}</td>
+      <td>${c.billsec}s</td>
+      <td>${escHtml(String(c.cost ?? 0))}</td>
+      <td>${escHtml(c.disposition || '')}</td>
+    </tr>`).join('');
+    box.innerHTML = rows
+      ? `<table><thead><tr><th>Time</th><th>Number</th><th>Duration</th><th>Est. cost</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`
+      : '<p class="empty-state">No CDR rows for your assigned numbers in this range</p>';
+  };
+  document.getElementById('tcdr-go').onclick = load;
+  await load();
+}
+
+async function renderTenantBilling(el) {
+  const me = await API.getAuthMe();
+  const dash = await API.getTenantDashboard();
+  const bal = dash.user ? dash.user.balance : 0;
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header"><h3>Balance</h3></div>
+      <div class="card-body padded">
+        <p style="font-size:28px;font-weight:600">${escHtml(String(bal))}</p>
+        <p style="font-size:13px;color:var(--text-muted)">Logged in as <strong>${escHtml(me.username || '')}</strong> (${escHtml(me.role || '')}). Prepaid balance is stored in MySQL; per-call deduction in Asterisk is not wired in this extension — use reporting and manual adjustments from the operator.</p>
+      </div>
+    </div>`;
+}
+
+async function renderTenantInvoices(el) {
+  const data = await API.getTenantInvoices();
+  const inv = (data.invoices || []).map((i) => {
+    const m = i.meta || {};
+    return `<tr>
+      <td>${i.id}</td>
+      <td>${escHtml(String(i.period_start))} → ${escHtml(String(i.period_end))}</td>
+      <td>${escHtml(String(i.amount))}</td>
+      <td>${escHtml(i.status)}</td>
+      <td><a href="/api/tenant/invoices/${i.id}/csv" target="_blank" rel="noopener">CSV</a></td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h3>Generate invoice</h3></div>
+      <div class="card-body padded">
+        <div class="form-row">
+          <div class="form-group"><label>Period start</label><input type="date" class="form-control" id="tinv-p1"></div>
+          <div class="form-group"><label>Period end</label><input type="date" class="form-control" id="tinv-p2"></div>
+          <div class="form-group" style="display:flex;align-items:flex-end"><button class="btn btn-primary" type="button" id="tinv-gen">Generate</button></div>
+        </div>
+        <p style="font-size:12px;color:var(--text-muted)">PDF export: use browser print on CSV or a spreadsheet. Weekly/monthly schedules are manual for now.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>Invoices</h3></div>
+      <div class="card-body padded">
+        ${inv ? `<table><thead><tr><th>ID</th><th>Period</th><th>Amount</th><th>Status</th><th>Export</th></tr></thead><tbody>${inv}</tbody></table>` : '<p class="empty-state">None</p>'}
+      </div>
+    </div>`;
+  document.getElementById('tinv-gen').onclick = async () => {
+    const periodStart = document.getElementById('tinv-p1').value;
+    const periodEnd = document.getElementById('tinv-p2').value;
+    const r = await API.generateTenantInvoice({ periodStart, periodEnd });
+    if (!r.ok) toast(r.error || 'Failed', 'error');
+    else toast('Invoice created');
+    renderTenantInvoices(el);
+  };
+}
+
+async function renderTenantSubusers(el) {
+  const me = await API.getAuthMe();
+  if (me.role === 'subuser') {
+    el.innerHTML = '<div class="card"><div class="card-body padded"><p class="empty-state">Subusers cannot manage subusers.</p></div></div>';
+    return;
+  }
+  const data = await API.getTenantSubusers();
+  const rows = (data.subusers || []).map((s) => `<tr>
+    <td>${escHtml(s.username)}</td>
+    <td>${escHtml(String(s.balance))}</td>
+    <td><button type="button" class="btn btn-outline btn-sm t-del-sub" data-id="${s.id}">Remove</button></td>
+  </tr>`).join('');
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header"><h3>Subusers</h3><button type="button" class="btn btn-primary" id="t-add-sub">+ Add</button></div>
+      <div class="card-body padded">
+        ${rows ? `<table><thead><tr><th>Username</th><th>Balance</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : '<p class="empty-state">No subusers</p>'}
+      </div>
+    </div>`;
+  document.getElementById('t-add-sub').onclick = () => {
+    showModal('Add subuser', `
+      <div class="form-group"><label>Username</label><input class="form-control" id="tsu-u"></div>
+      <div class="form-group"><label>Password (8+)</label><input type="password" class="form-control" id="tsu-p"></div>
+      <div class="form-group"><label>Initial balance</label><input class="form-control" id="tsu-b" value="0"></div>
+    `, async () => {
+      const r = await API.createTenantSubuser({
+        username: document.getElementById('tsu-u').value.trim(),
+        password: document.getElementById('tsu-p').value,
+        balance: parseFloat(document.getElementById('tsu-b').value) || 0,
+      });
+      if (!r.ok) { toast(r.error || 'Failed', 'error'); return; }
+      closeModal();
+      toast('Subuser created');
+      renderTenantSubusers(el);
+    });
+  };
+  el.querySelectorAll('.t-del-sub').forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm('Delete subuser?')) return;
+      await API.deleteTenantSubuser(b.dataset.id);
+      toast('Removed');
+      renderTenantSubusers(el);
+    };
+  });
+}
+
+async function renderTenantNumbers(el) {
+  const me = await API.getAuthMe();
+  const nums = await API.getTenantNumbers();
+  const subs = me.role !== 'subuser' ? await API.getTenantSubusers() : { subusers: [] };
+  const list = (nums.numbers || []).map((n) => `<tr><td style="font-family:monospace">${escHtml(n.number)}</td><td>user #${n.user_id}</td></tr>`).join('');
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header"><h3>Assigned numbers in your org</h3></div>
+      <div class="card-body padded">
+        ${list ? `<table><thead><tr><th>Number</th><th>User id</th></tr></thead><tbody>${list}</tbody></table>` : '<p class="empty-state">None</p>'}
+      </div>
+    </div>
+    ${me.role === 'subuser' ? '' : `
+    <div class="card" style="margin-top:16px">
+      <div class="card-header"><h3>Assign to subuser</h3></div>
+      <div class="card-body padded">
+        <div class="form-row">
+          <div class="form-group"><label>Number (digits)</label><input class="form-control" id="tna-num"></div>
+          <div class="form-group"><label>Subuser</label><select class="form-control" id="tna-sub">${(subs.subusers || []).map((s) => `<option value="${s.id}">${escHtml(s.username)}</option>`).join('')}</select></div>
+          <div class="form-group" style="display:flex;align-items:flex-end"><button class="btn btn-primary" type="button" id="tna-go">Assign</button></div>
+        </div>
+        <p style="font-size:12px;color:var(--text-muted)">You can only pass on numbers already assigned to your login. Operator assigns inventory to clients from <strong>IPRN clients</strong>.</p>
+      </div>
+    </div>`}`;
+  const go = document.getElementById('tna-go');
+  if (go) {
+    go.onclick = async () => {
+      const number = document.getElementById('tna-num').value.trim();
+      const userId = document.getElementById('tna-sub').value;
+      const r = await API.tenantAllocate({ userId, number });
+      if (!r.ok) toast(r.error || 'Failed', 'error');
+      else toast('Assigned');
+      renderTenantNumbers(el);
+    };
+  }
+}
+
+async function renderTenantCallGenerator(el) {
+  const nums = await API.getTenantNumbers();
+  const arr = nums.numbers || [];
+  const opts = arr.map((n) => `<option value="${escHtml(n.number)}">${escHtml(n.number)}</option>`).join('');
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header"><h3>Outbound test call</h3></div>
+      <div class="card-body padded">
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Requires <code>TENANT_ORIGINATE_CMD</code> on the server (e.g. <code>channel originate Local/7001@from-internal application Dial PJSIP/{DEST}@endpoint</code>). Placeholders: <code>{DEST}</code>, <code>{FROM}</code>.</p>
+        <div class="form-group"><label>Destination (digits)</label><input class="form-control" id="tcg-d" placeholder="e.g. 4930123456"></div>
+        <div class="form-group"><label>From assigned DID</label><select class="form-control" id="tcg-f">${opts || '<option value="">— none —</option>'}</select></div>
+        <button type="button" class="btn btn-primary" id="tcg-go">Call</button>
+        <pre id="tcg-out" style="margin-top:12px;font-size:12px;color:var(--text-muted);white-space:pre-wrap"></pre>
+      </div>
+    </div>`;
+  document.getElementById('tcg-go').onclick = async () => {
+    const destination = document.getElementById('tcg-d').value.trim();
+    const fromNumber = document.getElementById('tcg-f').value.trim();
+    const r = await API.tenantCallGenerator({ destination, fromNumber });
+    document.getElementById('tcg-out').textContent = JSON.stringify(r, null, 2);
+    if (r.ok) toast('Originate sent');
+    else toast(r.error || r.message || 'Failed', 'error');
+  };
+}
+
+async function renderIprnClients(el) {
+  const data = await API.getIprnClientUsers();
+  if (data.error) {
+    el.innerHTML = `<div class="card"><div class="card-body padded"><p class="empty-state">${escHtml(data.error)}</p></div></div>`;
+    return;
+  }
+  const users = data.users || [];
+  const rows = users.map((u) => `<tr>
+    <td>${u.id}</td>
+    <td><strong>${escHtml(u.username)}</strong></td>
+    <td>${escHtml(u.role)}</td>
+    <td>${u.parent_user_id ?? '—'}</td>
+    <td>${escHtml(String(u.balance))}</td>
+    <td>${escHtml(u.status)}</td>
+    <td>
+      <button type="button" class="btn btn-outline btn-sm ic-bal" data-id="${u.id}">Balance</button>
+      <button type="button" class="btn btn-outline btn-sm ic-asn" data-id="${u.id}">Assign #</button>
+      <button type="button" class="btn btn-outline btn-sm ic-del" data-id="${u.id}" style="color:var(--danger)">Delete</button>
+    </td>
+  </tr>`).join('');
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header"><h3>IPRN client users (MySQL)</h3><button type="button" class="btn btn-primary" id="ic-add">+ User</button></div>
+      <div class="card-body padded">
+        ${rows ? `<table><thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Parent</th><th>Balance</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : '<p class="empty-state">No users — create a client (<code>user</code> or <code>admin</code>) for portal login.</p>'}
+      </div>
+    </div>`;
+  document.getElementById('ic-add').onclick = () => {
+    showModal('Create IPRN user', `
+      <div class="form-group"><label>Username</label><input class="form-control" id="ic-u"></div>
+      <div class="form-group"><label>Password (8+)</label><input type="password" class="form-control" id="ic-p"></div>
+      <div class="form-group"><label>Role</label><select class="form-control" id="ic-r"><option value="user">user (client)</option><option value="admin">admin</option><option value="subuser">subuser</option></select></div>
+      <div class="form-group"><label>Parent user id (optional)</label><input class="form-control" id="ic-par" placeholder="empty = root client"></div>
+      <div class="form-group"><label>Balance</label><input class="form-control" id="ic-b" value="0"></div>
+    `, async () => {
+      const body = {
+        username: document.getElementById('ic-u').value.trim(),
+        password: document.getElementById('ic-p').value,
+        role: document.getElementById('ic-r').value,
+        parent_user_id: document.getElementById('ic-par').value.trim() || null,
+        balance: parseFloat(document.getElementById('ic-b').value) || 0,
+      };
+      const r = await API.createIprnClientUser(body);
+      if (!r.ok) { toast(r.error || 'Failed', 'error'); return; }
+      closeModal();
+      toast('User created');
+      renderIprnClients(el);
+    });
+  };
+  el.querySelectorAll('.ic-bal').forEach((b) => {
+    b.onclick = () => {
+      const id = b.dataset.id;
+      showModal('Set balance', `<div class="form-group"><label>Balance</label><input class="form-control" id="ic-bv"></div>`, async () => {
+        const r = await API.setIprnClientBalance(id, parseFloat(document.getElementById('ic-bv').value) || 0);
+        if (!r.ok) { toast(r.error || 'Failed', 'error'); return; }
+        closeModal();
+        renderIprnClients(el);
+      });
+    };
+  });
+  el.querySelectorAll('.ic-asn').forEach((b) => {
+    b.onclick = () => {
+      const id = b.dataset.id;
+      showModal('Assign number from inventory', `<div class="form-group"><label>Full number (digits)</label><input class="form-control" id="ic-n"></div>`, async () => {
+        const r = await API.assignIprnClientNumber(id, document.getElementById('ic-n').value.trim());
+        if (!r.ok) { toast(r.error || 'Failed', 'error'); return; }
+        closeModal();
+        toast('Assigned');
+        renderIprnClients(el);
+      });
+    };
+  });
+  el.querySelectorAll('.ic-del').forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm('Delete user and assignments?')) return;
+      await API.deleteIprnClientUser(b.dataset.id);
+      toast('Deleted');
+      renderIprnClients(el);
+    };
+  });
+}
+
 // ---- SUPPLIERS ----
 async function renderSuppliers(el) {
   const suppliers = await API.getSuppliers();
@@ -451,7 +1512,7 @@ async function renderSuppliers(el) {
       <div class="card-body">
         ${suppliers.length ? `
         <table>
-          <thead><tr><th>Name</th><th>IP Addresses</th><th>DIDs</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Trusted IP/CIDR</th><th>DIDs</th><th></th></tr></thead>
           <tbody>${suppliers.map(s => `<tr>
             <td><strong>${escHtml(s.name)}</strong></td>
             <td>${s.ips.map(ip => `<span class="badge badge-ring" style="margin-right:4px;font-family:monospace">${ip}</span>`).join('')}</td>
@@ -487,14 +1548,14 @@ function showSupplierModal(supplier) {
       <input class="form-control" id="sup-name" value="${supplier?.name || ''}" placeholder="e.g. VoIP Provider ABC">
     </div>
     <div class="form-group">
-      <label>IP Addresses (one per line)</label>
-      <textarea class="form-control" id="sup-ips" rows="4" style="font-family:monospace;font-size:13px" placeholder="e.g.\n108.61.70.46\n108.61.70.47">${(supplier?.ips || []).join('\n')}</textarea>
+      <label>Trusted IP/CIDR (one per line)</label>
+      <textarea class="form-control" id="sup-ips" rows="4" style="font-family:monospace;font-size:13px" placeholder="e.g.\n108.61.70.46\n1.2.3.4/32\n203.0.113.0/24">${(supplier?.ips || []).join('\n')}</textarea>
     </div>
   `, async () => {
     const name = document.getElementById('sup-name').value.trim();
     const ips = document.getElementById('sup-ips').value.split('\n').map(s => s.trim()).filter(Boolean);
     if (!name) { toast('Supplier name is required', 'error'); return; }
-    if (!ips.length) { toast('At least one IP address is required', 'error'); return; }
+    if (!ips.length) { toast('At least one trusted IP/CIDR is required', 'error'); return; }
 
     if (isEdit) {
       await API.updateSupplier(supplier.id, { name, ips });
@@ -509,11 +1570,30 @@ function showSupplierModal(supplier) {
   });
 }
 
+function sipStateForEndpoint(contacts, endpoint) {
+  if (!contacts || !contacts.length || !endpoint) return '—';
+  const el = String(endpoint).toLowerCase();
+  for (const c of contacts) {
+    const blob = `${c.uri || ''} ${c.line || ''}`.toLowerCase();
+    if (blob.includes(el)) {
+      if (c.state === 'available') return 'Avail';
+      if (c.state === 'unavailable') return 'Unavail';
+      return '?';
+    }
+  }
+  return 'n/a';
+}
+
 // ---- NUMBERS ----
 async function renderNumbers(el) {
-  const [numbers, suppliers, ivrMenus] = await Promise.all([
-    API.getNumbers(), API.getSuppliers(), API.getIvrMenus()
+  const [numbers, suppliers, ivrMenus, globals, billingRes, sipRes] = await Promise.all([
+    API.getNumbers(), API.getSuppliers(), API.getIvrMenus(), API.getGlobals(),
+    API.getIprnBillingSummary(800).catch(() => ({ rows: [] })),
+    API.getPjsipContacts().catch(() => ({ contacts: [] })),
   ]);
+  const billRows = billingRes && Array.isArray(billingRes.rows) ? billingRes.rows : [];
+  const billByNum = Object.fromEntries(billRows.map((r) => [String(r.number), r]));
+  const contacts = sipRes && Array.isArray(sipRes.contacts) ? sipRes.contacts : [];
 
   const byCountry = {};
   for (const n of numbers) {
@@ -526,80 +1606,231 @@ async function renderNumbers(el) {
   const countries = Object.keys(byCountry).sort();
   const totalNumbers = numbers.length;
   const totalPrefixes = Object.values(byCountry).reduce((s, c) => s + Object.keys(c).length, 0);
+  const dialEntries = [...COUNTRIES].sort((a, b) => b.dial.length - a.dial.length);
+  const detectCountryFromPrefix = (fullPrefix) => {
+    const normalized = String(fullPrefix || '').replace(/\D/g, '');
+    for (const c of dialEntries) {
+      if (normalized.startsWith(c.dial)) return c;
+    }
+    return null;
+  };
+
+  const flatPrefixes = [];
+  for (const country of countries) {
+    const prefixes = byCountry[country];
+    const prefixKeys = Object.keys(prefixes).sort();
+    for (const pk of prefixKeys) {
+      const pg = prefixes[pk];
+      const fullPrefix = `${pg.countryCode || ''}${pg.prefix || ''}`;
+      const detected = country === 'XX' ? detectCountryFromPrefix(fullPrefix) : COUNTRIES.find(cc => cc.code === country);
+      const countryName = detected ? detected.name : (country === 'XX' ? 'Unknown' : country);
+      flatPrefixes.push({ country, pg, detectedCountry: countryName });
+    }
+  }
+  const detectedCountryCount = new Set(flatPrefixes.map(p => p.detectedCountry)).size;
+  const groupedByDetectedCountry = flatPrefixes.reduce((acc, item) => {
+    if (!acc[item.detectedCountry]) acc[item.detectedCountry] = [];
+    acc[item.detectedCountry].push(item);
+    return acc;
+  }, {});
+  const detectedCountryOrder = Object.keys(groupedByDetectedCountry).sort();
 
   el.innerHTML = `
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><h3>IPRN routing defaults</h3></div>
+      <div class="card-body padded">
+        <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px;line-height:1.45">
+          <strong>One source of truth:</strong> the inventory below defines DIDs. <strong>Apply &amp; Reload Asterisk</strong> regenerates dialplan (<code>did-routing</code>) from that list and, when MySQL is enabled, keeps <code>numbers</code> and <code>number_inventory</code> in sync for ODBC billing/routing.
+        </p>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Default Fallback IVR (unmatched DID)</label>
+            <select class="form-control" id="did-fallback-ivr">
+              ${ivrMenus.map(ivr => `<option value="${ivr.id}" ${String(globals.fallbackIvrId || '1') === ivr.id ? 'selected' : ''}>${ivr.name}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end">
+            <button class="btn btn-outline" id="btn-save-did-standard">Save routing defaults</button>
+          </div>
+        </div>
+        <div class="form-row" style="margin-top:12px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+            <input type="checkbox" id="iprn-odbc-routing" ${globals.iprnOdbcRouting ? 'checked' : ''} />
+            <span>ODBC supplier routing for <strong>matched</strong> DIDs (MySQL <code>number_inventory</code> + DSN <code>iprn_db</code> → PJSIP Dial + <code>call_billing</code>). Unmatched DIDs still use fallback IVR.</span>
+          </label>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Standard flow: <code>from-supplier-ip → did-routing</code> → either IVR or ODBC/PJSIP when the option above is on; catch-all → fallback IVR.</div>
+      </div>
+    </div>
     <div class="stats-grid" style="margin-bottom:20px">
-      <div class="stat-card"><div class="label">Total Numbers</div><div class="value blue">${totalNumbers}</div></div>
-      <div class="stat-card"><div class="label">Countries</div><div class="value">${countries.length}</div></div>
+      <div class="stat-card"><div class="label">Total DIDs</div><div class="value blue">${totalNumbers}</div></div>
+      <div class="stat-card"><div class="label">Countries</div><div class="value">${detectedCountryCount}</div></div>
       <div class="stat-card"><div class="label">Prefixes</div><div class="value">${totalPrefixes}</div></div>
     </div>
     <div class="card">
       <div class="card-header">
-        <h3>Number Inventory</h3>
+        <h3>Number inventory</h3>
         <div style="display:flex;gap:8px">
           <button class="btn btn-outline" id="btn-upload-file">Upload File</button>
-          <button class="btn btn-primary" id="btn-add-number">+ Add Numbers</button>
+          <button class="btn btn-primary" id="btn-add-number">+ Add DID</button>
         </div>
       </div>
       <div class="card-body padded" id="numbers-list">
-        ${countries.length ? countries.map(country => {
-          const prefixes = byCountry[country];
-          const prefixKeys = Object.keys(prefixes).sort();
-          const countryTotal = prefixKeys.reduce((s, k) => s + prefixes[k].numbers.length, 0);
-          const c = COUNTRIES.find(cc => cc.code === country);
-          const countryName = c ? c.name : country;
-
-          return `
-          <div class="country-group">
-            <div class="country-header" data-country="${country}">
-              <h4><span class="arrow">&#9660;</span> ${escHtml(countryName)} (${prefixes[prefixKeys[0]].countryCode})</h4>
-              <span class="count">${countryTotal} number${countryTotal !== 1 ? 's' : ''} / ${prefixKeys.length} prefix${prefixKeys.length !== 1 ? 'es' : ''}</span>
-            </div>
-            <div class="country-body" data-country-body="${country}">
-              ${prefixKeys.map(pk => {
-                const pg = prefixes[pk];
+        ${flatPrefixes.length ? `
+        <table>
+          <thead>
+            <tr>
+              <th style="width:38%">Numbers</th>
+              <th style="width:20%">IVR</th>
+              <th style="width:12%">Tariff</th>
+              <th style="width:18%">Bulk</th>
+              <th style="width:10%">Del</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${detectedCountryOrder.map(countryLabel => {
+              const entries = groupedByDetectedCountry[countryLabel];
+              return `
+              <tr>
+                <td colspan="5" style="font-weight:600;color:var(--text-muted);padding-top:14px">${escHtml(countryLabel)} <span style="font-weight:400">(${entries.length} prefix${entries.length !== 1 ? 'es' : ''})</span></td>
+              </tr>
+              ${entries.map((entry, idx) => {
+                const { country, pg, detectedCountry } = entry;
+                const groupId = `prefix-group-${countryLabel.replace(/\W+/g, '-')}-${idx}`;
                 return `
-                <div class="prefix-group">
-                  <div class="prefix-header">
-                    <div class="prefix-info">
-                      <span class="prefix-code">${pg.countryCode}${pg.prefix}</span>
-                      <span class="prefix-rate">$${pg.rate}/min</span>
-                      <span class="prefix-count">${pg.numbers.length} number${pg.numbers.length !== 1 ? 's' : ''}</span>
-                    </div>
-                    <div style="display:flex;gap:6px;align-items:center">
-                      <select class="form-control prefix-ivr-sel" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" style="width:auto;padding:4px 8px;font-size:12px">
-                        ${ivrMenus.map(ivr => `<option value="${ivr.id}" ${pg.numbers[0]?.destinationId === ivr.id ? 'selected' : ''}>${ivr.name}</option>`).join('')}
-                      </select>
-                      <button class="btn btn-outline btn-sm edit-prefix-rate" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" data-rate="${pg.rate}">Rate</button>
-                      <button class="btn btn-danger btn-sm del-prefix" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}">Delete</button>
-                    </div>
-                  </div>
-                  <div class="prefix-numbers">
-                    <table>
-                      <thead><tr><th>Full Number</th><th>Extension</th><th>Supplier</th></tr></thead>
-                      <tbody>${pg.numbers.map(n => {
-                        const sup = suppliers.find(s => s.id === n.supplierId);
-                        return `<tr>
-                          <td><strong style="font-family:monospace">${n.countryCode}${n.prefix}${n.extension}</strong></td>
-                          <td style="font-family:monospace">${n.extension}</td>
-                          <td>${sup ? `<span class="badge badge-direct">${escHtml(sup.name)}</span>` : '-'}</td>
-                        </tr>`;
-                      }).join('')}</tbody>
+                <tr>
+                  <td>
+                    <button class="btn-icon did-prefix-toggle" data-target="${groupId}" style="margin-right:6px">+</button>
+                    <strong style="font-family:monospace">${pg.countryCode}${pg.prefix}</strong>
+                    <span style="color:var(--text-muted);font-size:12px">(${pg.numbers.length} number${pg.numbers.length !== 1 ? 's' : ''})</span>
+                  </td>
+                  <td>
+                    <select class="form-control prefix-ivr-sel" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" style="width:auto;padding:4px 8px;font-size:12px">
+                      ${ivrMenus.map(ivr => `<option value="${ivr.id}" ${pg.numbers[0]?.destinationId === ivr.id ? 'selected' : ''}>${ivr.name}</option>`).join('')}
+                    </select>
+                  </td>
+                  <td style="font-size:12px">${formatPrefixTariff(pg)}</td>
+                  <td>
+                    <select class="form-control prefix-bulk-ivr" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" style="width:auto;padding:4px 8px;font-size:12px;display:inline-block">
+                      ${ivrMenus.map(ivr => `<option value="${ivr.id}">${ivr.name}</option>`).join('')}
+                    </select>
+                    <button class="btn btn-outline btn-sm apply-prefix-bulk-ivr" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}">Set</button>
+                  </td>
+                  <td><button class="btn-icon del-prefix" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}">&#128465;</button></td>
+                </tr>
+                <tr id="${groupId}" style="display:none">
+                  <td colspan="5">
+                    <table style="margin:8px 0 2px 0">
+                      <thead><tr><th><input type="checkbox" class="prefix-select-all" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}"></th><th>Full Number</th><th>Extension</th><th>Supplier</th><th>Route</th><th>PJSIP</th><th>Backup</th><th>Cost/m</th><th>Pri</th><th>Last used</th><th>Billing Σ</th><th>SIP</th><th>Per DID IVR</th><th>Rate</th><th>Allocation</th></tr></thead>
+                      <tbody>
+                        ${pg.numbers.map(n => {
+                          const sup = suppliers.find(s => s.id === n.supplierId);
+                          const isAlloc = String(n.status || '').toLowerCase() === 'allocated';
+                          const allocDateShort = n.allocationDate ? String(n.allocationDate).slice(0, 10) : '';
+                          const fullDig = `${n.countryCode}${n.prefix}${n.extension}`;
+                          const br = billByNum[fullDig];
+                          const billTxt = br
+                            ? `${br.call_count}× ${Math.round((br.duration_seconds || 0) / 60)}m / ${Number(br.total_profit || 0).toFixed(2)}`
+                            : '—';
+                          const lastU = n.lastUsedInventory ? String(n.lastUsedInventory).replace('T', ' ').slice(0, 19) : '—';
+                          const routeSel = n.iprnRouteStatus === 'blocked' ? 'blocked' : 'active';
+                          const sipLbl = sipStateForEndpoint(contacts, n.routingPjsipEndpoint || '');
+                          return `<tr>
+                            <td><input type="checkbox" class="prefix-number-chk" data-country="${country}" data-cc="${n.countryCode}" data-prefix="${n.prefix}" data-id="${n.id}"></td>
+                            <td style="font-family:monospace">${fullDig}</td>
+                            <td style="font-family:monospace">${n.extension}</td>
+                            <td>${sup ? `<span class="badge badge-direct">${escHtml(sup.name)}</span>` : '-'}</td>
+                            <td><select class="form-control iprn-route-st" data-id="${n.id}" style="width:auto;padding:2px 6px;font-size:11px">
+                              <option value="active" ${routeSel === 'active' ? 'selected' : ''}>active</option>
+                              <option value="blocked" ${routeSel === 'blocked' ? 'selected' : ''}>blocked</option>
+                            </select></td>
+                            <td><input type="text" class="form-control iprn-pjsip" data-id="${n.id}" value="${escHtml(String(n.routingPjsipEndpoint || ''))}" placeholder="endpoint" style="width:100px;font-size:11px;padding:2px 6px" /></td>
+                            <td><input type="text" class="form-control iprn-backup" data-id="${n.id}" value="${escHtml(String(n.backupPjsipEndpoint || ''))}" style="width:88px;font-size:11px;padding:2px 6px" /></td>
+                            <td><input type="text" class="form-control iprn-cost" data-id="${n.id}" value="${escHtml(String(n.costPerMin != null ? n.costPerMin : ''))}" style="width:52px;font-size:11px;padding:2px 6px" /></td>
+                            <td><input type="text" class="form-control iprn-pri" data-id="${n.id}" value="${escHtml(String(n.iprnPriority != null ? n.iprnPriority : 0))}" style="width:36px;font-size:11px;padding:2px 6px" /></td>
+                            <td style="font-size:11px;color:var(--text-muted)">${escHtml(lastU)}</td>
+                            <td style="font-size:11px" title="calls × approx minutes / profit sum">${escHtml(billTxt)}</td>
+                            <td style="font-size:11px">${escHtml(sipLbl)}</td>
+                            <td>
+                              <select class="form-control number-ivr-sel" data-id="${n.id}" style="width:auto;padding:4px 8px;font-size:12px">
+                                ${ivrMenus.map(ivr => `<option value="${ivr.id}" ${n.destinationId === ivr.id ? 'selected' : ''}>${ivr.name}</option>`).join('')}
+                              </select>
+                            </td>
+                            <td>
+                              <button class="btn btn-outline btn-sm edit-prefix-rate" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" data-rate="${escHtml(String(pg.rate))}" data-currency="${escHtml(String(pg.numbers[0]?.rateCurrency || 'usd'))}" data-term="${escHtml(String(pg.numbers[0]?.paymentTerm || 'weekly'))}">Rate</button>
+                            </td>
+                            <td style="font-size:12px;vertical-align:middle">
+                              ${isAlloc
+                                ? `<div><span class="badge badge-ring">allocated</span></div>
+                                   <div style="margin-top:4px">${escHtml(n.clientName || '—')}</div>
+                                   ${allocDateShort ? `<div style="color:var(--text-muted);font-size:11px">${escHtml(allocDateShort)}</div>` : ''}
+                                   <button type="button" class="btn btn-outline btn-sm btn-release-did" data-id="${n.id}" style="margin-top:6px">Release</button>`
+                                : `<div><span class="badge badge-direct">pool</span></div>
+                                   <button type="button" class="btn btn-outline btn-sm btn-assign-did" data-id="${n.id}" style="margin-top:6px">Assign</button>`}
+                            </td>
+                          </tr>`;
+                        }).join('')}
+                      </tbody>
                     </table>
-                  </div>
-                </div>`;
+                  </td>
+                </tr>`;
               }).join('')}
-            </div>
-          </div>`;
-        }).join('') : '<div class="empty-state">No numbers in inventory. Click "+ Add Numbers" to get started.</div>'}
+              `;
+            }).join('')}
+          </tbody>
+        </table>` : '<div class="empty-state">No numbers in inventory yet. Click &quot;+ Add DID&quot; to get started.</div>'}
       </div>
     </div>`;
-
-  el.querySelectorAll('.country-header').forEach(h => h.onclick = () => {
-    h.classList.toggle('collapsed');
-    const body = el.querySelector(`[data-country-body="${h.dataset.country}"]`);
-    body.style.display = h.classList.contains('collapsed') ? 'none' : '';
+  el.querySelectorAll('.did-prefix-toggle').forEach(btn => {
+    btn.onclick = () => {
+      const target = document.getElementById(btn.dataset.target);
+      const isHidden = target.style.display === 'none';
+      target.style.display = isHidden ? '' : 'none';
+      btn.textContent = isHidden ? '−' : '+';
+    };
   });
+
+  const numListRoot = el.querySelector('#numbers-list');
+  if (numListRoot) {
+    numListRoot.addEventListener('change', async (e) => {
+      const t = e.target;
+      if (t.classList && t.classList.contains('iprn-route-st')) {
+        await API.updateNumber(t.dataset.id, { iprnRouteStatus: t.value });
+        markChanged();
+        toast('Route status saved');
+      }
+    });
+    numListRoot.addEventListener('blur', async (e) => {
+      const t = e.target;
+      if (!t.classList || !t.dataset.id) return;
+      if (t.classList.contains('iprn-pjsip')) {
+        await API.updateNumber(t.dataset.id, { routingPjsipEndpoint: t.value.trim() });
+        markChanged();
+        toast('Primary PJSIP endpoint saved');
+      } else if (t.classList.contains('iprn-backup')) {
+        await API.updateNumber(t.dataset.id, { backupPjsipEndpoint: t.value.trim() });
+        markChanged();
+        toast('Backup endpoint saved');
+      } else if (t.classList.contains('iprn-cost')) {
+        await API.updateNumber(t.dataset.id, { costPerMin: t.value.trim() });
+        markChanged();
+        toast('Cost/min saved');
+      } else if (t.classList.contains('iprn-pri')) {
+        const p = parseInt(t.value, 10);
+        await API.updateNumber(t.dataset.id, { iprnPriority: Number.isFinite(p) ? p : 0 });
+        markChanged();
+        toast('Priority saved');
+      }
+    }, true);
+  }
+
+  document.getElementById('btn-save-did-standard').onclick = async () => {
+    const fallbackIvrId = document.getElementById('did-fallback-ivr').value;
+    const iprnOdbcRouting = !!document.getElementById('iprn-odbc-routing')?.checked;
+    await API.updateGlobals({ fallbackIvrId, iprnOdbcRouting });
+    markChanged();
+    toast(`Routing defaults saved (fallback IVR ${fallbackIvrId}${iprnOdbcRouting ? ', ODBC routing on' : ''})`);
+  };
 
   document.getElementById('btn-add-number').onclick = () => showAddNumberModal(suppliers, ivrMenus);
 
@@ -671,23 +1902,136 @@ async function renderNumbers(el) {
     };
   });
 
+  el.querySelectorAll('.number-ivr-sel').forEach(sel => {
+    sel.onchange = async () => {
+      const id = sel.dataset.id;
+      const newIvrId = sel.value;
+      await API.updateNumber(id, { destinationType: 'ivr', destinationId: newIvrId });
+      markChanged();
+      toast(`DID route updated -> IVR ${newIvrId}`);
+    };
+  });
+
+  el.querySelectorAll('.prefix-select-all').forEach(chk => {
+    chk.onchange = () => {
+      const country = chk.dataset.country;
+      const cc = chk.dataset.cc;
+      const prefix = chk.dataset.prefix;
+      el.querySelectorAll(`.prefix-number-chk[data-country="${country}"][data-cc="${cc}"][data-prefix="${prefix}"]`)
+        .forEach(c => { c.checked = chk.checked; });
+    };
+  });
+
+  el.querySelectorAll('.apply-prefix-bulk-ivr').forEach(btn => {
+    btn.onclick = async () => {
+      const country = btn.dataset.country;
+      const cc = btn.dataset.cc;
+      const prefix = btn.dataset.prefix;
+      const targetSel = el.querySelector(`.prefix-bulk-ivr[data-country="${country}"][data-cc="${cc}"][data-prefix="${prefix}"]`);
+      const newIvrId = targetSel?.value;
+      if (!newIvrId) {
+        toast('Select an IVR first', 'error');
+        return;
+      }
+      const selected = Array.from(
+        el.querySelectorAll(`.prefix-number-chk[data-country="${country}"][data-cc="${cc}"][data-prefix="${prefix}"]:checked`)
+      );
+      if (!selected.length) {
+        toast('Select at least one DID', 'error');
+        return;
+      }
+      for (const c of selected) {
+        await API.updateNumber(c.dataset.id, { destinationType: 'ivr', destinationId: newIvrId });
+      }
+      markChanged();
+      toast(`Updated ${selected.length} DID(s) -> IVR ${newIvrId}`);
+      renderNumbers(el);
+    };
+  });
+
+  el.querySelectorAll('.btn-assign-did').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.id;
+      showModal('Assign DID', `
+        <div class="form-group">
+          <label>Client name</label>
+          <input class="form-control" id="assign-client-name" placeholder="Client or company name" maxlength="255" autocomplete="organization">
+        </div>
+        <p style="font-size:12px;color:var(--text-muted)">Status is set to <strong>allocated</strong> and the allocation date is stored (UTC).</p>
+      `, async () => {
+        const clientName = document.getElementById('assign-client-name').value;
+        try {
+          const result = await API.assignNumber(id, { clientName });
+          if (result && result.error) {
+            toast(result.error, 'error');
+            return;
+          }
+          markChanged();
+          toast('DID allocated');
+          closeModal();
+          renderNumbers(el);
+        } catch (e) {
+          toast(e.message || 'Assign failed', 'error');
+        }
+      });
+    };
+  });
+
+  el.querySelectorAll('.btn-release-did').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.dataset.id;
+      if (!confirm('Release this DID back to the pool? Client name and allocation date will be cleared.')) return;
+      try {
+        const result = await API.releaseNumber(id);
+        if (result && result.error) {
+          toast(result.error, 'error');
+          return;
+        }
+        markChanged();
+        toast('DID released to pool');
+        renderNumbers(el);
+      } catch (e) {
+        toast(e.message || 'Release failed', 'error');
+      }
+    };
+  });
+
   el.querySelectorAll('.edit-prefix-rate').forEach(b => b.onclick = () => {
     const currentRate = b.dataset.rate;
+    const curCy = b.dataset.currency === 'eur' ? 'eur' : 'usd';
+    const curTerm = b.dataset.term || 'weekly';
     const cc = b.dataset.cc;
     const prefix = b.dataset.prefix;
     const country = b.dataset.country;
-    showModal('Edit Rate', `
+    showModal('Edit rate & payment', `
       <div class="form-group">
-        <label>Rate for ${cc} ${prefix} ($/min)</label>
-        <input class="form-control" id="edit-rate-val" type="number" step="0.001" value="${currentRate}">
+        <label>Rate for ${escHtml(cc)} ${escHtml(prefix)} (${curCy === 'eur' ? '€' : '$'}/min)</label>
+        <input class="form-control" id="edit-rate-val" type="number" step="0.001" value="${escHtml(String(currentRate))}">
+      </div>
+      <div class="form-group">
+        <label>Rate currency</label>
+        <select class="form-control" id="edit-rate-currency">
+          <option value="usd" ${curCy === 'usd' ? 'selected' : ''}>USD per minute</option>
+          <option value="eur" ${curCy === 'eur' ? 'selected' : ''}>EUR per minute</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Payment term → wallet</label>
+        <select class="form-control" id="edit-payment-term">
+          <option value="weekly" ${curTerm === 'weekly' ? 'selected' : ''}>Weekly (weekly wallet, Mon–Sun UTC)</option>
+          <option value="daily" ${curTerm === 'daily' ? 'selected' : ''}>Daily (weekly wallet)</option>
+          <option value="monthly" ${curTerm === 'monthly' ? 'selected' : ''}>Monthly (monthly wallet)</option>
+        </select>
       </div>
     `, async () => {
       const newRate = document.getElementById('edit-rate-val').value;
+      const newCy = document.getElementById('edit-rate-currency').value;
+      const newTerm = document.getElementById('edit-payment-term').value;
       const nums = numbers.filter(n => n.country === country && n.countryCode === cc && n.prefix === prefix);
       for (const n of nums) {
-        await API.updateNumber(n.id, { rate: newRate });
+        await API.updateNumber(n.id, { rate: newRate, rateCurrency: newCy, paymentTerm: newTerm });
       }
-      toast('Rate updated');
+      toast('Rate & payment term updated');
       closeModal();
       renderNumbers(el);
     });
@@ -695,23 +2039,38 @@ async function renderNumbers(el) {
 }
 
 function showAddNumberModal(suppliers, ivrMenus) {
-  showModal('Add Numbers', `
+  showModal('Add DID', `
     <div class="form-row-3">
       <div class="form-group">
-        <label>Country</label>
-        <select class="form-control" id="num-country">
-          <option value="">Select country</option>
-          ${COUNTRIES.map(c => `<option value="${c.code}" data-dial="${c.dial}">${c.name} (+${c.dial})</option>`).join('')}
+        <label>Country Code (optional)</label>
+        <input class="form-control" id="num-country-code" placeholder="e.g. 39 (optional)" style="font-family:monospace">
+      </div>
+      <div class="form-group">
+        <label>DID Prefix</label>
+        <input class="form-control" id="num-prefix" placeholder="e.g. 393199050">
+      </div>
+      <div class="form-group">
+        <label>Rate / min</label>
+        <input class="form-control" id="num-rate" type="number" step="0.001" value="0.01" placeholder="0.01">
+      </div>
+    </div>
+    <div class="form-row-3">
+      <div class="form-group">
+        <label>Rate currency</label>
+        <select class="form-control" id="num-rate-currency">
+          <option value="usd">USD per minute</option>
+          <option value="eur">EUR per minute</option>
         </select>
       </div>
       <div class="form-group">
-        <label>Prefix (area code)</label>
-        <input class="form-control" id="num-prefix" placeholder="e.g. 202">
+        <label>Payment term</label>
+        <select class="form-control" id="num-payment-term">
+          <option value="weekly">Weekly → weekly wallet</option>
+          <option value="daily">Daily → weekly wallet</option>
+          <option value="monthly">Monthly → monthly wallet</option>
+        </select>
       </div>
-      <div class="form-group">
-        <label>Rate ($/min)</label>
-        <input class="form-control" id="num-rate" type="number" step="0.001" value="0.01" placeholder="0.01">
-      </div>
+      <div class="form-group"></div>
     </div>
     <div class="form-group">
       <label>Supplier</label>
@@ -751,15 +2110,23 @@ function showAddNumberModal(suppliers, ivrMenus) {
       </div>
     </div>
     <div class="form-group">
+      <label>Or paste full DIDs (auto-split to prefix + extensions)</label>
+      <textarea class="form-control" id="num-full-dids" rows="4" style="font-family:monospace" placeholder="393199050646\n393199050642\n393199050645"></textarea>
+      <div style="margin-top:8px">
+        <button type="button" class="btn btn-outline btn-sm" id="btn-auto-split-dids">Auto-split Full DIDs</button>
+      </div>
+    </div>
+    <div class="form-group">
       <label>Preview</label>
-      <div id="num-preview" style="font-size:12px;color:var(--text-muted);font-family:monospace;padding:8px;background:var(--bg-input);border-radius:var(--radius);min-height:30px">Select country and enter extensions to preview</div>
+      <div id="num-preview" style="font-size:12px;color:var(--text-muted);font-family:monospace;padding:8px;background:var(--bg-input);border-radius:var(--radius);min-height:30px">Enter DID prefix and extension(s) to preview</div>
     </div>
   `, async () => {
-    const countrySelect = document.getElementById('num-country');
-    const country = countrySelect.value;
-    const countryCode = countrySelect.selectedOptions[0]?.dataset?.dial || '';
+    const country = 'XX';
+    const countryCode = document.getElementById('num-country-code').value.trim().replace(/\D/g, '');
     const prefix = document.getElementById('num-prefix').value.trim();
     const rate = document.getElementById('num-rate').value || '0.01';
+    const rateCurrency = document.getElementById('num-rate-currency').value || 'usd';
+    const paymentTerm = document.getElementById('num-payment-term').value || 'weekly';
     const supplierId = document.getElementById('num-supplier').value;
     let extensions;
     const isRange = document.getElementById('num-range-mode').checked;
@@ -779,21 +2146,19 @@ function showAddNumberModal(suppliers, ivrMenus) {
       extensions = document.getElementById('num-extensions').value.split('\n').map(s => s.trim()).filter(Boolean);
     }
 
-    if (!country || !countryCode) { toast('Please select a country', 'error'); return; }
     if (!prefix) { toast('Prefix is required', 'error'); return; }
     if (!extensions.length) { toast('Enter at least one extension', 'error'); return; }
 
     const destinationId = document.getElementById('num-dest-id').value;
-    const nums = extensions.map(ext => ({ country, countryCode, prefix, extension: ext, rate, supplierId, destinationType: 'ivr', destinationId }));
+    const nums = extensions.map(ext => ({ country, countryCode, prefix, extension: ext, rate, rateCurrency, paymentTerm, supplierId, destinationType: 'ivr', destinationId }));
     await API.addBulkNumbers(nums);
-    toast(`Added ${nums.length} numbers`);
+    toast(`Added ${nums.length} DID(s)`);
     closeModal();
     renderPage('numbers');
   });
 
   function updatePreview() {
-    const sel = document.getElementById('num-country');
-    const cc = sel.selectedOptions[0]?.dataset?.dial || '?';
+    const cc = document.getElementById('num-country-code').value.trim().replace(/\D/g, '') || '?';
     const prefix = document.getElementById('num-prefix').value.trim() || '???';
     const preview = document.getElementById('num-preview');
     const isRange = document.getElementById('num-range-mode')?.checked;
@@ -811,7 +2176,7 @@ function showAddNumberModal(suppliers, ivrMenus) {
       }
     }
   }
-  document.getElementById('num-country').onchange = updatePreview;
+  document.getElementById('num-country-code').oninput = updatePreview;
   document.getElementById('num-prefix').oninput = updatePreview;
   document.getElementById('num-extensions').oninput = updatePreview;
   document.getElementById('num-range-mode').onchange = (e) => {
@@ -829,6 +2194,42 @@ function showAddNumberModal(suppliers, ivrMenus) {
     updatePreview();
   };
   document.getElementById('num-range-to').oninput = document.getElementById('num-range-from').oninput;
+
+  document.getElementById('btn-auto-split-dids').onclick = () => {
+    const raw = document.getElementById('num-full-dids').value;
+    const dids = raw
+      .split(/\r?\n/)
+      .map(s => s.trim().replace(/[^\d]/g, ''))
+      .filter(Boolean);
+
+    if (!dids.length) {
+      toast('Paste at least one full DID', 'error');
+      return;
+    }
+
+    const first = dids[0];
+    if (first.length <= 3) {
+      toast('DID too short to auto-split', 'error');
+      return;
+    }
+    const prefix = first.slice(0, -3);
+    const exts = [];
+    for (const d of dids) {
+      if (!d.startsWith(prefix) || d.length <= 3) {
+        toast('All DIDs must share same prefix and end with 3 digits (XXX)', 'error');
+        return;
+      }
+      exts.push(d.slice(-3));
+    }
+
+    document.getElementById('num-prefix').value = prefix;
+    document.getElementById('num-extensions').value = exts.join('\n');
+    document.getElementById('num-range-mode').checked = false;
+    document.getElementById('num-ext-manual').style.display = '';
+    document.getElementById('num-ext-range').style.display = 'none';
+    updatePreview();
+    toast(`Detected prefix ${prefix} with ${exts.length} extension(s) as XXX`);
+  };
 
 }
 
@@ -915,9 +2316,10 @@ async function renderTrunk(el) {
 
   el.innerHTML = `
     <div class="card">
-      <div class="card-header"><h3>SIP Trunk Configuration</h3></div>
+      <div class="card-header"><h3>SIP Listening (Trunk Config)</h3></div>
       <div class="card-body padded">
-        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Supplier IPs are now managed per-supplier in the <a href="#" onclick="event.preventDefault();navigateTo('suppliers')" style="color:var(--primary)">Suppliers</a> page.</p>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Supplier authentication is managed in <a href="#" onclick="event.preventDefault();navigateTo('suppliers')" style="color:var(--primary)">Suppliers</a>. Save here, then use Apply & Reload Asterisk to activate.</p>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Inbound route is fixed as <code>from-supplier-ip → did-routing → ivr-*</code>. DIDs and destinations are managed in <a href="#" onclick="event.preventDefault();navigateTo('numbers')" style="color:var(--primary)">Number inventory</a>.</p>
         <div class="form-row">
           <div class="form-group">
             <label>Your Public IP (this VPS)</label>
@@ -936,6 +2338,16 @@ async function renderTrunk(el) {
           <div class="form-group">
             <label>Qualify Frequency (seconds)</label>
             <input class="form-control" type="number" id="trunk-qf" value="${trunk.qualifyFrequency}">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>RTP Start Port</label>
+            <input class="form-control" type="number" id="trunk-rtp-start" value="${trunk.rtpStart || 10000}">
+          </div>
+          <div class="form-group">
+            <label>RTP End Port</label>
+            <input class="form-control" type="number" id="trunk-rtp-end" value="${trunk.rtpEnd || 20000}">
           </div>
         </div>
         <div class="form-group">
@@ -963,12 +2375,16 @@ async function renderTrunk(el) {
     </div>`;
 
   document.getElementById('btn-save-trunk').onclick = async () => {
+    const qfVal = parseInt(document.getElementById('trunk-qf').value, 10);
     await API.updateTrunkConfig({
       publicIp: document.getElementById('trunk-pip').value.trim(),
       userAgent: document.getElementById('trunk-ua').value.trim(),
       bindPort: parseInt(document.getElementById('trunk-port').value) || 5060,
       codecs: document.getElementById('trunk-codecs').value.split(',').map(s => s.trim()).filter(Boolean),
-      qualifyFrequency: parseInt(document.getElementById('trunk-qf').value) || 60
+      // Allow 0 to disable qualify/keepalive noise.
+      qualifyFrequency: Number.isNaN(qfVal) ? 60 : qfVal,
+      rtpStart: parseInt(document.getElementById('trunk-rtp-start').value) || 10000,
+      rtpEnd: parseInt(document.getElementById('trunk-rtp-end').value) || 20000
     });
     markChanged();
     toast('Trunk config saved');
@@ -984,10 +2400,87 @@ async function renderTrunk(el) {
   };
 }
 
+// ---- DID TEST ----
+async function renderDidTest(el) {
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header"><h3>Controlled DID Route Test</h3></div>
+      <div class="card-body padded">
+        <div class="form-row">
+          <div class="form-group">
+            <label>DID Number</label>
+            <input class="form-control" id="did-test-number" placeholder="e.g. 306953281580 or +306953281580" style="font-family:monospace">
+          </div>
+          <div class="form-group">
+            <label>Source IP (optional)</label>
+            <input class="form-control" id="did-test-source-ip" placeholder="e.g. 52.28.165.40" style="font-family:monospace">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+          <button class="btn btn-primary" id="btn-run-did-test">Run DID Test</button>
+          <button class="btn btn-outline" id="btn-clear-did-test">Clear</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>Test Result</h3></div>
+      <div class="card-body padded" id="did-test-result">
+        <p class="empty-state">Enter a DID and run test.</p>
+      </div>
+    </div>`;
+
+  document.getElementById('btn-run-did-test').onclick = async () => {
+    const did = document.getElementById('did-test-number').value.trim();
+    const sourceIp = document.getElementById('did-test-source-ip').value.trim();
+    if (!did) {
+      toast('DID is required', 'error');
+      return;
+    }
+    const resultBox = document.getElementById('did-test-result');
+    resultBox.innerHTML = '<p class="empty-state">Running test...</p>';
+    try {
+      const result = await API.testDidRoute(did, sourceIp);
+      if (!result.ok) {
+        resultBox.innerHTML = `<p class="empty-state" style="color:var(--danger)">Error: ${escHtml(result.error || 'Unknown error')}</p>`;
+        return;
+      }
+      resultBox.innerHTML = `
+        <table>
+          <tbody>
+            <tr><th>NORMALIZED DID</th><td style="font-family:monospace">${escHtml(result.normalizedDid || '-')}</td></tr>
+            <tr><th>MATCH TYPE</th><td>${escHtml(String(result.matchType || '-').toUpperCase())}</td></tr>
+            <tr><th>MATCHED NUMBER</th><td style="font-family:monospace">${escHtml(result.matchedNumber?.fullNumber || '-')}</td></tr>
+            <tr><th>MATCHED PREFIX</th><td style="font-family:monospace">${escHtml(result.matchedNumber?.prefix || '-')}</td></tr>
+            <tr><th>EXTENSION</th><td style="font-family:monospace">${escHtml(result.matchedNumber?.extension || '-')}</td></tr>
+            <tr><th>ROUTED IVR</th><td>${escHtml(result.route?.ivrName || '-')} (ID: ${escHtml(result.route?.ivrId || '-')})</td></tr>
+            <tr><th>FALLBACK USED</th><td>${result.route?.isFallback ? 'YES' : 'NO'}</td></tr>
+            <tr><th>SUPPLIER (ROUTE)</th><td>${escHtml(result.supplier?.routeSupplier || '-')}</td></tr>
+            <tr><th>SUPPLIER (SOURCE IP)</th><td>${escHtml(result.supplier?.sourceSupplier || '-')}</td></tr>
+          </tbody>
+        </table>`;
+    } catch (err) {
+      resultBox.innerHTML = `<p class="empty-state" style="color:var(--danger)">Test error: ${escHtml(err.message)}</p>`;
+    }
+  };
+
+  document.getElementById('btn-clear-did-test').onclick = () => {
+    document.getElementById('did-test-number').value = '';
+    document.getElementById('did-test-source-ip').value = '';
+    document.getElementById('did-test-result').innerHTML = '<p class="empty-state">Enter a DID and run test.</p>';
+  };
+}
+
 // ---- CONFIG PREVIEW ----
 async function renderConfig(el) {
   const config = await API.previewConfig();
   el.innerHTML = `
+    <div class="card">
+      <div class="card-header"><h3>Deploy</h3></div>
+      <div class="card-body padded" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="font-size:13px;color:var(--text-muted)">Apply generated configuration files and reload Asterisk service now.</div>
+        <button class="btn btn-success" id="btn-apply-config-preview">Apply & Reload Asterisk</button>
+      </div>
+    </div>
     <div class="card">
       <div class="card-header"><h3>extensions.conf</h3></div>
       <div class="card-body padded"><div class="config-preview">${escHtml(config.extensionsConf)}</div></div>
@@ -999,7 +2492,35 @@ async function renderConfig(el) {
     ${config.aclConf ? `<div class="card">
       <div class="card-header"><h3>acl.conf</h3></div>
       <div class="card-body padded"><div class="config-preview">${escHtml(config.aclConf)}</div></div>
+    </div>` : ''}
+    ${config.rtpConf ? `<div class="card">
+      <div class="card-header"><h3>rtp.conf</h3></div>
+      <div class="card-body padded"><div class="config-preview">${escHtml(config.rtpConf)}</div></div>
+    </div>` : ''}
+    ${config.funcOdbcConf ? `<div class="card">
+      <div class="card-header"><h3>func_odbc.conf (DSN iprn_db)</h3></div>
+      <div class="card-body padded"><div class="config-preview">${escHtml(config.funcOdbcConf)}</div></div>
     </div>` : ''}`;
+
+  document.getElementById('btn-apply-config-preview').onclick = async () => {
+    const btn = document.getElementById('btn-apply-config-preview');
+    btn.textContent = 'Applying & Reloading...';
+    btn.disabled = true;
+    try {
+      const result = await API.apply();
+      if (result.ok) {
+        toast('Configuration applied and Asterisk reloaded');
+        markSaved();
+      } else {
+        toast('Apply failed: ' + result.message, 'error');
+      }
+    } catch (err) {
+      toast('Apply error: ' + err.message, 'error');
+    } finally {
+      btn.textContent = 'Apply & Reload Asterisk';
+      btn.disabled = false;
+    }
+  };
 }
 
 // ---- MODAL ----
@@ -1036,11 +2557,11 @@ function closeModal() {
 
 // Apply button
 document.getElementById('btn-apply').onclick = async () => {
-  document.getElementById('btn-apply').textContent = 'Applying...';
+  document.getElementById('btn-apply').textContent = 'Applying & Reloading...';
   try {
     const result = await API.apply();
     if (result.ok) {
-      toast('Configuration applied and Asterisk reloaded!');
+      toast('Configuration applied and Asterisk reloaded');
       markSaved();
     } else {
       toast('Apply failed: ' + result.message, 'error');
@@ -1048,7 +2569,7 @@ document.getElementById('btn-apply').onclick = async () => {
   } catch (err) {
     toast('Apply error: ' + err.message, 'error');
   }
-  document.getElementById('btn-apply').textContent = 'Apply Changes';
+  document.getElementById('btn-apply').textContent = 'Apply & Reload Asterisk';
 };
 
 function escHtml(s) {
@@ -1076,5 +2597,69 @@ document.querySelectorAll('.nav-item').forEach(btn => {
   btn.addEventListener('click', closeMobileMenu);
 });
 
-// Init
-navigateTo('dashboard');
+// Optional: show “Legacy IPRN UI” when IPRN_PLATFORM_URL is set (separate app; primary control is this console).
+(async () => {
+  try {
+    const cfg = await API.getAppConfig();
+    const url = cfg && typeof cfg.iprnPlatformUrl === 'string' ? cfg.iprnPlatformUrl.trim() : '';
+    const el = document.getElementById('nav-iprn-platform');
+    if (!el || !url) return;
+    el.style.display = '';
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.open(url, '_blank', 'noopener,noreferrer');
+      closeMobileMenu();
+    });
+  } catch {
+    /* ignore */
+  }
+})();
+
+// Init (panel vs tenant portal)
+(async () => {
+  try {
+    const me = await API.getAuthMe();
+    if (!me || !me.authenticated) {
+      window.location.href = '/login';
+      return;
+    }
+    const navPanel = document.getElementById('nav-panel');
+    const navTenant = document.getElementById('nav-tenant');
+    const applyBanner = document.getElementById('apply-banner');
+    if (me.portal === 'tenant') {
+      if (navPanel) navPanel.style.display = 'none';
+      if (navTenant) navTenant.style.display = '';
+      if (applyBanner) applyBanner.style.display = 'none';
+      const brand = document.querySelector('.sidebar-brand span');
+      if (brand) brand.textContent = 'Client portal';
+      if (me.role === 'user' || me.role === 'admin') {
+        document.querySelectorAll('.tenant-client-only').forEach((n) => { n.style.display = ''; });
+      }
+      navigateTo('tenant-dashboard');
+    } else {
+      if (navTenant) navTenant.style.display = 'none';
+      if (me.tenantPortalEnabled) {
+        const ic = document.getElementById('nav-iprn-clients');
+        if (ic) ic.style.display = '';
+      }
+      navigateTo('dashboard');
+    }
+    try {
+      const raw = sessionStorage.getItem('dashAfterLogin');
+      if (raw) {
+        sessionStorage.removeItem('dashAfterLogin');
+        const info = JSON.parse(raw);
+        if (info && info.ok) toast('Asterisk configs deployed on login (AUTO_APPLY_ASTERISK_ON_LOGIN).', 'success');
+        else toast(`Login auto-deploy failed: ${escHtml((info && info.message) || 'unknown')}`, 'error');
+      }
+    } catch {
+      /* ignore */
+    }
+  } catch (err) {
+    const el = document.getElementById('content');
+    if (el) {
+      el.innerHTML = `<p class="empty-state" style="color:var(--danger)">Dashboard failed to start: ${escHtml(err.message)}. Check browser console (F12).</p>`;
+    }
+  }
+})();

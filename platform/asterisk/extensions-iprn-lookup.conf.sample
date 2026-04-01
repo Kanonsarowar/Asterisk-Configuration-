@@ -1,0 +1,16 @@
+; Snippet: after you parse DID into ${DID} (digits only), call HTTP lookup (requires func_curl or CURL)
+; Set IPRN_API=http://127.0.0.1:3010 and IPRN_KEY from INTERNAL_API_KEY
+;
+; same => n,Set(IPRN_JSON=${SHELL(curl -sS -H "X-Internal-Key: ${IPRN_KEY}" "${IPRN_API}/route/${DID}" 2>/dev/null)})
+; Then use func_json to read ivr.file / primarySupplier.sip_host — or use AGI/FastAGI (recommended).
+
+[from-supplier-ip]
+; ... your existing DID normalization ...
+; same => n,Gosub(did-dynamic,s,1)
+
+[did-dynamic]
+exten => s,1,NoOp(Dynamic route for ${DID})
+ same => n,Set(IPRN_JSON=${SHELL(curl -sS -m 2 -H "X-Internal-Key: ${IPRN_KEY}" "http://127.0.0.1:3010/route/${DID}")})
+ same => n,NoOp(JSON ${IPRN_JSON})
+ ; Next: parse JSON (jq in System(), AJAM, or AGI) → Playback(ivr) → Dial(SIP/${supplier}@${host},...)
+ same => n,Goto(ivr-1,s,1)

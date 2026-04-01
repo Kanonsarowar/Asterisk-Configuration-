@@ -21,24 +21,24 @@ fi
 
 # ---- NODE.JS ----
 if ! command -v node &> /dev/null; then
-  echo "[1/7] Installing Node.js 22.x..."
+  echo "[1/8] Installing Node.js 22.x..."
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   apt-get install -y nodejs
 else
-  echo "[1/7] Node.js already installed: $(node -v)"
+  echo "[1/8] Node.js already installed: $(node -v)"
 fi
 
 # ---- ASTERISK ----
 if ! command -v asterisk &> /dev/null; then
-  echo "[2/7] Installing Asterisk..."
+  echo "[2/8] Installing Asterisk..."
   apt-get update
   DEBIAN_FRONTEND=noninteractive apt-get install -y asterisk
 else
-  echo "[2/7] Asterisk already installed: $(asterisk -V 2>/dev/null || echo 'unknown')"
+  echo "[2/8] Asterisk already installed: $(asterisk -V 2>/dev/null || echo 'unknown')"
 fi
 
 # ---- BACKUP ----
-echo "[3/7] Backing up existing configs..."
+echo "[3/8] Backing up existing configs..."
 BACKUP_DIR="/etc/asterisk/backup_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 cp /etc/asterisk/pjsip.conf "$BACKUP_DIR/" 2>/dev/null || true
@@ -46,11 +46,36 @@ cp /etc/asterisk/extensions.conf "$BACKUP_DIR/" 2>/dev/null || true
 echo "  Backup: $BACKUP_DIR"
 
 # ---- INSTALL ----
-echo "[4/7] Installing dashboard to $INSTALL_DIR..."
+echo "[4/8] Copying dashboard to $INSTALL_DIR..."
+# Preserve live dashboard data on redeploy (otherwise db.json from git replaces production)
+DB_JSON_LIVE="$INSTALL_DIR/data/db.json"
+DB_JSON_SAVE=""
+if [ -f "$DB_JSON_LIVE" ]; then
+  DB_JSON_SAVE=$(mktemp)
+  cp "$DB_JSON_LIVE" "$DB_JSON_SAVE"
+  echo "  Saved existing $DB_JSON_LIVE (will restore after copy)"
+fi
 mkdir -p "$INSTALL_DIR"
 cp -r dashboard/* "$INSTALL_DIR/"
+if [ -n "$DB_JSON_SAVE" ] && [ -f "$DB_JSON_SAVE" ]; then
+  mkdir -p "$INSTALL_DIR/data"
+  cp "$DB_JSON_SAVE" "$INSTALL_DIR/data/db.json"
+  rm -f "$DB_JSON_SAVE"
+  echo "  Restored preserved db.json — suppliers, IVR, trunk, and JSON-backed numbers kept"
+fi
 mkdir -p "$INSTALL_DIR/../asterisk"
 cp -r asterisk/* "$INSTALL_DIR/../asterisk/" 2>/dev/null || true
+
+echo "[5/8] npm install (required — picks up mysql2 and any new deps)..."
+if [ -f "$INSTALL_DIR/package.json" ]; then
+  if [ -f "$INSTALL_DIR/package-lock.json" ]; then
+    (cd "$INSTALL_DIR" && npm ci --omit=dev)
+  else
+    (cd "$INSTALL_DIR" && npm install --omit=dev)
+  fi
+else
+  echo "  WARNING: no package.json — dashboard copy may have failed"
+fi
 
 # Directories Asterisk needs
 mkdir -p /var/lib/asterisk/sounds/custom
@@ -58,7 +83,7 @@ mkdir -p /var/log/asterisk/cdr-csv
 mkdir -p /var/spool/asterisk/outgoing
 
 # ---- CREDENTIALS ----
-echo "[5/7] Setting up credentials..."
+echo "[6/8] Setting up credentials..."
 if [ -z "$DASH_USER" ]; then
   read -p "  Dashboard username [admin]: " DASH_USER
   DASH_USER=${DASH_USER:-admin}
@@ -70,7 +95,7 @@ if [ -z "$DASH_PASS" ]; then
 fi
 
 # ---- SYSTEMD SERVICE ----
-echo "[6/7] Creating systemd service..."
+echo "[7/8] Creating systemd service..."
 cat > /etc/systemd/system/${SERVICE_NAME}.service << EOF
 [Unit]
 Description=Asterisk IPRN Dashboard
@@ -97,7 +122,7 @@ systemctl enable ${SERVICE_NAME}
 systemctl restart ${SERVICE_NAME}
 
 # ---- FIREWALL ----
-echo "[7/7] Configuring firewall..."
+echo "[8/8] Configuring firewall..."
 if command -v ufw &> /dev/null; then
   ufw allow 22/tcp    2>/dev/null || true
   ufw allow 3000/tcp  2>/dev/null || true
@@ -134,9 +159,9 @@ echo ""
 echo "  NEXT STEPS:"
 echo "  1. Login at http://${VPS_IP}:3000"
 echo "  2. Go to Suppliers - verify/rename your 8 SIP providers"
-echo "  3. Go to Numbers - add your DID number ranges"
-echo "  4. Go to DID Routes - route numbers to IVR/ring groups"
-echo "  5. Click 'Apply Changes' to deploy to Asterisk"
+echo "  3. Go to Number inventory - add your DID ranges"
+echo "  4. Click 'Apply & Reload Asterisk' to push configs to /etc/asterisk/"
+echo "  5. Hard-refresh the browser (Ctrl+Shift+R) if the UI looks old after redeploy"
 echo ""
 echo "  SECURITY:"
 echo "  - Change default password immediately after first login"
