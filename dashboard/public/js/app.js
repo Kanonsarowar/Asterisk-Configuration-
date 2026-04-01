@@ -2632,7 +2632,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
       if (navTenant) navTenant.style.display = '';
       if (applyBanner) applyBanner.style.display = 'none';
       const brand = document.querySelector('.sidebar-brand span');
-      if (brand) brand.textContent = 'Client portal';
+      if (brand) brand.textContent = 'Gulf Premium Telecom — client portal';
       if (me.role === 'user' || me.role === 'admin') {
         document.querySelectorAll('.tenant-client-only').forEach((n) => { n.style.display = ''; });
       }
