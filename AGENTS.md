@@ -58,3 +58,27 @@ Features: Number management with integrated DID routing (each number has a desti
 - The dashboard stores data in `dashboard/data/db.json` (auto-created on first run with defaults matching the original repo configs).
 - Config files under `asterisk/` are **overwritten** when Apply is clicked from the dashboard; the dashboard is the source of truth once used.
 - The `res_pjsip` reload will report "No such module" since Asterisk was compiled without pjproject; this is harmless.
+
+### Platform API (Fastify + PostgreSQL)
+
+The `platform/api/` directory contains a Fastify REST API + vanilla JS SPA on port **3010**. See `platform/README.md` for full docs.
+
+```bash
+cd /workspace/platform/api && node src/server.js
+# API + UI at http://localhost:3010
+```
+
+- Requires PostgreSQL with a database named `iprn` and the schema applied (`platform/sql/schema.sql`).
+- `.env` must be configured (copy from `.env.example`): `DATABASE_URL`, `JWT_SECRET`, `INTERNAL_API_KEY`.
+- Seed an admin user: `npm run seed -- admin admin123`.
+- API routes are prefixed `/api/` (e.g. `/api/suppliers`, `/api/numbers`); `/login` is at root. Non-API GETs fall through to the SPA.
+- PostgreSQL user needs `GRANT ALL` on the `public` schema tables and sequences (the `createdb` owner or explicit grants).
+
+### Services summary
+
+| Service | Port | Start command | Auth |
+|---------|------|---------------|------|
+| Asterisk Dashboard | 3000 | `cd /workspace/dashboard && node server.js` | `admin` / `admin123` |
+| Platform API + UI | 3010 | `cd /workspace/platform/api && node src/server.js` | `admin` / `admin123` (JWT) |
+| Asterisk PBX | 5060 | `sudo asterisk -f &` | N/A |
+| PostgreSQL | 5432 | `sudo pg_ctlcluster 16 main start` | `iprn` / `iprn123` |
