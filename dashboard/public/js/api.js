@@ -80,8 +80,11 @@ const API = {
   },
   uploadNumbersCsv(text, supplierId) { return this.postRaw(`/api/numbers/upload-csv?supplier=${encodeURIComponent(supplierId)}`, text); },
 
-  // Numbers
-  getNumbers() { return fetchJsonWithTimeout('/api/numbers', 12000); },
+  // Numbers (always an array — avoids breaking the inventory UI on timeout/error JSON)
+  async getNumbers() {
+    const data = await fetchJsonWithTimeout('/api/numbers', 12000);
+    return Array.isArray(data) ? data : [];
+  },
   addNumber(num) { return this.post('/api/numbers', num); },
   addBulkNumbers(nums) { return this.post('/api/numbers/bulk', { numbers: nums }); },
   updateNumber(id, num) { return this.put(`/api/numbers/${id}`, num); },

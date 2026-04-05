@@ -100,8 +100,10 @@ async function renderDashboard() {
 }
 
 async function renderNumbers() {
-  const { numbers } = await api('/numbers');
-  const { customers } = await api('/customers').catch(() => ({ customers: [] }));
+  const numRes = await api('/numbers');
+  const numbers = Array.isArray(numRes?.numbers) ? numRes.numbers : [];
+  const custRes = await api('/customers').catch(() => ({ customers: [] }));
+  const customers = Array.isArray(custRes?.customers) ? custRes.customers : [];
   const custOpts = customers.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
   const rows = numbers
     .map(
@@ -247,9 +249,12 @@ async function renderIvr() {
 }
 
 async function renderRouting() {
-  const { numbers } = await api('/numbers');
-  const { suppliers } = await api('/suppliers');
-  const { routes } = await api('/routes');
+  const numRes = await api('/numbers');
+  const supRes = await api('/suppliers');
+  const routeRes = await api('/routes');
+  const numbers = Array.isArray(numRes?.numbers) ? numRes.numbers : [];
+  const suppliers = Array.isArray(supRes?.suppliers) ? supRes.suppliers : [];
+  const routes = Array.isArray(routeRes?.routes) ? routeRes.routes : [];
   const numOpts = numbers.map((n) => `<option value="${n.id}">${escapeHtml(n.did)}</option>`).join('');
   const supList = suppliers.map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
   $('content').innerHTML = `
