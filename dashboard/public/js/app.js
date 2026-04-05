@@ -198,6 +198,92 @@ let currentPage = 'dashboard';
 let hasUnsavedChanges = false;
 let statusInterval = null;
 let tenantLiveInterval = null;
+/** Set after auth: 'panel' | 'tenant' — used for URL parsing (popstate). */
+let authPortal = 'panel';
+
+/** Panel: URL path (no leading slash) → SPA page id */
+const PANEL_PATH_TO_PAGE = {
+  '': 'dashboard',
+  dashboard: 'dashboard',
+  access: 'admin-users',
+  'admin-users': 'admin-users',
+  'panel-admins': 'admin-users',
+  'call-stats': 'call-stats',
+  'cdr-history': 'cdr-history',
+  balance: 'balance',
+  'sip-log': 'sip-log',
+  suppliers: 'suppliers',
+  numbers: 'numbers',
+  'ivr-menus': 'ivr-menus',
+  trunk: 'trunk',
+  'did-test': 'did-test',
+  config: 'config',
+  'iprn-clients': 'iprn-clients',
+};
+
+/** Tenant portal: second segment after /tenant/ → page id */
+const TENANT_SUBPATH_TO_PAGE = {
+  '': 'tenant-dashboard',
+  overview: 'tenant-dashboard',
+  dashboard: 'tenant-dashboard',
+  'live-calls': 'tenant-live-calls',
+  cdr: 'tenant-cdr',
+  balance: 'tenant-billing',
+  invoices: 'tenant-invoices',
+  subusers: 'tenant-subusers',
+  numbers: 'tenant-numbers',
+  'call-generator': 'tenant-call-generator',
+};
+
+function panelPageToPath(page) {
+  if (page === 'dashboard') return '/';
+  if (page === 'admin-users') return '/access';
+  return `/${page}`;
+}
+
+function tenantPageToPath(page) {
+  const map = {
+    'tenant-dashboard': '/tenant',
+    'tenant-live-calls': '/tenant/live-calls',
+    'tenant-cdr': '/tenant/cdr',
+    'tenant-billing': '/tenant/balance',
+    'tenant-invoices': '/tenant/invoices',
+    'tenant-subusers': '/tenant/subusers',
+    'tenant-numbers': '/tenant/numbers',
+    'tenant-call-generator': '/tenant/call-generator',
+  };
+  return map[page] || '/tenant';
+}
+
+function pathSegmentsFromLocation() {
+  const p = window.location.pathname.replace(/^\/+|\/+$/g, '');
+  return p ? p.split('/').filter(Boolean) : [];
+}
+
+function parsePathToPage() {
+  const parts = pathSegmentsFromLocation();
+  if (authPortal === 'tenant') {
+    if (!parts.length || parts[0] !== 'tenant') return 'tenant-dashboard';
+    const rest = parts.slice(1);
+    const key = rest.join('/');
+    if (Object.prototype.hasOwnProperty.call(TENANT_SUBPATH_TO_PAGE, key)) return TENANT_SUBPATH_TO_PAGE[key];
+    const first = rest[0] || '';
+    if (Object.prototype.hasOwnProperty.call(TENANT_SUBPATH_TO_PAGE, first)) return TENANT_SUBPATH_TO_PAGE[first];
+    return 'tenant-dashboard';
+  }
+  const key = parts[0] || '';
+  if (key === 'tenant') return 'dashboard';
+  return PANEL_PATH_TO_PAGE[key] || 'dashboard';
+}
+
+function syncHistoryToPage(page, { replace = false, skipHistory = false } = {}) {
+  if (skipHistory) return;
+  const path = authPortal === 'tenant' ? tenantPageToPath(page) : panelPageToPath(page);
+  if (window.location.pathname === path) return;
+  const state = { page };
+  if (replace) history.replaceState(state, '', path);
+  else history.pushState(state, '', path);
+}
 
 // Toast notifications
 function toast(msg, type = 'success') {
@@ -227,7 +313,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
   });
 });
 
-function navigateTo(page) {
+function navigateTo(page, { skipHistory = false, replaceHistory = false } = {}) {
   currentPage = page;
   const navTenant = document.getElementById('nav-tenant');
   const navPanel = document.getElementById('nav-panel');
@@ -239,8 +325,11 @@ function navigateTo(page) {
     document.querySelectorAll('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   }
   document.getElementById('page-title').textContent = pageTitles[page] || page;
+  syncHistoryToPage(page, { skipHistory, replace: replaceHistory });
   renderPage(page);
 }
+
+window.navigateTo = navigateTo;
 
 function hashCallerColorClass(callerId) {
   const k = String(callerId || '').replace(/\D/g, '') || 'x';
@@ -2628,6 +2717,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
     const navTenant = document.getElementById('nav-tenant');
     const applyBanner = document.getElementById('apply-banner');
     if (me.portal === 'tenant') {
+      authPortal = 'tenant';
       if (navPanel) navPanel.style.display = 'none';
       if (navTenant) navTenant.style.display = '';
       if (applyBanner) applyBanner.style.display = 'none';
@@ -2636,15 +2726,29 @@ document.querySelectorAll('.nav-item').forEach(btn => {
       if (me.role === 'user' || me.role === 'admin') {
         document.querySelectorAll('.tenant-client-only').forEach((n) => { n.style.display = ''; });
       }
-      navigateTo('tenant-dashboard');
+      const initialTenant = parsePathToPage();
+      const defaultTenant = 'tenant-dashboard';
+      navigateTo(initialTenant, {
+        replaceHistory: initialTenant !== defaultTenant || window.location.pathname !== tenantPageToPath(initialTenant),
+      });
     } else {
+      authPortal = 'panel';
       if (navTenant) navTenant.style.display = 'none';
       if (me.tenantPortalEnabled) {
         const ic = document.getElementById('nav-iprn-clients');
         if (ic) ic.style.display = '';
       }
-      navigateTo('dashboard');
+      const initialPanel = parsePathToPage();
+      const defaultPanel = 'dashboard';
+      navigateTo(initialPanel, {
+        replaceHistory: initialPanel !== defaultPanel || window.location.pathname !== panelPageToPath(initialPanel),
+      });
     }
+
+    window.addEventListener('popstate', () => {
+      const page = parsePathToPage();
+      navigateTo(page, { skipHistory: true });
+    });
     try {
       const raw = sessionStorage.getItem('dashAfterLogin');
       if (raw) {
