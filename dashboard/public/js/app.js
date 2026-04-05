@@ -1586,11 +1586,16 @@ function sipStateForEndpoint(contacts, endpoint) {
 
 // ---- NUMBERS ----
 async function renderNumbers(el) {
-  const [numbers, suppliers, ivrMenus, globals, billingRes, sipRes] = await Promise.all([
+  const [numbersRes, suppliers, ivrMenus, globals, billingRes, sipRes] = await Promise.all([
     API.getNumbers(), API.getSuppliers(), API.getIvrMenus(), API.getGlobals(),
     API.getIprnBillingSummary(800).catch(() => ({ rows: [] })),
     API.getPjsipContacts().catch(() => ({ contacts: [] })),
   ]);
+  const numbersLoadError =
+    !Array.isArray(numbersRes) && numbersRes && typeof numbersRes === 'object' && numbersRes.error != null
+      ? String(numbersRes.error)
+      : null;
+  const numbers = Array.isArray(numbersRes) ? numbersRes : [];
   const billRows = billingRes && Array.isArray(billingRes.rows) ? billingRes.rows : [];
   const billByNum = Object.fromEntries(billRows.map((r) => [String(r.number), r]));
   const contacts = sipRes && Array.isArray(sipRes.contacts) ? sipRes.contacts : [];
@@ -1636,6 +1641,11 @@ async function renderNumbers(el) {
   const detectedCountryOrder = Object.keys(groupedByDetectedCountry).sort();
 
   el.innerHTML = `
+    ${numbersLoadError ? `<div class="card" style="margin-bottom:16px;border:1px solid var(--danger, #c0392b)">
+      <div class="card-body padded" style="color:var(--danger, #c0392b);font-size:14px">
+        Could not load number inventory (${escHtml(numbersLoadError)}). The list below is empty until the API responds.
+      </div>
+    </div>` : ''}
     <div class="card" style="margin-bottom:20px">
       <div class="card-header"><h3>IPRN routing defaults</h3></div>
       <div class="card-body padded">
