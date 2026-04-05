@@ -195,6 +195,8 @@ const COUNTRIES = [
 ];
 
 let currentPage = 'dashboard';
+/** Set after /api/auth/me: 'panel' | 'tenant' — used for path routing and popstate. */
+let authPortal = 'panel';
 let hasUnsavedChanges = false;
 let statusInterval = null;
 let tenantLiveInterval = null;
@@ -227,7 +229,8 @@ document.querySelectorAll('.nav-item').forEach(btn => {
   });
 });
 
-function navigateTo(page) {
+function navigateTo(page, opts = {}) {
+  const { replaceHistory = false, skipHistory = false } = opts;
   currentPage = page;
   const navTenant = document.getElementById('nav-tenant');
   const navPanel = document.getElementById('nav-panel');
@@ -239,8 +242,20 @@ function navigateTo(page) {
     document.querySelectorAll('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   }
   document.getElementById('page-title').textContent = pageTitles[page] || page;
+  if (!skipHistory) syncHistoryPath(page, replaceHistory);
   renderPage(page);
 }
+
+window.navigateTo = navigateTo;
+
+window.addEventListener('popstate', () => {
+  let page = (history.state && history.state.page) || pageFromPathname(location.pathname, authPortal);
+  const allowed = authPortal === 'tenant' ? TENANT_PAGE_IDS : PANEL_PAGE_IDS;
+  if (!page || !allowed.has(page)) {
+    page = authPortal === 'tenant' ? 'tenant-dashboard' : 'dashboard';
+  }
+  navigateTo(page, { skipHistory: true });
+});
 
 function hashCallerColorClass(callerId) {
   const k = String(callerId || '').replace(/\D/g, '') || 'x';
@@ -391,6 +406,42 @@ const pageTitles = {
   'tenant-numbers': 'Number allocation',
   'tenant-call-generator': 'Call generator'
 };
+
+const ALL_PAGE_IDS = new Set(Object.keys(pageTitles));
+const TENANT_PAGE_IDS = new Set([...ALL_PAGE_IDS].filter((id) => id.startsWith('tenant-')));
+const PANEL_PAGE_IDS = new Set([...ALL_PAGE_IDS].filter((id) => !id.startsWith('tenant-')));
+
+function pathFromPage(page) {
+  if (page === 'dashboard' || page === 'tenant-dashboard') return '/';
+  return `/${page}`;
+}
+
+function pageFromPathname(pathname, portal) {
+  let p = pathname || '/';
+  try {
+    p = decodeURIComponent(p);
+  } catch {
+    /* ignore */
+  }
+  if (!p.startsWith('/')) p = `/${p}`;
+  const segments = p.split('/').filter(Boolean);
+  if (segments.length === 0) {
+    return portal === 'tenant' ? 'tenant-dashboard' : 'dashboard';
+  }
+  if (segments.length > 1) return null;
+  const id = segments[0];
+  if (portal === 'tenant') {
+    return TENANT_PAGE_IDS.has(id) ? id : null;
+  }
+  return PANEL_PAGE_IDS.has(id) ? id : null;
+}
+
+function syncHistoryPath(page, replace) {
+  const target = pathFromPage(page);
+  if (typeof location !== 'undefined' && location.pathname === target) return;
+  const method = replace ? 'replaceState' : 'pushState';
+  history[method]({ page }, '', target);
+}
 
 async function renderPage(page) {
   const content = document.getElementById('content');
@@ -2628,6 +2679,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
     const navTenant = document.getElementById('nav-tenant');
     const applyBanner = document.getElementById('apply-banner');
     if (me.portal === 'tenant') {
+      authPortal = 'tenant';
       if (navPanel) navPanel.style.display = 'none';
       if (navTenant) navTenant.style.display = '';
       if (applyBanner) applyBanner.style.display = 'none';
@@ -2636,14 +2688,21 @@ document.querySelectorAll('.nav-item').forEach(btn => {
       if (me.role === 'user' || me.role === 'admin') {
         document.querySelectorAll('.tenant-client-only').forEach((n) => { n.style.display = ''; });
       }
-      navigateTo('tenant-dashboard');
+      const fromPath = pageFromPathname(location.pathname, 'tenant');
+      const page = fromPath || 'tenant-dashboard';
+      const replaceHistory = !fromPath || pathFromPage(page) !== location.pathname;
+      navigateTo(page, { replaceHistory });
     } else {
+      authPortal = 'panel';
       if (navTenant) navTenant.style.display = 'none';
       if (me.tenantPortalEnabled) {
         const ic = document.getElementById('nav-iprn-clients');
         if (ic) ic.style.display = '';
       }
-      navigateTo('dashboard');
+      const fromPath = pageFromPathname(location.pathname, 'panel');
+      const page = fromPath || 'dashboard';
+      const replaceHistory = !fromPath || pathFromPage(page) !== location.pathname;
+      navigateTo(page, { replaceHistory });
     }
     try {
       const raw = sessionStorage.getItem('dashAfterLogin');
