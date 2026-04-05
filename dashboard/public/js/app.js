@@ -201,7 +201,7 @@ let tenantLiveInterval = null;
 /** Set after auth: 'panel' | 'tenant' — used for URL parsing (popstate). */
 let authPortal = 'panel';
 
-/** Panel: URL path (no leading slash) → SPA page id */
+/** Panel: first URL segment → SPA page id (covers every operator sidebar item + aliases) */
 const PANEL_PATH_TO_PAGE = {
   '': 'dashboard',
   dashboard: 'dashboard',
@@ -209,30 +209,52 @@ const PANEL_PATH_TO_PAGE = {
   'admin-users': 'admin-users',
   'panel-admins': 'admin-users',
   'call-stats': 'call-stats',
+  'call-statistics': 'call-stats',
+  'call-stat': 'call-stats',
+  cdr: 'cdr-history',
   'cdr-history': 'cdr-history',
   balance: 'balance',
   'sip-log': 'sip-log',
+  sip: 'sip-log',
   suppliers: 'suppliers',
   numbers: 'numbers',
+  'number-inventory': 'numbers',
+  inventory: 'numbers',
   'ivr-menus': 'ivr-menus',
+  'ivr-audio': 'ivr-menus',
+  ivr: 'ivr-menus',
   trunk: 'trunk',
+  'trunk-config': 'trunk',
   'did-test': 'did-test',
+  'did-test-tool': 'did-test',
   config: 'config',
+  'config-preview': 'config',
   'iprn-clients': 'iprn-clients',
+  iprn: 'iprn-clients',
+  clients: 'iprn-clients',
 };
 
-/** Tenant portal: second segment after /tenant/ → page id */
+/** Tenant portal: path after /tenant/ → page id (every client-portal menu item + aliases) */
 const TENANT_SUBPATH_TO_PAGE = {
   '': 'tenant-dashboard',
   overview: 'tenant-dashboard',
   dashboard: 'tenant-dashboard',
+  home: 'tenant-dashboard',
   'live-calls': 'tenant-live-calls',
+  live: 'tenant-live-calls',
   cdr: 'tenant-cdr',
+  billing: 'tenant-billing',
   balance: 'tenant-billing',
+  wallet: 'tenant-billing',
   invoices: 'tenant-invoices',
+  invoice: 'tenant-invoices',
   subusers: 'tenant-subusers',
+  'sub-users': 'tenant-subusers',
   numbers: 'tenant-numbers',
+  allocation: 'tenant-numbers',
+  'number-allocation': 'tenant-numbers',
   'call-generator': 'tenant-call-generator',
+  generator: 'tenant-call-generator',
 };
 
 function panelPageToPath(page) {
