@@ -55,8 +55,8 @@ export async function processCall({ call_id, cli, destination, start_time, answe
        user_id || null, prefixMatched]
     );
 
-    if (user_id && cost > 0) {
-      await conn.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [cost, user_id]);
+    if (user_id && revenue > 0) {
+      await conn.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [revenue, user_id]);
     }
 
     await conn.commit();
@@ -67,6 +67,7 @@ export async function processCall({ call_id, cli, destination, start_time, answe
       revenue,
       profit: Math.round((revenue - cost) * 1e6) / 1e6,
       prefix_matched: prefixMatched,
+      balance_credited: revenue,
     };
   } catch (e) {
     await conn.rollback();
