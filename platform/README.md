@@ -54,6 +54,8 @@ npm run dev
 | GET | `/route/:number` | `X-Internal-Key` |
 | POST | `/api/cdr/ingest` | `X-Internal-Key` |
 | POST | `/api/config/sync` | admin JWT or `X-Internal-Key` |
+| POST | `/api/config/rollback/:id` | admin JWT |
+| GET | `/api/config/versions`, `/api/config/versions/:id` | admin JWT |
 | CRUD | `/api/users`, `/api/suppliers`, `/api/routes`, `/api/numbers`, … | JWT |
 | GET | `/api/cdr?user_id=` (admin), `/api/cdr/export.csv`, `/api/live/calls` | JWT |
 | GET | `/api/billing/invoices?user_id=` (admin) | JWT |
@@ -87,7 +89,8 @@ npm run dev
 - **Billing after ODBC**: rows need `finalizeCdrFinancials` — run `cd api && npm run finalize-cdr` on a schedule, or use AMI `Cdr` events (`npm run ami` with `CDR_FROM_AMI=1`) / `POST /api/cdr/ingest` so inserts go through `lib/cdrInsert.js` immediately.
 - **Cost from prefix**: `finalizeCdrFinancials` picks the longest matching `routes` row for `(destination, supplier_id)` and uses `routes.rate` as cost per minute when set (CLI regex respected); otherwise `suppliers.cost_per_minute`.
 - **Live monitor**: `npm run ami` updates `live_calls` (channels, state, direction, exten). `GET /api/live/calls` returns rows.
-- Auto-regenerate on supplier/route changes: `AUTO_SYNC_ASTERISK=1` in API `.env`
+- **Config sync & rollback**: apply `sql/008_config_sync_outbox.sql` — MySQL triggers enqueue `config_sync_outbox` on `routes` / `suppliers` / `numbers` changes; the API **poller** (`CONFIG_SYNC_OUTBOX_POLL=1`, default) runs `runConfigSync`: regenerate → store full **`snapshot_json`** in `config_versions` → optional **`ASTERISK_INSTALL_DIR`** copy → **`reloadAsterisk`** (pre-check `asterisk -rx core show version` unless `CONFIG_SYNC_SKIP_CLI_CHECK=1`). **`POST /api/config/sync`** (admin JWT or `X-Internal-Key`) does the same. **`POST /api/config/rollback/:id`** restores a snapshot and reloads. Optional **`CONFIG_SYNC_GIT_DIR`**: auto-commit generated files for external VCS. Env: see `api/.env.example`.
+- API-side debounce: `AUTO_SYNC_ASTERISK=1` still queues outbox from route/supplier/number handlers (in addition to DB triggers).
 
 ## Tools
 

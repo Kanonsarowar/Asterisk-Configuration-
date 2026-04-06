@@ -21,6 +21,7 @@ import usersRoutes from './routes/users.routes.js';
 import billingRoutes from './routes/billing.routes.js';
 import liveRoutes from './routes/live.routes.js';
 import configRoutes from './routes/config.routes.js';
+import { startConfigSyncOutboxPoller } from './services/configSyncService.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -63,6 +64,7 @@ await fastify.register(configRoutes, apiPrefix);
 try {
   await fastify.listen({ port, host: '0.0.0.0' });
   console.log(`IPRN platform API http://0.0.0.0:${port}`);
+  startConfigSyncOutboxPoller();
 } catch (e) {
   fastify.log.error(e);
   process.exit(1);

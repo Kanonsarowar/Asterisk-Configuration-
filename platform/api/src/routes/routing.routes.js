@@ -62,7 +62,7 @@ export default async function routingRoutes(fastify) {
       [id]
     );
     await auditLog('route_create', ctx.id, { id });
-    scheduleAsteriskSync();
+    scheduleAsteriskSync('routes');
     return r.rows[0];
   });
 
@@ -93,7 +93,7 @@ export default async function routingRoutes(fastify) {
       `SELECT r.*, s.name AS supplier_name FROM routes r JOIN suppliers s ON s.id = r.supplier_id WHERE r.id = ?`,
       [id]
     );
-    scheduleAsteriskSync();
+    scheduleAsteriskSync('routes');
     return r.rows[0];
   });
 
@@ -105,7 +105,7 @@ export default async function routingRoutes(fastify) {
     const r = await query('DELETE FROM routes WHERE id = ?', [id]);
     if (!r.affectedRows) return reply.code(404).send({ error: 'Not found' });
     await auditLog('route_delete', ctx.id, { id });
-    scheduleAsteriskSync();
+    scheduleAsteriskSync('routes');
     return { ok: true };
   });
 }

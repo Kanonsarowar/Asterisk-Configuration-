@@ -141,14 +141,41 @@ export async function generateAsteriskConfigs() {
 
 export async function reloadAsterisk() {
   const bin = process.env.ASTERISK_BIN || 'asterisk';
+  const useSudo = process.env.ASTERISK_USE_SUDO === '1' || process.env.ASTERISK_USE_SUDO === 'true';
+  const rx = async (args) => {
+    if (useSudo) {
+      await execFileAsync('sudo', [bin, ...args]);
+    } else {
+      await execFileAsync(bin, args);
+    }
+  };
   try {
-    await execFileAsync(bin, ['-rx', 'module reload res_pjsip.so']);
+    await rx(['-rx', 'module reload res_pjsip.so']);
   } catch {
-    /* optional */
+    /* optional — build may lack PJSIP */
   }
   try {
-    await execFileAsync(bin, ['-rx', 'dialplan reload']);
+    await rx(['-rx', 'dialplan reload']);
   } catch (e) {
     console.warn('[config] dialplan reload failed', e.message);
+    throw e;
+  }
+}
+
+/**
+ * Best-effort: confirm Asterisk CLI responds before mutating live config.
+ */
+export async function asteriskCliReachable() {
+  const bin = process.env.ASTERISK_BIN || 'asterisk';
+  const useSudo = process.env.ASTERISK_USE_SUDO === '1' || process.env.ASTERISK_USE_SUDO === 'true';
+  try {
+    if (useSudo) {
+      await execFileAsync('sudo', [bin, '-rx', 'core show version']);
+    } else {
+      await execFileAsync(bin, ['-rx', 'core show version']);
+    }
+    return true;
+  } catch {
+    return false;
   }
 }

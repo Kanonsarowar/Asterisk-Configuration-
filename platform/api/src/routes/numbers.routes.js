@@ -1,6 +1,7 @@
 import { query } from '../db.js';
 import { digitsOnly, numbersScopeSql, canAccessNumber, canAccessCustomer } from '../lib/rbac.js';
 import { auditLog } from '../lib/audit.js';
+import { scheduleAsteriskSync } from '../services/autoSync.js';
 
 function listNumbersQuery(ctx) {
   const { where, params } = numbersScopeSql(ctx);
@@ -87,6 +88,7 @@ export default async function numbersRoutes(fastify) {
       }
     }
     await auditLog('numbers_import', ctx.id, { count: inserted });
+    if (inserted > 0) scheduleAsteriskSync('numbers');
     return { ok: true, imported: inserted };
   });
 
@@ -126,6 +128,7 @@ export default async function numbersRoutes(fastify) {
       await query('UPDATE numbers SET status = ? WHERE id = ?', [status, nid]);
     }
     await auditLog('numbers_status', ctx.id, { ids, status });
+    scheduleAsteriskSync('numbers');
     return { ok: true };
   });
 
@@ -162,6 +165,7 @@ export default async function numbersRoutes(fastify) {
     if (!fields.length) return row;
     vals.push(id);
     await query(`UPDATE numbers SET ${fields.join(', ')} WHERE id = ?`, vals);
+    scheduleAsteriskSync('numbers');
     const r = await query('SELECT * FROM numbers WHERE id = ?', [id]);
     return r.rows[0];
   });
@@ -205,6 +209,7 @@ export default async function numbersRoutes(fastify) {
     const newId = ins.insertId;
     const r = await query('SELECT * FROM numbers WHERE id = ?', [newId]);
     await auditLog('number_create', ctx.id, { id: newId });
+    scheduleAsteriskSync('numbers');
     return r.rows[0];
   });
 }

@@ -43,7 +43,7 @@ export default async function suppliersRoutes(fastify) {
       [id]
     );
     await auditLog('supplier_create', ctx.id, { id });
-    scheduleAsteriskSync();
+    scheduleAsteriskSync('suppliers');
     return r.rows[0];
   });
 
@@ -75,7 +75,7 @@ export default async function suppliersRoutes(fastify) {
       `SELECT id, name, host, port, username, protocol, active, cost_per_minute, routing_priority, created_at FROM suppliers WHERE id = ?`,
       [id]
     );
-    scheduleAsteriskSync();
+    scheduleAsteriskSync('suppliers');
     return r.rows[0];
   });
 }

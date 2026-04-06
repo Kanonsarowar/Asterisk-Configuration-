@@ -15,6 +15,7 @@ DROP TABLE IF EXISTS ivr;
 DROP TABLE IF EXISTS suppliers;
 DROP TABLE IF EXISTS customers;
 DROP TABLE IF EXISTS user_permissions;
+DROP TABLE IF EXISTS config_sync_outbox;
 DROP TABLE IF EXISTS config_versions;
 DROP TABLE IF EXISTS live_calls;
 DROP TABLE IF EXISTS system_settings;
@@ -247,15 +248,25 @@ INSERT INTO system_settings (skey, svalue) VALUES
 ON DUPLICATE KEY UPDATE skey = skey;
 
 CREATE TABLE config_versions (
-  id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  version_tag   VARCHAR(64) NOT NULL,
-  files_json    JSON NOT NULL,
-  checksum      CHAR(64) NOT NULL,
-  created_at    DATETIME(3) NOT NULL DEFAULT (CURRENT_TIMESTAMP(3)),
-  created_by    BIGINT UNSIGNED NULL,
-  applied_at    DATETIME(3) NULL,
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  version_tag     VARCHAR(64) NOT NULL,
+  trigger_source  VARCHAR(64) NULL DEFAULT NULL,
+  files_json      JSON NOT NULL,
+  snapshot_json   MEDIUMTEXT NULL,
+  checksum        CHAR(64) NOT NULL,
+  created_at      DATETIME(3) NOT NULL DEFAULT (CURRENT_TIMESTAMP(3)),
+  created_by      BIGINT UNSIGNED NULL,
+  applied_at      DATETIME(3) NULL,
   KEY idx_config_versions_created (created_at),
   CONSTRAINT fk_config_versions_user FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE config_sync_outbox (
+  id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  reason        VARCHAR(32) NOT NULL DEFAULT 'unknown',
+  created_at    DATETIME(3) NOT NULL DEFAULT (CURRENT_TIMESTAMP(3)),
+  processed_at  DATETIME(3) NULL,
+  KEY idx_outbox_pending (processed_at, id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE live_calls (
@@ -276,3 +287,42 @@ CREATE TABLE live_calls (
   KEY idx_live_dest (destination),
   KEY idx_live_linkedid (linkedid)
 ) ENGINE=InnoDB;
+
+DELIMITER //
+CREATE TRIGGER tr_routes_config_sync_ai AFTER INSERT ON routes FOR EACH ROW
+BEGIN
+  INSERT INTO config_sync_outbox (reason) VALUES ('routes');
+END//
+CREATE TRIGGER tr_routes_config_sync_au AFTER UPDATE ON routes FOR EACH ROW
+BEGIN
+  INSERT INTO config_sync_outbox (reason) VALUES ('routes');
+END//
+CREATE TRIGGER tr_routes_config_sync_ad AFTER DELETE ON routes FOR EACH ROW
+BEGIN
+  INSERT INTO config_sync_outbox (reason) VALUES ('routes');
+END//
+CREATE TRIGGER tr_suppliers_config_sync_ai AFTER INSERT ON suppliers FOR EACH ROW
+BEGIN
+  INSERT INTO config_sync_outbox (reason) VALUES ('suppliers');
+END//
+CREATE TRIGGER tr_suppliers_config_sync_au AFTER UPDATE ON suppliers FOR EACH ROW
+BEGIN
+  INSERT INTO config_sync_outbox (reason) VALUES ('suppliers');
+END//
+CREATE TRIGGER tr_suppliers_config_sync_ad AFTER DELETE ON suppliers FOR EACH ROW
+BEGIN
+  INSERT INTO config_sync_outbox (reason) VALUES ('suppliers');
+END//
+CREATE TRIGGER tr_numbers_config_sync_ai AFTER INSERT ON numbers FOR EACH ROW
+BEGIN
+  INSERT INTO config_sync_outbox (reason) VALUES ('numbers');
+END//
+CREATE TRIGGER tr_numbers_config_sync_au AFTER UPDATE ON numbers FOR EACH ROW
+BEGIN
+  INSERT INTO config_sync_outbox (reason) VALUES ('numbers');
+END//
+CREATE TRIGGER tr_numbers_config_sync_ad AFTER DELETE ON numbers FOR EACH ROW
+BEGIN
+  INSERT INTO config_sync_outbox (reason) VALUES ('numbers');
+END//
+DELIMITER ;
