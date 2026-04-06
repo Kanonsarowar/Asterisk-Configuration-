@@ -32,12 +32,13 @@ export default async function ivrRoutes(fastify) {
     const safeName = String(mp.filename || 'prompt.wav').replace(/[^a-zA-Z0-9._-]/g, '_');
     const path = join(dir, `${Date.now()}_${safeName}`);
     await writeFile(path, buf);
-    const rel = `ivr_uploads/${safeName}`;
-    const r = await query(
-      `INSERT INTO ivr (name, audio_file, language) VALUES ($1, $2, $3) RETURNING *`,
+    const ins = await query(
+      `INSERT INTO ivr (name, audio_file, language) VALUES (?, ?, ?)`,
       [String(name).slice(0, 255), path, String(language).slice(0, 16)]
     );
-    await auditLog('ivr_upload', ctx.id, { id: r.rows[0].id });
+    const id = ins.insertId;
+    const r = await query('SELECT * FROM ivr WHERE id = ?', [id]);
+    await auditLog('ivr_upload', ctx.id, { id });
     return r.rows[0];
   });
 
@@ -46,10 +47,12 @@ export default async function ivrRoutes(fastify) {
   }, async (req, reply) => {
     const id = parseInt(req.params.id, 10);
     const { name, language } = req.body || {};
-    const r = await query(
-      `UPDATE ivr SET name = COALESCE($1, name), language = COALESCE($2, language) WHERE id = $3 RETURNING *`,
-      [name ? String(name).slice(0, 255) : null, language ? String(language).slice(0, 16) : null, id]
-    );
+    await query(`UPDATE ivr SET name = COALESCE(?, name), language = COALESCE(?, language) WHERE id = ?`, [
+      name ? String(name).slice(0, 255) : null,
+      language ? String(language).slice(0, 16) : null,
+      id,
+    ]);
+    const r = await query('SELECT * FROM ivr WHERE id = ?', [id]);
     if (!r.rows[0]) return reply.code(404).send({ error: 'Not found' });
     return r.rows[0];
   });

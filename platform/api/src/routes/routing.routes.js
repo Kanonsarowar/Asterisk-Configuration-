@@ -1,56 +1,111 @@
-import { query, getPool } from '../db.js';
-import { routesScopeSql, canAccessNumber } from '../lib/rbac.js';
+import { query } from '../db.js';
+import { requireRoles } from '../lib/rbac.js';
 import { auditLog } from '../lib/audit.js';
+import { scheduleAsteriskSync } from '../services/autoSync.js';
 
 export default async function routingRoutes(fastify) {
-  fastify.get('/routes', async (req) => {
-    const ctx = req.userCtx;
-    if (ctx.role === 'client') return { routes: [] };
-    const { where, params } = routesScopeSql(ctx);
+  fastify.get('/routes', async (req, reply) => {
+    if (req.userCtx.role === 'user') return { routes: [] };
+    const prefix = req.query.prefix ? String(req.query.prefix) : null;
+    if (prefix) {
+      const r = await query(
+        `SELECT r.*, s.name AS supplier_name
+         FROM routes r JOIN suppliers s ON s.id = r.supplier_id
+         WHERE r.prefix = ?
+         ORDER BY r.priority ASC, r.id`,
+        [prefix.slice(0, 32)]
+      );
+      return { routes: r.rows };
+    }
     const r = await query(
-      `SELECT r.id, r.number_id, r.supplier_id, r.priority, n.did, s.name AS supplier_name
-       FROM routes r
-       JOIN numbers n ON n.id = r.number_id
-       JOIN suppliers s ON s.id = r.supplier_id
-       WHERE ${where}
-       ORDER BY n.did, r.priority`,
-      params
+      `SELECT r.*, s.name AS supplier_name
+       FROM routes r JOIN suppliers s ON s.id = r.supplier_id
+       ORDER BY r.prefix, r.priority, r.id`
     );
     return { routes: r.rows };
   });
 
-  fastify.post('/routes', async (req, reply) => {
+  fastify.post('/routes', {
+    preHandler: [requireRoles('admin')],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['prefix', 'supplier_id'],
+        properties: {
+          prefix: { type: 'string' },
+          supplier_id: { type: 'integer' },
+          priority: { type: 'integer' },
+          rate: { type: 'number' },
+          active: { type: 'boolean' },
+          allowed_cli_regex: { type: 'string' },
+        },
+      },
+    },
+  }, async (req, reply) => {
     const ctx = req.userCtx;
-    if (ctx.role === 'client') return reply.code(403).send({ error: 'Forbidden' });
-    const { number_id: numberId, routes: routeList } = req.body || {};
-    if (!numberId || !Array.isArray(routeList)) {
-      return reply.code(400).send({ error: 'number_id and routes[] required' });
-    }
-    const n = await query('SELECT * FROM numbers WHERE id = $1', [numberId]);
-    const row = n.rows[0];
-    if (!(await canAccessNumber(ctx, row))) return reply.code(403).send({ error: 'Forbidden' });
+    const b = req.body;
+    const ins = await query(
+      `INSERT INTO routes (prefix, supplier_id, priority, rate, active, allowed_cli_regex)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        String(b.prefix).slice(0, 32),
+        b.supplier_id,
+        b.priority != null ? parseInt(b.priority, 10) : 0,
+        Number(b.rate) || 0,
+        b.active === false ? 0 : 1,
+        b.allowed_cli_regex ? String(b.allowed_cli_regex).slice(0, 512) : null,
+      ]
+    );
+    const id = ins.insertId;
+    const r = await query(
+      `SELECT r.*, s.name AS supplier_name FROM routes r JOIN suppliers s ON s.id = r.supplier_id WHERE r.id = ?`,
+      [id]
+    );
+    await auditLog('route_create', ctx.id, { id });
+    scheduleAsteriskSync();
+    return r.rows[0];
+  });
 
-    const client = await getPool().connect();
-    try {
-      await client.query('BEGIN');
-      await client.query('DELETE FROM routes WHERE number_id = $1', [numberId]);
-      let p = 0;
-      for (const entry of routeList) {
-        const sid = entry.supplier_id;
-        if (!sid) continue;
-        await client.query(
-          'INSERT INTO routes (number_id, supplier_id, priority) VALUES ($1, $2, $3)',
-          [numberId, sid, entry.priority != null ? entry.priority : p++]
-        );
-      }
-      await client.query('COMMIT');
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
-    await auditLog('routes_update', ctx.id, { numberId });
+  fastify.put('/routes/:id', {
+    preHandler: [requireRoles('admin')],
+  }, async (req, reply) => {
+    const id = parseInt(req.params.id, 10);
+    const b = req.body || {};
+    const cur = await query('SELECT * FROM routes WHERE id = ?', [id]);
+    if (!cur.rows[0]) return reply.code(404).send({ error: 'Not found' });
+    const row = cur.rows[0];
+    const prefix = b.prefix != null ? String(b.prefix).slice(0, 32) : row.prefix;
+    const supplierId = b.supplier_id != null ? b.supplier_id : row.supplier_id;
+    const priority = b.priority != null ? parseInt(b.priority, 10) : row.priority;
+    const rate = b.rate != null ? Number(b.rate) : row.rate;
+    const active = b.active === false ? 0 : b.active === true ? 1 : row.active;
+    const allowed =
+      b.allowed_cli_regex !== undefined
+        ? b.allowed_cli_regex
+          ? String(b.allowed_cli_regex).slice(0, 512)
+          : null
+        : row.allowed_cli_regex;
+    await query(
+      `UPDATE routes SET prefix = ?, supplier_id = ?, priority = ?, rate = ?, active = ?, allowed_cli_regex = ? WHERE id = ?`,
+      [prefix, supplierId, priority, rate, active, allowed, id]
+    );
+    const r = await query(
+      `SELECT r.*, s.name AS supplier_name FROM routes r JOIN suppliers s ON s.id = r.supplier_id WHERE r.id = ?`,
+      [id]
+    );
+    scheduleAsteriskSync();
+    return r.rows[0];
+  });
+
+  fastify.delete('/routes/:id', {
+    preHandler: [requireRoles('admin')],
+  }, async (req, reply) => {
+    const ctx = req.userCtx;
+    const id = parseInt(req.params.id, 10);
+    const r = await query('DELETE FROM routes WHERE id = ?', [id]);
+    if (!r.affectedRows) return reply.code(404).send({ error: 'Not found' });
+    await auditLog('route_delete', ctx.id, { id });
+    scheduleAsteriskSync();
     return { ok: true };
   });
 }

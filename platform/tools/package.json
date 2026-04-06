@@ -1,0 +1,11 @@
+{
+  "name": "iprn-tools",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "simulate-call": "node simulate-call.js",
+    "prefix-test": "node prefix-tester.js",
+    "route-validate": "node route-validator.js"
+  }
+}
