@@ -79,7 +79,18 @@ mysql -u iprn_app -p iprn < platform/sql/008_config_sync_outbox.sql   # example
 
 ---
 
-## E) Health checks (on VPS)
+## E) Tablet shows “Failed to fetch” on login
+
+1. Open **`http://YOUR_IP:3001/status`** (server-side check: Next → API).  
+   - If **health** errors → API down or wrong `API_INTERNAL_URL`; run `pm2 restart iprn-backend`, check `platform/api/.env`.  
+   - If **health** is `database: down` → fix MySQL in `.env`.  
+2. On VPS: `pm2 delete iprn-api 2>/dev/null; pm2 restart iprn-backend` (only **one** app on **3010**).  
+3. `cd /opt/telecom && git pull && cd platform/web-next && npm run build && pm2 restart iprn-web`  
+4. Tablet: **hard refresh** or clear site data (old cached JS may still call wrong URL).
+
+---
+
+## F) Health checks (on VPS)
 
 ```bash
 curl -s http://127.0.0.1:3010/health
@@ -96,7 +107,7 @@ Expect JSON with `"token"`. Reset password:
 
 ---
 
-## F) Asterisk (optional)
+## G) Asterisk (optional)
 
 ```bash
 # After API .env has ASTERISK_INSTALL_DIR=/etc/asterisk (optional)
@@ -110,7 +121,7 @@ Apply `platform/sql/008_config_sync_outbox.sql` for DB-triggered sync.
 
 ---
 
-## G) Daily backup (cron)
+## H) Daily backup (cron)
 
 ```bash
 chmod +x /opt/telecom/deploy/scripts/backup.sh
@@ -122,13 +133,13 @@ chmod +x /opt/telecom/deploy/scripts/backup.sh
 
 ---
 
-## H) Legacy dashboard (different product)
+## I) Legacy dashboard (different product)
 
 Port **3000** — `deploy.sh` / `/opt/asterisk-dashboard`. **Not** the same login as **3001**.
 
 ---
 
-## I) Reference docs
+## J) Reference docs
 
 | Doc | Topic |
 |-----|--------|
