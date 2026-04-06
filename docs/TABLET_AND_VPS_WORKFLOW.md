@@ -50,6 +50,8 @@ cp .env.example .env
 nano .env   # MYSQL_*, JWT_SECRET, INTERNAL_API_KEY, PORT=3010
 
 npm run seed -- admin 'YourStrongPassword'
+# If admin already exists and you forgot the password:
+npm run seed -- admin 'admin123' --reset
 
 # Install + build + PM2 (from repo root)
 cd /opt/telecom
