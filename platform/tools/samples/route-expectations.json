@@ -1,0 +1,7 @@
+[
+  {
+    "did": "441234567890",
+    "min_failover": 1,
+    "comment": "Set expect_supplier_id to your primary after inspecting prefix-tester output"
+  }
+]

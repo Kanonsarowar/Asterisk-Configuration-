@@ -92,13 +92,28 @@ npm run dev
 - **Config sync & rollback**: apply `sql/008_config_sync_outbox.sql` — MySQL triggers enqueue `config_sync_outbox` on `routes` / `suppliers` / `numbers` changes; the API **poller** (`CONFIG_SYNC_OUTBOX_POLL=1`, default) runs `runConfigSync`: regenerate → store full **`snapshot_json`** in `config_versions` → optional **`ASTERISK_INSTALL_DIR`** copy → **`reloadAsterisk`** (pre-check `asterisk -rx core show version` unless `CONFIG_SYNC_SKIP_CLI_CHECK=1`). **`POST /api/config/sync`** (admin JWT or `X-Internal-Key`) does the same. **`POST /api/config/rollback/:id`** restores a snapshot and reloads. Optional **`CONFIG_SYNC_GIT_DIR`**: auto-commit generated files for external VCS. Env: see `api/.env.example`.
 - API-side debounce: `AUTO_SYNC_ASTERISK=1` still queues outbox from route/supplier/number handlers (in addition to DB triggers).
 
-## Tools
+## Tools (`platform/tools/`)
+
+| Script | Purpose |
+|--------|---------|
+| `simulate-call.js` | POST `/api/cdr/ingest` — billing test; optional `JWT_TOKEN` + `MIN_BILL_SECONDS` / `INCREMENT_SECONDS` to verify `billed_duration` / revenue formula vs DB |
+| `prefix-tester.js` | GET `/route/:did` — prints primary, failover chain, `routing_mode`, premium; `CLI=`, `USER_ID=` for fraud path |
+| `route-validator.js` | Batch `/route` checks; plain DID list or JSON expectations (`expect_supplier_id`, `min_failover`, `must_premium`) |
+| `failover-test.js` | JSON summary of failover order + `MIN_CHAIN` assertion |
 
 ```bash
 cd tools
 INTERNAL_API_KEY=... node simulate-call.js 441234567890 45
+JWT_TOKEN=... MIN_BILL_SECONDS=30 INCREMENT_SECONDS=6 INTERNAL_API_KEY=... node simulate-call.js 441234567890 45
+
 INTERNAL_API_KEY=... node prefix-tester.js 441234567890
+CLI=441112223334 INTERNAL_API_KEY=... node prefix-tester.js 441234567890
+
 INTERNAL_API_KEY=... node route-validator.js numbers.txt
+STRICT=1 INTERNAL_API_KEY=... node route-validator.js samples/route-expectations.json
+
+INTERNAL_API_KEY=... node failover-test.js 441234567890
+MIN_CHAIN=2 INTERNAL_API_KEY=... node failover-test.js 441234567890
 ```
 
 ## Operational notes

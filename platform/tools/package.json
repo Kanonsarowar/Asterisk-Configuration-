@@ -6,6 +6,7 @@
   "scripts": {
     "simulate-call": "node simulate-call.js",
     "prefix-test": "node prefix-tester.js",
-    "route-validate": "node route-validator.js"
+    "route-validate": "node route-validator.js",
+    "failover-test": "node failover-test.js"
   }
 }
