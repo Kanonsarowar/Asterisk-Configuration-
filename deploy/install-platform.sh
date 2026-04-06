@@ -13,8 +13,8 @@ echo "== platform/web-next =="
 cd "$ROOT/platform/web-next"
 if [[ -f package-lock.json ]]; then npm ci; else npm install; fi
 if [[ ! -f .env.local ]] && [[ ! -f .env.production ]]; then
-  echo "Creating .env.local with NEXT_PUBLIC_API_URL (edit if needed)"
-  echo 'NEXT_PUBLIC_API_URL=http://127.0.0.1:3010' > .env.local
+  echo "Creating .env.local (proxy mode — no NEXT_PUBLIC_API_URL; tablet uses /api/platform)"
+  echo 'API_INTERNAL_URL=http://127.0.0.1:3010' > .env.local
 fi
 npm run build
 

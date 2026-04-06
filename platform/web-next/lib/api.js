@@ -1,17 +1,29 @@
 /**
- * If NEXT_PUBLIC_API_URL is unset or empty, use same-origin proxy /api/platform/*
- * (Next.js forwards to API_INTERNAL_URL). Use this on VPS/tablet so the browser
- * never calls 127.0.0.1:3010 on the tablet itself.
+ * API base URL for fetch().
+ *
+ * - Prefer same-origin `/api/platform` (Next proxies to Fastify on the server) for tablets/VPS.
+ * - If build had NEXT_PUBLIC_API_URL=http://127.0.0.1:3010, the tablet would call itself and
+ *   get "Failed to fetch" — we override that at runtime when hostname is not localhost.
  */
-function apiBase() {
+export function getApiBase() {
   const pub = process.env.NEXT_PUBLIC_API_URL;
-  if (pub != null && String(pub).trim() !== '') {
-    return String(pub).replace(/\/$/, '');
+  const trimmed = pub != null ? String(pub).trim() : '';
+
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    const isLocalHost =
+      host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+    if (trimmed && /127\.0\.0\.1|localhost/i.test(trimmed) && !isLocalHost) {
+      return `${window.location.origin}/api/platform`;
+    }
+    if (trimmed) return trimmed.replace(/\/$/, '');
+    return '/api/platform';
   }
+
+  /* SSR — build default */
+  if (trimmed) return trimmed.replace(/\/$/, '');
   return '/api/platform';
 }
-
-const API = apiBase();
 
 export function getToken() {
   if (typeof window === 'undefined') return null;
@@ -27,6 +39,7 @@ export function clearToken() {
 }
 
 export async function api(path, opts = {}) {
+  const base = getApiBase();
   const headers = { ...(opts.headers || {}) };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -34,7 +47,7 @@ export async function api(path, opts = {}) {
     headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(opts.body);
   }
-  const res = await fetch(`${API}${path}`, { ...opts, headers });
+  const res = await fetch(`${base}${path}`, { ...opts, headers });
   const text = await res.text();
   let data;
   try {

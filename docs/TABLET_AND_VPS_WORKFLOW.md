@@ -91,6 +91,10 @@ ufw allow 5060/udp   # SIP if Asterisk on same host
 ufw enable
 ```
 
+**"Failed to fetch" on tablet at `:3001/login`:** Often the Next build had `NEXT_PUBLIC_API_URL=http://127.0.0.1:3010` (tablet calls itself). New builds override that when the site is opened by IP/hostname. Still fix `.env.local`, run `npm run build`, `pm2 restart iprn-web`. Ensure **`iprn-backend`** is running (`pm2 status`) and **`curl -s http://127.0.0.1:3010/login`** returns 404 or JSON (not connection refused).
+
+**Different product — legacy dashboard:** Gulf Premium Telecom **operator** login on port **3000** is `http://167.172.170.88:3000/login` (Node `dashboard/`), not Next on **3001**.
+
 ---
 
 ## 3. On the tablet (browser)
