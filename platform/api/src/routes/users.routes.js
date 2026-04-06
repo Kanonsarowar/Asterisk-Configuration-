@@ -7,7 +7,7 @@ export default async function usersRoutes(fastify) {
   fastify.get('/users/me', async (req) => {
     const ctx = req.userCtx;
     const r = await query(
-      'SELECT id, username, role, balance, status, parent_user_id, created_at FROM users WHERE id = ?',
+      'SELECT id, username, role, balance, billing_currency, status, parent_user_id, created_at FROM users WHERE id = ?',
       [ctx.id]
     );
     const perms = await query('SELECT perm FROM user_permissions WHERE user_id = ?', [ctx.id]);
@@ -20,12 +20,12 @@ export default async function usersRoutes(fastify) {
     const ctx = req.userCtx;
     if (ctx.role === 'admin') {
       const r = await query(
-        'SELECT id, username, role, balance, status, parent_user_id, created_at FROM users ORDER BY id DESC LIMIT 500'
+        'SELECT id, username, role, balance, billing_currency, status, parent_user_id, created_at FROM users ORDER BY id DESC LIMIT 500'
       );
       return { users: r.rows };
     }
     const r = await query(
-      'SELECT id, username, role, balance, status, parent_user_id, created_at FROM users WHERE parent_user_id = ? ORDER BY id DESC',
+      'SELECT id, username, role, balance, billing_currency, status, parent_user_id, created_at FROM users WHERE parent_user_id = ? ORDER BY id DESC',
       [ctx.id]
     );
     return { users: r.rows };
@@ -42,6 +42,7 @@ export default async function usersRoutes(fastify) {
           password: { type: 'string' },
           role: { type: 'string', enum: ['reseller', 'user'] },
           balance: { type: 'number' },
+          billing_currency: { type: 'string' },
         },
       },
     },
@@ -53,15 +54,16 @@ export default async function usersRoutes(fastify) {
     }
     const parent = ctx.role === 'reseller' ? ctx.id : null;
     const h = await hashPassword(b.password);
+    const cur = String(b.billing_currency || 'USD').toUpperCase().slice(0, 3);
     try {
       const ins = await query(
-        `INSERT INTO users (username, password_hash, role, balance, parent_user_id) VALUES (?, ?, ?, ?, ?)`,
-        [String(b.username).trim(), h, b.role, Number(b.balance) || 0, parent]
+        `INSERT INTO users (username, password_hash, role, balance, billing_currency, parent_user_id) VALUES (?, ?, ?, ?, ?, ?)`,
+        [String(b.username).trim(), h, b.role, Number(b.balance) || 0, cur, parent]
       );
       const id = ins.insertId;
       await auditLog('user_create', ctx.id, { id, role: b.role });
       const r = await query(
-        'SELECT id, username, role, balance, status, parent_user_id, created_at FROM users WHERE id = ?',
+        'SELECT id, username, role, balance, billing_currency, status, parent_user_id, created_at FROM users WHERE id = ?',
         [id]
       );
       return r.rows[0];
@@ -69,6 +71,34 @@ export default async function usersRoutes(fastify) {
       if (e.code === 'ER_DUP_ENTRY') return reply.code(409).send({ error: 'Username exists' });
       throw e;
     }
+  });
+
+  fastify.patch('/users/:id/billing-currency', {
+    preHandler: [requireRoles('admin', 'reseller')],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['billing_currency'],
+        properties: { billing_currency: { type: 'string', minLength: 3, maxLength: 3 } },
+      },
+    },
+  }, async (req, reply) => {
+    const ctx = req.userCtx;
+    const id = parseInt(req.params.id, 10);
+    const code = String(req.body.billing_currency || '').toUpperCase();
+    if (!/^[A-Z]{3}$/.test(code)) return reply.code(400).send({ error: 'Invalid ISO 4217 code' });
+    if (ctx.role === 'reseller') {
+      const u = await query('SELECT parent_user_id FROM users WHERE id = ?', [id]);
+      if (u.rows[0]?.parent_user_id !== ctx.id) return reply.code(403).send({ error: 'Forbidden' });
+    }
+    await query('UPDATE users SET billing_currency = ? WHERE id = ?', [code, id]);
+    await auditLog('user_billing_currency', ctx.id, { userId: id, billing_currency: code });
+    const r = await query(
+      'SELECT id, username, billing_currency FROM users WHERE id = ?',
+      [id]
+    );
+    if (!r.rows[0]) return reply.code(404).send({ error: 'Not found' });
+    return r.rows[0];
   });
 
   fastify.post('/users/:id/balance', {

@@ -7,7 +7,7 @@ export function digitsOnly(s) {
 /** Resolve JWT user + optional customer row for end users */
 export async function loadUserContext(userId) {
   const u = await query(
-    'SELECT id, username, role, parent_user_id, balance, status FROM users WHERE id = ?',
+    'SELECT id, username, role, parent_user_id, balance, billing_currency, status FROM users WHERE id = ?',
     [userId]
   );
   const user = u.rows[0];
@@ -24,6 +24,7 @@ export async function loadUserContext(userId) {
     role: user.role,
     parentUserId: user.parent_user_id,
     balance: user.balance,
+    billingCurrency: user.billing_currency || 'USD',
     customerId,
   };
 }

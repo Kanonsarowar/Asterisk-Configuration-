@@ -28,6 +28,7 @@ CREATE TABLE users (
   password_hash   VARCHAR(255) NOT NULL,
   role            ENUM('admin','reseller','user') NOT NULL DEFAULT 'user',
   balance         DECIMAL(18,6) NOT NULL DEFAULT 0.000000,
+  billing_currency CHAR(3) NOT NULL DEFAULT 'USD',
   status          ENUM('active','suspended') NOT NULL DEFAULT 'active',
   parent_user_id  BIGINT UNSIGNED NULL,
   permissions_json JSON NULL,
@@ -36,6 +37,7 @@ CREATE TABLE users (
   KEY idx_users_role (role),
   KEY idx_users_parent (parent_user_id),
   KEY idx_users_status (status),
+  KEY idx_users_currency (billing_currency),
   CONSTRAINT fk_users_parent FOREIGN KEY (parent_user_id) REFERENCES users (id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
@@ -148,6 +150,9 @@ CREATE TABLE cdr (
   cost              DECIMAL(18,6) NOT NULL DEFAULT 0.000000,
   revenue           DECIMAL(18,6) NOT NULL DEFAULT 0.000000,
   profit            DECIMAL(18,6) NOT NULL DEFAULT 0.000000,
+  billing_currency  CHAR(3) NULL DEFAULT NULL,
+  user_rate_per_min DECIMAL(18,6) NULL DEFAULT NULL,
+  supplier_rate_per_min DECIMAL(18,6) NULL DEFAULT NULL,
   financials_applied_at DATETIME(3) NULL DEFAULT NULL,
   supplier_id       BIGINT UNSIGNED NULL,
   user_id           BIGINT UNSIGNED NULL,
@@ -173,9 +178,11 @@ CREATE TABLE invoices (
   id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   user_id       BIGINT UNSIGNED NOT NULL,
   total_amount  DECIMAL(18,6) NOT NULL DEFAULT 0.000000,
+  currency      CHAR(3) NOT NULL DEFAULT 'USD',
   status        ENUM('draft','issued','paid','void') NOT NULL DEFAULT 'draft',
   period_start  DATE NULL,
   period_end    DATE NULL,
+  summary_json  JSON NULL,
   created_at    DATETIME(3) NOT NULL DEFAULT (CURRENT_TIMESTAMP(3)),
   KEY idx_invoices_user (user_id),
   KEY idx_invoices_status (status),
@@ -215,7 +222,13 @@ INSERT INTO system_settings (skey, svalue) VALUES
     'increment_seconds', 6,
     'routing_mode', 'priority',
     'default_prefix_length', 5,
-    'max_cps_global', 50
+    'max_cps_global', 50,
+    'default_billing_currency', 'USD',
+    'currencies', JSON_OBJECT(
+      'USD', JSON_OBJECT('decimals', 6, 'name', 'US Dollar'),
+      'EUR', JSON_OBJECT('decimals', 6, 'name', 'Euro'),
+      'GBP', JSON_OBJECT('decimals', 6, 'name', 'Pound Sterling')
+    )
   )),
   ('fraud', JSON_OBJECT(
     'enabled', TRUE,

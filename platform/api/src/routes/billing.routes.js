@@ -2,6 +2,7 @@ import { query } from '../db.js';
 import { requireRoles } from '../lib/rbac.js';
 import { getBillingSettings, setBillingSettings } from '../lib/settings.js';
 import { auditLog } from '../lib/audit.js';
+import { buildUserInvoiceSummary, resolveBillingCurrency } from '../lib/billing.js';
 
 export default async function billingRoutes(fastify) {
   fastify.get('/billing/settings', {
@@ -17,6 +18,36 @@ export default async function billingRoutes(fastify) {
     const next = await setBillingSettings(req.body || {});
     await auditLog('billing_settings', ctx.id, next);
     return next;
+  });
+
+  fastify.get('/billing/invoice-summary', {
+    preHandler: [requireRoles('admin', 'reseller', 'user')],
+  }, async (req, reply) => {
+    const ctx = req.userCtx;
+    let userId = ctx.id;
+    if (ctx.role === 'admin' && req.query.user_id != null) {
+      userId = parseInt(String(req.query.user_id), 10);
+    } else if (ctx.role === 'reseller' && req.query.user_id != null) {
+      const target = parseInt(String(req.query.user_id), 10);
+      const ok = await query(
+        `SELECT 1 FROM users WHERE id = ? AND parent_user_id = ? LIMIT 1`,
+        [target, ctx.id]
+      );
+      if (ok.rows.length) userId = target;
+      else return reply.code(403).send({ error: 'Forbidden' });
+    }
+    if (!Number.isFinite(userId)) {
+      return reply.code(400).send({ error: 'Invalid user' });
+    }
+    if (ctx.role === 'user' && userId !== ctx.id) {
+      return reply.code(403).send({ error: 'Forbidden' });
+    }
+    const ps = req.query.period_start || null;
+    const pe = req.query.period_end || null;
+    const summary = await buildUserInvoiceSummary(userId, ps, pe);
+    const u = await query(`SELECT username, billing_currency FROM users WHERE id = ?`, [userId]);
+    summary.user = u.rows[0] || null;
+    return summary;
   });
 
   fastify.post('/billing/invoices', {
@@ -37,19 +68,36 @@ export default async function billingRoutes(fastify) {
     const userId = req.body.user_id;
     const ps = req.body.period_start || null;
     const pe = req.body.period_end || null;
+    const settings = await getBillingSettings();
+    const urow = (await query(`SELECT billing_currency FROM users WHERE id = ?`, [userId])).rows[0];
+    const currency = resolveBillingCurrency(urow?.billing_currency, settings);
+
+    const bounds = {
+      ps: ps || '1970-01-01 00:00:00',
+      pe: pe || '9999-12-31 23:59:59',
+    };
+
     const sum = await query(
-      `SELECT COALESCE(SUM(revenue), 0) AS total FROM cdr WHERE user_id = ? AND created_at >= ? AND created_at < ?`,
-      [userId, ps || '1970-01-01 00:00:00', pe || '9999-12-31 23:59:59']
+      `SELECT COALESCE(SUM(revenue), 0) AS total FROM cdr
+       WHERE user_id = ? AND financials_applied_at IS NOT NULL AND created_at >= ? AND created_at < ?`,
+      [userId, bounds.ps, bounds.pe]
     );
     const total = Number(sum.rows[0]?.total) || 0;
+
+    const summary = await buildUserInvoiceSummary(userId, bounds.ps, bounds.pe);
+    summary.currency = currency;
+
     const ins = await query(
-      `INSERT INTO invoices (user_id, total_amount, status, period_start, period_end) VALUES (?, ?, 'issued', ?, ?)`,
-      [userId, total, ps, pe]
+      `INSERT INTO invoices (user_id, total_amount, currency, status, period_start, period_end, summary_json)
+       VALUES (?, ?, ?, 'issued', ?, ?, CAST(? AS JSON))`,
+      [userId, total, currency, ps, pe, JSON.stringify(summary)]
     );
     const invId = ins.insertId;
+
     const lines = await query(
-      `SELECT id, revenue, destination FROM cdr WHERE user_id = ? AND created_at >= ? AND created_at < ? LIMIT 5000`,
-      [userId, ps || '1970-01-01 00:00:00', pe || '9999-12-31 23:59:59']
+      `SELECT id, revenue, destination FROM cdr
+       WHERE user_id = ? AND financials_applied_at IS NOT NULL AND created_at >= ? AND created_at < ? LIMIT 5000`,
+      [userId, bounds.ps, bounds.pe]
     );
     for (const row of lines.rows) {
       await query(

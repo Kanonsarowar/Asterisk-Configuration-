@@ -47,12 +47,18 @@ npm run dev
 | POST | `/api/config/sync` | admin JWT or `X-Internal-Key` |
 | CRUD | `/api/users`, `/api/suppliers`, `/api/routes`, `/api/numbers`, … | JWT |
 | GET | `/api/cdr`, `/api/cdr/export.csv`, `/api/live/calls` | JWT |
+| GET | `/api/billing/invoice-summary` | JWT |
+| PATCH | `/api/users/:id/billing-currency` | admin / reseller |
 | GET/POST | `/api/billing/invoices`, `/api/billing/settings` | JWT (admin for settings) |
 
 ## Billing
 
-- Configurable in `system_settings.billing`: `minimum_bill_seconds`, `increment_seconds`, `routing_mode` (`priority` | `lcr`), `max_cps_global`
-- `lib/billing.js` — `finalizeCdrFinancials` applies rounding, computes revenue (number `rate_per_min`), cost (supplier `cost_per_minute`), profit, debits `users.balance`
+- Configurable in `system_settings.billing`: `minimum_bill_seconds`, `increment_seconds`, `routing_mode` (`priority` | `lcr`), `max_cps_global`, `default_billing_currency`, `currencies` (metadata per ISO 4217 code)
+- `lib/billingEngine.js` — production billing: prefix/rate resolution, `computeBilledSeconds`, `amountFromBilledRate` (`cost = billed_seconds/60*rate`), `buildUserInvoiceSummary`
+- `lib/billing.js` — `finalizeCdrFinancials` writes `billed_duration`, `revenue` / `cost` / `profit`, `user_rate_per_min` / `supplier_rate_per_min`, `billing_currency`, `matched_prefix`; debits `users.balance` by revenue
+- Per-user currency: `users.billing_currency` (default `USD`); set via `PATCH /api/users/:id/billing-currency` (admin/reseller) or on create (`billing_currency` body field)
+- Invoice summary: `GET /api/billing/invoice-summary?period_start=&period_end=` (admin: `user_id=`; reseller: `user_id=` for child users). `POST /api/billing/invoices` stores `summary_json` + `currency` on the invoice row
+- Apply `sql/006_billing_multicurrency.sql` on existing databases
 
 ## Asterisk
 

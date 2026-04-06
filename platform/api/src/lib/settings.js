@@ -6,6 +6,12 @@ const DEFAULT_BILLING = {
   routing_mode: 'priority',
   default_prefix_length: 5,
   max_cps_global: 50,
+  default_billing_currency: 'USD',
+  currencies: {
+    USD: { decimals: 6, name: 'US Dollar' },
+    EUR: { decimals: 6, name: 'Euro' },
+    GBP: { decimals: 6, name: 'Pound Sterling' },
+  },
 };
 
 const DEFAULT_FRAUD = {
