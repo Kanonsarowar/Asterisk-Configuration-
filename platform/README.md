@@ -2,7 +2,7 @@
 
 **Gulf-Premium-Telecom / IPRN panel phases 1–9 (what ships where):** [../docs/GULF_PREMIUM_TELECOM_PHASES.md](../docs/GULF_PREMIUM_TELECOM_PHASES.md)
 
-**Deploy / PM2 / backup / zero-downtime:** [../docs/DEPLOYMENT_AND_OPERATIONS.md](../docs/DEPLOYMENT_AND_OPERATIONS.md)
+**Final deployment:** [../docs/FINAL_DEPLOYMENT.md](../docs/FINAL_DEPLOYMENT.md) · **Ops detail:** [../docs/DEPLOYMENT_AND_OPERATIONS.md](../docs/DEPLOYMENT_AND_OPERATIONS.md)
 
 Production-oriented stack under `platform/` (alongside the legacy repo `dashboard/`):
 

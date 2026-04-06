@@ -12,7 +12,9 @@
 
 **→ VPS only + Samsung tablet (no laptop):** [docs/TABLET_AND_VPS_WORKFLOW.md](./docs/TABLET_AND_VPS_WORKFLOW.md) — e.g. `167.172.170.88`
 
-**→ Fresh VPS deploy (one script):** `sudo bash deploy/fresh-install.sh` — see [docs/DEPLOYMENT_AND_OPERATIONS.md](./docs/DEPLOYMENT_AND_OPERATIONS.md)
+**→ Final deployment (single guide):** [docs/FINAL_DEPLOYMENT.md](./docs/FINAL_DEPLOYMENT.md)
+
+**→ Fresh VPS (one script):** `sudo bash deploy/fresh-install.sh` — also [docs/DEPLOYMENT_AND_OPERATIONS.md](./docs/DEPLOYMENT_AND_OPERATIONS.md)
 
 ## Features
 
