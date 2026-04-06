@@ -5,6 +5,23 @@ Paths are relative to the **repository root** unless noted.
 
 ---
 
+## Fresh install (empty VPS)
+
+One script: MySQL DB + app user, `mysql_schema.sql`, API `.env` (random JWT + internal key), web `.env.local` (proxy), seed admin, `npm run build`, PM2 start.
+
+```bash
+cd /opt && rm -rf telecom
+git clone https://github.com/Kanonsarowar/Asterisk-Configuration-.git telecom
+cd telecom && git checkout cursor/-bc-be33ae59-2617-4c2c-b806-a62a5a33b088-0181
+
+sudo bash deploy/fresh-install.sh
+# Optional: ADMIN_PASS='MyPass' MYSQL_DATABASE=iprn sudo -E bash deploy/fresh-install.sh
+```
+
+Save the printed **admin password**, **MySQL app password**, and **INTERNAL_API_KEY**. Open firewall: `ufw allow 22,3001,3010/tcp`.
+
+---
+
 ## STEP 1 — Core (Phase 1 + 2): database + auth
 
 ### Verify DB connection
