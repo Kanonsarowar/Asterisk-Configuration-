@@ -1,0 +1,16 @@
+{
+  "name": "asterisk-mysql-generator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Generates Asterisk pjsip.conf and extensions.conf from MySQL with prefix failover",
+  "scripts": {
+    "generate": "node src/cli.js generate",
+    "watch": "node src/cli.js watch",
+    "serve": "node src/cli.js serve"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "mysql2": "^3.11.5"
+  }
+}
