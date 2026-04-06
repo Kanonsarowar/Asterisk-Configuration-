@@ -60,6 +60,15 @@ npm run dev
 | GET | `/api/billing/invoice-summary` | JWT |
 | PATCH | `/api/users/:id/billing-currency` | admin / reseller |
 | GET/POST | `/api/billing/invoices`, `/api/billing/settings` | JWT (admin for settings) |
+| GET/PUT | `/api/billing/fraud-settings` | JWT (admin) |
+
+## Routing engine (`lib/routingEngine.js`)
+
+- **Failover**: `resolveRouteSuppliers` returns `{ suppliers, meta }` — ordered chain; Asterisk dialplan / `failoverSuppliers` tries each until `ANSWER`. Platform `configGenerator` uses the same LCR/priority sort per prefix.
+- **LCR**: `system_settings.billing.routing_mode = lcr` — sort by effective buy rate (`routes.rate` if &gt; 0, else `suppliers.cost_per_minute`), then `lcr_tie_break` (`priority_then_supplier_id` | `supplier_id`).
+- **CLI validation**: `validateCli` + `checkFraudAndCps` — optional min length, blocked regex list, repeated-digit CLI; stricter optional rules on **premium** numbers (`strict_cli_on_premium`, `premium_cli_extra_regexes`).
+- **Premium**: `premium` / `premium_number` on route lookup response when `numbers.type = premium`.
+- **Fraud**: global CPS (`max_cps_global`), per-CLI hourly (`max_calls_per_cli_per_hour`), per-user per-minute (`max_calls_per_user_per_minute` when `X-User-Id` / `user_id` passed to `GET /route/:number`), unique-destination burst (`max_unique_destinations_per_user_per_minute`). Configure via `GET/PUT /api/billing/fraud-settings` or `system_settings.fraud` JSON. Apply `sql/007_routing_fraud_settings.sql` on existing DBs.
 
 ## Billing
 
@@ -68,7 +77,7 @@ npm run dev
 - `lib/billing.js` — `finalizeCdrFinancials` writes `billed_duration`, `revenue` / `cost` / `profit`, `user_rate_per_min` / `supplier_rate_per_min`, `billing_currency`, `matched_prefix`; debits `users.balance` by revenue
 - Per-user currency: `users.billing_currency` (default `USD`); set via `PATCH /api/users/:id/billing-currency` (admin/reseller) or on create (`billing_currency` body field)
 - Invoice summary: `GET /api/billing/invoice-summary?period_start=&period_end=` (admin: `user_id=`; reseller: `user_id=` for child users). `POST /api/billing/invoices` stores `summary_json` + `currency` on the invoice row
-- Apply `sql/006_billing_multicurrency.sql` on existing databases
+- Apply `sql/006_billing_multicurrency.sql` and `sql/007_routing_fraud_settings.sql` on existing databases
 
 ## Asterisk
 

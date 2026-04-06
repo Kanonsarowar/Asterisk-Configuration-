@@ -1,6 +1,6 @@
 import { query } from '../db.js';
 import { requireRoles } from '../lib/rbac.js';
-import { getBillingSettings, setBillingSettings } from '../lib/settings.js';
+import { getBillingSettings, setBillingSettings, getFraudSettings, setFraudSettings } from '../lib/settings.js';
 import { auditLog } from '../lib/audit.js';
 import { buildUserInvoiceSummary, resolveBillingCurrency } from '../lib/billing.js';
 
@@ -17,6 +17,19 @@ export default async function billingRoutes(fastify) {
     const ctx = req.userCtx;
     const next = await setBillingSettings(req.body || {});
     await auditLog('billing_settings', ctx.id, next);
+    return next;
+  });
+
+  fastify.get('/billing/fraud-settings', {
+    preHandler: [requireRoles('admin')],
+  }, async () => getFraudSettings());
+
+  fastify.put('/billing/fraud-settings', {
+    preHandler: [requireRoles('admin')],
+  }, async (req) => {
+    const ctx = req.userCtx;
+    const next = await setFraudSettings(req.body || {});
+    await auditLog('fraud_settings', ctx.id, next);
     return next;
   });
 

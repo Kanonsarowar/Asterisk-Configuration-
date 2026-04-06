@@ -18,6 +18,14 @@ const DEFAULT_FRAUD = {
   enabled: true,
   max_calls_per_cli_per_hour: 120,
   suspicious_short_ratio_threshold: 0.85,
+  max_calls_per_user_per_minute: 120,
+  max_unique_destinations_per_user_per_minute: 40,
+  block_empty_cli: true,
+  cli_min_digits: 6,
+  cli_blocked_regexes: ['^0{6,}$', '^1{6,}$'],
+  block_repeated_digit_cli: true,
+  strict_cli_on_premium: true,
+  premium_cli_extra_regexes: [],
 };
 
 export async function getBillingSettings() {
@@ -42,6 +50,16 @@ export async function setBillingSettings(patch) {
   await query(
     'INSERT INTO system_settings (skey, svalue) VALUES (?, CAST(? AS JSON)) ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)',
     ['billing', JSON.stringify(next)]
+  );
+  return next;
+}
+
+export async function setFraudSettings(patch) {
+  const cur = await getFraudSettings();
+  const next = { ...cur, ...patch };
+  await query(
+    'INSERT INTO system_settings (skey, svalue) VALUES (?, CAST(? AS JSON)) ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)',
+    ['fraud', JSON.stringify(next)]
   );
   return next;
 }

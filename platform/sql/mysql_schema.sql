@@ -223,6 +223,7 @@ INSERT INTO system_settings (skey, svalue) VALUES
     'routing_mode', 'priority',
     'default_prefix_length', 5,
     'max_cps_global', 50,
+    'lcr_tie_break', 'priority_then_supplier_id',
     'default_billing_currency', 'USD',
     'currencies', JSON_OBJECT(
       'USD', JSON_OBJECT('decimals', 6, 'name', 'US Dollar'),
@@ -233,7 +234,15 @@ INSERT INTO system_settings (skey, svalue) VALUES
   ('fraud', JSON_OBJECT(
     'enabled', TRUE,
     'max_calls_per_cli_per_hour', 120,
-    'suspicious_short_ratio_threshold', 0.85
+    'suspicious_short_ratio_threshold', 0.85,
+    'max_calls_per_user_per_minute', 120,
+    'max_unique_destinations_per_user_per_minute', 40,
+    'block_empty_cli', TRUE,
+    'cli_min_digits', 6,
+    'cli_blocked_regexes', JSON_ARRAY('^0{6,}$', '^1{6,}$'),
+    'block_repeated_digit_cli', TRUE,
+    'strict_cli_on_premium', TRUE,
+    'premium_cli_extra_regexes', JSON_ARRAY()
   ))
 ON DUPLICATE KEY UPDATE skey = skey;
 

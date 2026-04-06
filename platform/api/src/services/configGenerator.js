@@ -2,6 +2,8 @@ import { mkdir, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { createHash } from 'crypto';
 import { query } from '../db.js';
+import { getBillingSettings } from '../lib/settings.js';
+import { orderSupplierIdsForPrefix } from '../lib/routingEngine.js';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 
@@ -63,19 +65,20 @@ export async function generateAsteriskConfigs() {
   }
 
   const routes = await query(
-    `SELECT r.prefix, r.priority, r.supplier_id
+    `SELECT r.prefix, r.priority, r.rate, r.supplier_id, s.cost_per_minute
      FROM routes r
      JOIN suppliers s ON s.id = r.supplier_id
      WHERE r.active = 1 AND s.active = 1
      ORDER BY CHAR_LENGTH(r.prefix) DESC, r.prefix, r.priority ASC, r.supplier_id ASC`
   );
 
+  const billing = await getBillingSettings();
   const byPrefix = new Map();
   for (const row of routes.rows) {
     const pfx = String(row.prefix || '').replace(/\D/g, '');
     if (!pfx) continue;
     if (!byPrefix.has(pfx)) byPrefix.set(pfx, []);
-    byPrefix.get(pfx).push(row.supplier_id);
+    byPrefix.get(pfx).push(row);
   }
 
   const extLines = [];
@@ -98,10 +101,13 @@ export async function generateAsteriskConfigs() {
     extLines.push(' same => n,Hangup()');
   } else {
     for (const pfx of prefixes) {
-      const ids = byPrefix.get(pfx);
+      const rows = byPrefix.get(pfx);
+      const ids = orderSupplierIdsForPrefix(rows, billing);
       /* Prefix at start of dialed number; X! = one or more digits after prefix */
       const pat = `_${pfx}X!`;
-      extLines.push(`; Prefix ${pfx} — failover ${ids.join(' -> ')}`);
+      extLines.push(
+        `; Prefix ${pfx} — failover (${billing.routing_mode || 'priority'}) ${ids.join(' -> ')}`
+      );
       extLines.push(`exten => ${pat},1,NoOp(Match prefix ${pfx} dest \${EXTEN})`);
       extLines.push(' same => n,Set(DEST=${EXTEN})');
       for (const sid of ids) {

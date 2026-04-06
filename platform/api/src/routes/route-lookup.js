@@ -12,7 +12,14 @@ export default async function routeLookupRoutes(fastify) {
     if (!did) return reply.code(400).send({ error: 'Invalid number' });
 
     const cli = req.headers['x-cli'] || req.query.cli || '';
-    const fraud = await checkFraudAndCps(cli);
+    const userIdRaw = req.headers['x-user-id'] ?? req.query.user_id;
+    const userId =
+      userIdRaw != null && String(userIdRaw).trim() !== '' ? parseInt(String(userIdRaw), 10) : undefined;
+
+    const fraud = await checkFraudAndCps(cli, {
+      userId: Number.isFinite(userId) ? userId : undefined,
+      destinationDigits: did,
+    });
     if (!fraud.allow) {
       return reply.code(429).send({ error: 'Throttled', reason: fraud.reason });
     }
@@ -21,7 +28,7 @@ export default async function routeLookupRoutes(fastify) {
     if (!row) return reply.code(404).send({ error: 'Number not found' });
     if (row.status === 'blocked') return reply.code(403).send({ error: 'Number blocked' });
 
-    const suppliers = await resolveRouteSuppliers(did, cli, row);
+    const { suppliers, meta } = await resolveRouteSuppliers(did, cli, row);
     const primary = suppliers[0] || null;
 
     return {
@@ -29,9 +36,11 @@ export default async function routeLookupRoutes(fastify) {
       status: row.status,
       type: row.type,
       matched_prefix: row.prefix,
+      premium: row.type === 'premium',
       ivr: row.ivr_id
         ? { id: row.ivr_id, name: row.ivr_name, file: row.ivr_file, language: row.ivr_language }
         : null,
+      routing: meta,
       primarySupplier: primary
         ? {
             id: primary.supplier_id,
@@ -45,6 +54,7 @@ export default async function routeLookupRoutes(fastify) {
             route_rate: primary.rate,
           }
         : null,
+      /** Ordered failover chain: try primary first, then each entry on failure (Dial + GotoIf). */
       failoverSuppliers: suppliers.map((s) => ({
         supplier_id: s.supplier_id,
         name: s.name,

@@ -20,7 +20,7 @@ export async function insertCdrFromPbx(b, opts = {}) {
     ? (await query('SELECT user_id FROM customers WHERE id = ?', [customerId])).rows[0]
     : null;
   const userId = userRow?.user_id ?? null;
-  const suppliers = await resolveRouteSuppliers(dest, b.cli || '', num);
+  const { suppliers } = await resolveRouteSuppliers(dest, b.cli || '', num);
   const supplierId = b.supplier_id ?? suppliers[0]?.supplier_id ?? num?.supplier_id ?? null;
 
   const matchedPrefix =
