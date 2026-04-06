@@ -148,6 +148,7 @@ CREATE TABLE cdr (
   cost              DECIMAL(18,6) NOT NULL DEFAULT 0.000000,
   revenue           DECIMAL(18,6) NOT NULL DEFAULT 0.000000,
   profit            DECIMAL(18,6) NOT NULL DEFAULT 0.000000,
+  financials_applied_at DATETIME(3) NULL DEFAULT NULL,
   supplier_id       BIGINT UNSIGNED NULL,
   user_id           BIGINT UNSIGNED NULL,
   customer_id       BIGINT UNSIGNED NULL,
@@ -160,7 +161,8 @@ CREATE TABLE cdr (
   KEY idx_cdr_user (user_id),
   KEY idx_cdr_supplier (supplier_id),
   KEY idx_cdr_customer (customer_id),
-  KEY idx_cdr_uniqueid (uniqueid),
+  UNIQUE KEY uq_cdr_uniqueid (uniqueid),
+  KEY idx_cdr_financials_pending (financials_applied_at, created_at),
   CONSTRAINT fk_cdr_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers (id) ON DELETE SET NULL,
   CONSTRAINT fk_cdr_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL,
   CONSTRAINT fk_cdr_customer FOREIGN KEY (customer_id) REFERENCES customers (id) ON DELETE SET NULL,
@@ -237,11 +239,18 @@ CREATE TABLE config_versions (
 CREATE TABLE live_calls (
   id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   uniqueid      VARCHAR(128) NOT NULL,
+  linkedid      VARCHAR(128) NULL,
   channel       VARCHAR(512) NULL,
+  dialplan_context VARCHAR(256) NULL,
+  exten         VARCHAR(64) NULL,
+  accountcode   VARCHAR(64) NULL,
   cli           VARCHAR(128) NULL,
   destination   VARCHAR(128) NULL,
+  direction     ENUM('inbound','outbound','unknown') NOT NULL DEFAULT 'unknown',
+  state         VARCHAR(64) NULL,
   started_at    DATETIME(3) NOT NULL DEFAULT (CURRENT_TIMESTAMP(3)),
   last_seen_at  DATETIME(3) NOT NULL DEFAULT (CURRENT_TIMESTAMP(3)),
   UNIQUE KEY uq_live_uniqueid (uniqueid),
-  KEY idx_live_dest (destination)
+  KEY idx_live_dest (destination),
+  KEY idx_live_linkedid (linkedid)
 ) ENGINE=InnoDB;

@@ -9,3 +9,5 @@ deny = 0.0.0.0/0.0.0.0
 permit = 127.0.0.1/255.255.255.255
 read = system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan
 write = system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan
+; Cdr events (for scripts/ami-listener.js) require class "cdr" in read permission above.
+; eventfilter = Event: Cdr   ; optional: restrict to CDR-only (then live channel events need another user)

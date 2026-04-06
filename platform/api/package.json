@@ -8,6 +8,7 @@
     "dev": "node --watch src/server.js",
     "seed": "node scripts/seed-admin.js",
     "ami": "node scripts/ami-listener.js",
+    "finalize-cdr": "node scripts/finalize-pending-cdr.js",
     "sync": "node scripts/trigger-sync.js"
   },
   "dependencies": {

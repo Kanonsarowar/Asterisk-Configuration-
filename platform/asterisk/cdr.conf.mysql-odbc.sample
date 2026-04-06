@@ -1,0 +1,12 @@
+; /etc/asterisk/cdr.conf — enable CDR and point at adaptive ODBC backend
+; Ensure modules.conf loads: res_odbc, cdr_adaptive_odbc
+
+[general]
+enable = yes
+
+[csv]
+; Disable file CDR if you only want ODBC
+enabled = no
+
+; Backend selection depends on Asterisk version — often the module registers itself when loaded.
+; If your build uses [master] / single backend, set as documented for your minor version.

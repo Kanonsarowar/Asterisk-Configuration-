@@ -57,7 +57,11 @@ npm run dev
 ## Asterisk
 
 - Generated configs: set `ASTERISK_GENERATED_DIR`, copy to `/etc/asterisk/` or symlink `pjsip.d` / `extensions.d`
-- Samples: `asterisk/extensions-iprn-lookup.conf.sample`, `asterisk/manager.conf.sample`, `asterisk/cdr_mysql.conf.sample`
+- Samples: `asterisk/extensions-iprn-lookup.conf.sample`, `asterisk/manager.conf.sample`, `asterisk/cdr_mysql.conf.sample`, `asterisk/cdr_adaptive_odbc_mysql.conf.sample`, `asterisk/res_odbc_mysql.conf.sample`, `asterisk/odbc_mysql.ini.sample`
+- **CDR → MySQL**: `cdr_adaptive_odbc` maps into `cdr` (CLI, destination, duration, disposition, uniqueid, call_id from linkedid). Apply migrations `sql/003_cdr_financials_applied.sql`, `sql/004_live_calls_enhance.sql`, and `sql/005_cdr_uniqueid_unique.sql` on existing DBs.
+- **Billing after ODBC**: rows need `finalizeCdrFinancials` — run `cd api && npm run finalize-cdr` on a schedule, or use AMI `Cdr` events (`npm run ami` with `CDR_FROM_AMI=1`) / `POST /api/cdr/ingest` so inserts go through `lib/cdrInsert.js` immediately.
+- **Cost from prefix**: `finalizeCdrFinancials` picks the longest matching `routes` row for `(destination, supplier_id)` and uses `routes.rate` as cost per minute when set (CLI regex respected); otherwise `suppliers.cost_per_minute`.
+- **Live monitor**: `npm run ami` updates `live_calls` (channels, state, direction, exten). `GET /api/live/calls` returns rows.
 - Auto-regenerate on supplier/route changes: `AUTO_SYNC_ASTERISK=1` in API `.env`
 
 ## Tools

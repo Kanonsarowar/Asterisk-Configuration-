@@ -1,0 +1,8 @@
+; /etc/asterisk/res_odbc.conf — MySQL DSN for CDR (add alongside other connections)
+
+[iprn_mysql]
+enabled => yes
+dsn => iprn_mysql
+username => asterisk_cdr
+password => change_me
+pre-connect => yes

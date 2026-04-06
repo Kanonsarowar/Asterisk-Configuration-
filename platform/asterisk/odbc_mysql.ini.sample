@@ -1,0 +1,8 @@
+; /etc/odbc.ini — register DSN used by res_odbc [iprn_mysql]
+[iprn_mysql]
+Description = IPRN MySQL CDR
+Driver = MySQL ODBC 8.0 Unicode Driver
+Server = 127.0.0.1
+Database = iprn
+Port = 3306
+Option = 3

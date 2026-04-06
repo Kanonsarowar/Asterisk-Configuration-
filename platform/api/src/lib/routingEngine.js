@@ -85,7 +85,7 @@ export async function findNumberForDestination(dest) {
   return r.rows[0] || null;
 }
 
-function matchesCliRegex(pattern, cli) {
+export function matchesCliRegex(pattern, cli) {
   if (!pattern) return true;
   try {
     const re = new RegExp(pattern);

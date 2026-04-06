@@ -1,5 +1,5 @@
-; cdr_mysql — load module and map to platform `cdr` table (use ODBC alternative if preferred)
-; Install: cdr_mysql.so (Asterisk modules)
+; cdr_mysql — legacy native MySQL CDR module (if shipped with your Asterisk build)
+; Prefer cdr_adaptive_odbc + MySQL ODBC (see cdr_adaptive_odbc_mysql.conf.sample) for schema control.
 ;
 ; [global]
 ; hostname=127.0.0.1
@@ -10,7 +10,7 @@
 ; port=3306
 ; charset=utf8mb4
 ;
-; Mapping (example — align with your Asterisk version column names):
+; Map Asterisk fields to platform columns (names vary by version — verify with "cdr show status"):
 ; calldate => start_time
 ; clid => cli
 ; dst => destination
@@ -19,5 +19,6 @@
 ; uniqueid => uniqueid
 ; linkedid => call_id
 ;
-; After calls complete, POST to Fastify /api/cdr/ingest for billed_duration / cost / balance
-; or run a stored procedure from func_odbc — ingest endpoint is the simplest cross-version path.
+; Rows inserted here skip API-side matching unless you run:
+;   cd api && npm run finalize-cdr
+; or use the AMI listener with CDR_FROM_AMI=1 / HTTP ingest (see scripts/ami-listener.js).

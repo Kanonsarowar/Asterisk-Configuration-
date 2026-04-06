@@ -1,0 +1,27 @@
+; Copy to /etc/asterisk/cdr_adaptive_odbc.conf
+; Requires: res_odbc, cdr_adaptive_odbc, unixODBC, MySQL ODBC driver
+; DSN in /etc/odbc.ini must match res_odbc.conf [iprn_mysql]
+;
+; Writes raw CDR rows into platform `cdr` table. Columns not listed use DB defaults.
+; Run billing after insert (either):
+;   - POST /api/cdr/ingest from AMI listener (recommended — sets supplier, prefix, billed_duration, cost), OR
+;   - `npm run finalize-cdr` in api/ to apply finalizeCdrFinancials to rows where financials_applied_at IS NULL
+;
+; If ODBC and AMI both insert the same call, use unique call_id/uniqueid and rely on duplicate handling.
+
+[first]
+connection=iprn_mysql
+table=cdr
+alias start => start_time
+alias answer => answer_time
+alias end => end_time
+alias clid => cli
+alias dst => destination
+alias duration => duration
+alias billsec => duration
+alias disposition => disposition
+alias uniqueid => uniqueid
+alias linkedid => call_id
+; Optional if your Asterisk build emits them:
+; alias accountcode => (add column if needed)
+; alias amaflags => (optional)
