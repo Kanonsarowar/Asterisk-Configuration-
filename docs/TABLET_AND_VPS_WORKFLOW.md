@@ -59,17 +59,16 @@ chmod +x deploy/install-platform.sh
 ./deploy/install-platform.sh
 ```
 
-Edit **`platform/web-next/.env.local`** on the VPS so the browser uses the **public** API URL:
+**Tablet login fix:** Do **not** set `NEXT_PUBLIC_API_URL=http://127.0.0.1:3010` — on a tablet that points at the tablet itself and login fails.
 
-```env
-NEXT_PUBLIC_API_URL=http://167.172.170.88:3010
-```
+**Recommended (default):** Remove `NEXT_PUBLIC_API_URL` from `.env.local` (or leave the file empty). The Next.js app then uses **`/api/platform/*`** on the same host (port **3001**); the server proxies to Fastify on **`127.0.0.1:3010`** (`API_INTERNAL_URL`, set in PM2 `ecosystem.config.cjs`).
 
-Rebuild web after changing it:
+**Optional:** Set `NEXT_PUBLIC_API_URL=http://167.172.170.88:3010` only if you open port **3010** to the internet and want the browser to call the API directly (CORS is not required for same-origin proxy).
+
+Rebuild after env changes:
 
 ```bash
-cd /opt/telecom/platform/web-next && npm run build
-pm2 restart iprn-web
+cd /opt/telecom/platform/web-next && npm run build && pm2 restart iprn-web
 ```
 
 Start processes:

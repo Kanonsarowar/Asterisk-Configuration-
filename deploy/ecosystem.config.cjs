@@ -77,7 +77,11 @@ module.exports = {
       interpreter: 'none',
       instances: 1,
       autorestart: true,
-      env: { NODE_ENV: 'production' },
+      env: {
+        NODE_ENV: 'production',
+        // Next.js proxies /api/platform/* → Fastify (tablet-safe; omit NEXT_PUBLIC_API_URL)
+        API_INTERNAL_URL: 'http://127.0.0.1:3010',
+      },
     },
   ],
 };

@@ -26,7 +26,12 @@ export default function LoginPage() {
       setStoredUser(data.user);
       router.replace('/dashboard');
     } catch (err) {
-      setError(err.message || 'Login failed');
+      const hint =
+        err?.data?.hint ||
+        (err.message?.includes('fetch') || err.message === 'Failed to fetch'
+          ? 'Cannot reach API. On a tablet, do not use NEXT_PUBLIC_API_URL=http://127.0.0.1:3010 — leave it unset so requests use /api/platform proxy, or set it to your server public URL.'
+          : '');
+      setError([err.message || 'Login failed', hint].filter(Boolean).join(' '));
     } finally {
       setLoading(false);
     }

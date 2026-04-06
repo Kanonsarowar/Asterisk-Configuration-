@@ -23,15 +23,22 @@ npm run dev
 # Opens on http://0.0.0.0:3010 — reachable as http://YOUR_PC_IP:3010
 ```
 
-## 4. Point the web app at that IP
+## 4. Point the web app at the API (choose one)
 
-Create or edit **`platform/web-next/.env.local`** on the PC:
+**A — Recommended (proxy, no wrong `127.0.0.1` on tablet):**  
+Do **not** set `NEXT_PUBLIC_API_URL`. The UI calls **`/api/platform/*`** on the Next server; it proxies to **`API_INTERNAL_URL`** (default `http://127.0.0.1:3010` on the PC). Add to `.env.local` only if the API is elsewhere:
+
+```env
+API_INTERNAL_URL=http://127.0.0.1:3010
+```
+
+**B — Direct API URL:** If you prefer the tablet to call the API host directly:
 
 ```env
 NEXT_PUBLIC_API_URL=http://192.168.1.50:3010
 ```
 
-Use your real IP instead of `192.168.1.50`.
+Use your real PC IP — **never** `http://127.0.0.1:3010` in `NEXT_PUBLIC_*` when using a tablet.
 
 ## 5. Start the Next.js dev server
 
