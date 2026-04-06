@@ -1,0 +1,65 @@
+# Using a phone or tablet (e.g. Samsung) on the same Wi‑Fi
+
+The dashboard runs on your **PC** (or Mac). The tablet only opens a **browser**.  
+`localhost` on the tablet means *the tablet itself*, so you must use your **computer’s LAN IP**.
+
+## 1. Find your computer’s IP
+
+- **Windows:** `ipconfig` → IPv4 Address (e.g. `192.168.1.50`)
+- **macOS:** System Settings → Network, or `ipconfig getifaddr en0`
+- **Linux:** `ip -4 addr show` or `hostname -I`
+
+Example: **`192.168.1.50`**
+
+## 2. Allow the firewall (if the tablet cannot connect)
+
+Open inbound TCP **3010** (API) and **3001** (Next.js dev) on the PC.
+
+## 3. Start the API (already listens on all interfaces)
+
+```bash
+cd platform/api
+npm run dev
+# Opens on http://0.0.0.0:3010 — reachable as http://YOUR_PC_IP:3010
+```
+
+## 4. Point the web app at that IP
+
+Create or edit **`platform/web-next/.env.local`** on the PC:
+
+```env
+NEXT_PUBLIC_API_URL=http://192.168.1.50:3010
+```
+
+Use your real IP instead of `192.168.1.50`.
+
+## 5. Start the Next.js dev server
+
+```bash
+cd platform/web-next
+npm run dev:lan
+```
+
+(`dev:lan` binds explicitly to `0.0.0.0` on port **3001**.)
+
+## 6. On the Samsung tablet
+
+Open Chrome (or Samsung Internet):
+
+```text
+http://192.168.1.50:3001/login
+```
+
+Log in with the admin user you created with `npm run seed`.
+
+## Troubleshooting
+
+| Problem | What to check |
+|--------|----------------|
+| Connection refused | PC and tablet on same Wi‑Fi; firewall; correct IP |
+| Login fails / network error | `NEXT_PUBLIC_API_URL` must be `http://PC_IP:3010`, not `localhost` |
+| “Not secure” warning | Normal for `http://` on LAN; fine for home lab |
+
+## Optional: HTTPS on LAN
+
+For stricter browsers or cookies, use a reverse proxy (Caddy/nginx) with a local cert, or Next `--experimental-https` only if you trust the self-signed warning on the tablet.

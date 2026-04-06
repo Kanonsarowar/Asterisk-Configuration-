@@ -39,6 +39,9 @@ echo 'NEXT_PUBLIC_API_URL=http://127.0.0.1:3010' > .env.local
 npm install
 npm run dev
 # UI: http://localhost:3001
+#
+# Phone/tablet on same Wi-Fi: set NEXT_PUBLIC_API_URL=http://YOUR_PC_LAN_IP:3010
+# and run npm run dev:lan — see docs/LOCAL_TABLET_AND_LAN.md
 ```
 
 **Next.js `web-next/` layout (App Router)**

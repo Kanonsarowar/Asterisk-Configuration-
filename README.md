@@ -8,6 +8,8 @@
 
 **→ Deploy, PM2, backup, zero-downtime, checklist:** [docs/DEPLOYMENT_AND_OPERATIONS.md](./docs/DEPLOYMENT_AND_OPERATIONS.md)
 
+**→ Tablet / phone on Wi‑Fi (Samsung, etc.):** [docs/LOCAL_TABLET_AND_LAN.md](./docs/LOCAL_TABLET_AND_LAN.md)
+
 ## Features
 
 | Feature | Description |
