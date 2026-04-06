@@ -19,11 +19,11 @@ export default async function loginRoutes(fastify, _opts) {
   }, async (req, reply) => {
     const { username, password } = req.body;
     const u = await query(
-      'SELECT id, username, password_hash, role FROM users WHERE username = $1',
+      'SELECT id, username, password_hash, role, status FROM users WHERE username = ?',
       [String(username).trim()]
     );
     const row = u.rows[0];
-    if (!row || !(await verifyPassword(password, row.password_hash))) {
+    if (!row || row.status === 'suspended' || !(await verifyPassword(password, row.password_hash))) {
       return reply.code(401).send({ error: 'Invalid credentials' });
     }
     const ctx = await loadUserContext(row.id);
@@ -48,6 +48,7 @@ export default async function loginRoutes(fastify, _opts) {
         username: row.username,
         role: row.role,
         customerId: ctx.customerId,
+        balance: ctx.balance,
       },
     };
   });

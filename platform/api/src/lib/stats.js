@@ -1,20 +1,20 @@
 import { query } from '../db.js';
 
 export async function cdrStats(ctx, from, to) {
-  const start = from || new Date(Date.now() - 86400000).toISOString();
-  const end = to || new Date().toISOString();
+  const start = from || new Date(Date.now() - 86400000).toISOString().slice(0, 19).replace('T', ' ');
+  const end = to || new Date().toISOString().slice(0, 19).replace('T', ' ');
 
   if (ctx.role === 'admin') {
     const r = await query(
       `SELECT
-        COUNT(*)::int AS total_calls,
-        COUNT(*) FILTER (WHERE disposition IS NOT NULL AND UPPER(disposition) LIKE '%ANSWER%')::int AS answered_calls,
-        COALESCE(AVG(duration_seconds) FILTER (WHERE UPPER(disposition) LIKE '%ANSWER%'), 0)::float AS acd_seconds,
-        COALESCE(SUM(revenue), 0)::float AS revenue,
-        COALESCE(SUM(cost), 0)::float AS cost,
-        COALESCE(SUM(profit), 0)::float AS profit
+        COUNT(*) AS total_calls,
+        SUM(CASE WHEN disposition IS NOT NULL AND UPPER(disposition) LIKE '%ANSWER%' THEN 1 ELSE 0 END) AS answered_calls,
+        COALESCE(AVG(CASE WHEN UPPER(IFNULL(disposition,'')) LIKE '%ANSWER%' THEN duration END), 0) AS acd_seconds,
+        COALESCE(SUM(revenue), 0) AS revenue,
+        COALESCE(SUM(cost), 0) AS cost,
+        COALESCE(SUM(profit), 0) AS profit
       FROM cdr
-      WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz`,
+      WHERE created_at >= ? AND created_at < ?`,
       [start, end]
     );
     return r.rows[0];
@@ -23,32 +23,31 @@ export async function cdrStats(ctx, from, to) {
   if (ctx.role === 'reseller') {
     const r = await query(
       `SELECT
-        COUNT(*)::int AS total_calls,
-        COUNT(*) FILTER (WHERE disposition IS NOT NULL AND UPPER(disposition) LIKE '%ANSWER%')::int AS answered_calls,
-        COALESCE(AVG(duration_seconds) FILTER (WHERE UPPER(disposition) LIKE '%ANSWER%'), 0)::float AS acd_seconds,
-        COALESCE(SUM(revenue), 0)::float AS revenue,
-        COALESCE(SUM(cost), 0)::float AS cost,
-        COALESCE(SUM(profit), 0)::float AS profit
+        COUNT(*) AS total_calls,
+        SUM(CASE WHEN disposition IS NOT NULL AND UPPER(disposition) LIKE '%ANSWER%' THEN 1 ELSE 0 END) AS answered_calls,
+        COALESCE(AVG(CASE WHEN UPPER(IFNULL(disposition,'')) LIKE '%ANSWER%' THEN duration END), 0) AS acd_seconds,
+        COALESCE(SUM(revenue), 0) AS revenue,
+        COALESCE(SUM(cost), 0) AS cost,
+        COALESCE(SUM(profit), 0) AS profit
       FROM cdr
-      WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz
-        AND customer_id IN (SELECT id FROM customers WHERE reseller_user_id = $3)`,
+      WHERE created_at >= ? AND created_at < ?
+        AND customer_id IN (SELECT id FROM customers WHERE reseller_user_id = ?)`,
       [start, end, ctx.id]
     );
     return r.rows[0];
   }
 
-  if (ctx.role === 'client' && ctx.customerId) {
+  if (ctx.role === 'user' && ctx.customerId) {
     const r = await query(
       `SELECT
-        COUNT(*)::int AS total_calls,
-        COUNT(*) FILTER (WHERE disposition IS NOT NULL AND UPPER(disposition) LIKE '%ANSWER%')::int AS answered_calls,
-        COALESCE(AVG(duration_seconds) FILTER (WHERE UPPER(disposition) LIKE '%ANSWER%'), 0)::float AS acd_seconds,
-        COALESCE(SUM(revenue), 0)::float AS revenue,
-        COALESCE(SUM(cost), 0)::float AS cost,
-        COALESCE(SUM(profit), 0)::float AS profit
+        COUNT(*) AS total_calls,
+        SUM(CASE WHEN disposition IS NOT NULL AND UPPER(disposition) LIKE '%ANSWER%' THEN 1 ELSE 0 END) AS answered_calls,
+        COALESCE(AVG(CASE WHEN UPPER(IFNULL(disposition,'')) LIKE '%ANSWER%' THEN duration END), 0) AS acd_seconds,
+        COALESCE(SUM(revenue), 0) AS revenue,
+        COALESCE(SUM(cost), 0) AS cost,
+        COALESCE(SUM(profit), 0) AS profit
       FROM cdr
-      WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz
-        AND customer_id = $3`,
+      WHERE created_at >= ? AND created_at < ? AND customer_id = ?`,
       [start, end, ctx.customerId]
     );
     return r.rows[0];

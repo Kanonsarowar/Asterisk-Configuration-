@@ -1,0 +1,23 @@
+; cdr_mysql — load module and map to platform `cdr` table (use ODBC alternative if preferred)
+; Install: cdr_mysql.so (Asterisk modules)
+;
+; [global]
+; hostname=127.0.0.1
+; dbname=iprn
+; table=cdr
+; password=secret
+; user=iprn
+; port=3306
+; charset=utf8mb4
+;
+; Mapping (example — align with your Asterisk version column names):
+; calldate => start_time
+; clid => cli
+; dst => destination
+; duration => duration
+; disposition => disposition
+; uniqueid => uniqueid
+; linkedid => call_id
+;
+; After calls complete, POST to Fastify /api/cdr/ingest for billed_duration / cost / balance
+; or run a stored procedure from func_odbc — ingest endpoint is the simplest cross-version path.
