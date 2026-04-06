@@ -16,6 +16,7 @@ const apiDir = path.join(root, 'platform', 'api');
 const webDir = path.join(root, 'platform', 'web-next');
 module.exports = {
   apps: [
+    // Do NOT run a second app named iprn-api on the same PORT — use only iprn-backend for Fastify.
     {
       name: 'iprn-backend',
       cwd: apiDir,
