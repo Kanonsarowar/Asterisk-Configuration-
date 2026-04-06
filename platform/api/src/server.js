@@ -22,6 +22,7 @@ import billingRoutes from './routes/billing.routes.js';
 import liveRoutes from './routes/live.routes.js';
 import configRoutes from './routes/config.routes.js';
 import { startConfigSyncOutboxPoller } from './services/configSyncService.js';
+import { query } from './db.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -43,6 +44,15 @@ fastify.addHook('preHandler', async (req, reply) => {
 });
 
 await fastify.register(multipart, { limits: { fileSize: 25 * 1024 * 1024 } });
+
+fastify.get('/health', async () => {
+  try {
+    const r = await query('SELECT 1 AS ok');
+    return { ok: true, database: r.rows[0]?.ok === 1 ? 'up' : 'unknown' };
+  } catch (e) {
+    return { ok: false, database: 'down', error: e.message };
+  }
+});
 
 await fastify.register(loginRoutes);
 await fastify.register(routeLookupRoutes, { preHandler: internalApiKey });
