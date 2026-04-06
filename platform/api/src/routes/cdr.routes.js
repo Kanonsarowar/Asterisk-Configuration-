@@ -12,6 +12,13 @@ export default async function cdrRoutes(fastify) {
     const prefix = req.query.prefix ? String(req.query.prefix).replace(/%/g, '') : null;
     let sqlWhere = where;
     const p = [...params];
+    if (ctx.role === 'admin' && req.query.user_id != null && String(req.query.user_id).trim() !== '') {
+      const uid = parseInt(String(req.query.user_id), 10);
+      if (Number.isFinite(uid)) {
+        sqlWhere += ' AND cdr.user_id = ?';
+        p.push(uid);
+      }
+    }
     if (prefix) {
       sqlWhere += ' AND destination LIKE ?';
       p.push(`${prefix}%`);

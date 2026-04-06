@@ -37,6 +37,15 @@ npm run dev
 # UI: http://localhost:3001
 ```
 
+**Next.js `web-next/` layout (App Router)**
+
+- `app/(auth)/login` — JWT login → `localStorage`
+- `app/(dashboard)/dashboard` — shell; Balance, Live, CDR, Invoices (all roles)
+- `app/(dashboard)/dashboard/(admin)` — Users, Suppliers, Routes, Numbers (admin/reseller only)
+- `components/dashboard/*` — PageHeader, FilterBar, TableCard, Badge, Toggle, RequireStaff
+- `hooks/useSession`, `hooks/usePolling` — profile refresh + API polling
+- `lib/api.js`, `lib/auth.js` — Fastify base URL, Bearer token, role helpers
+
 ## Key HTTP routes
 
 | Method | Path | Auth |
@@ -46,7 +55,8 @@ npm run dev
 | POST | `/api/cdr/ingest` | `X-Internal-Key` |
 | POST | `/api/config/sync` | admin JWT or `X-Internal-Key` |
 | CRUD | `/api/users`, `/api/suppliers`, `/api/routes`, `/api/numbers`, … | JWT |
-| GET | `/api/cdr`, `/api/cdr/export.csv`, `/api/live/calls` | JWT |
+| GET | `/api/cdr?user_id=` (admin), `/api/cdr/export.csv`, `/api/live/calls` | JWT |
+| GET | `/api/billing/invoices?user_id=` (admin) | JWT |
 | GET | `/api/billing/invoice-summary` | JWT |
 | PATCH | `/api/users/:id/billing-currency` | admin / reseller |
 | GET/POST | `/api/billing/invoices`, `/api/billing/settings` | JWT (admin for settings) |

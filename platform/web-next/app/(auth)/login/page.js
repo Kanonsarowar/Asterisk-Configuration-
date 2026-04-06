@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, setToken } from '@/lib/api';
+import { setStoredUser } from '@/lib/auth';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -22,7 +23,7 @@ export default function LoginPage() {
         headers: {},
       });
       setToken(data.token);
-      localStorage.setItem('iprn_user', JSON.stringify(data.user));
+      setStoredUser(data.user);
       router.replace('/dashboard');
     } catch (err) {
       setError(err.message || 'Login failed');
@@ -32,15 +33,17 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={{ maxWidth: 400, margin: '80px auto', padding: 24 }} className="card">
-      <h1 style={{ marginTop: 0 }}>IPRN Dashboard</h1>
+    <div style={{ maxWidth: 420, margin: '72px auto', padding: 32 }} className="card">
+      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', letterSpacing: '0.08em' }}>TELECOM</div>
+      <h1 style={{ marginTop: 8, marginBottom: 8 }}>Sign in</h1>
+      <p style={{ marginTop: 0, color: 'var(--muted)', fontSize: 14 }}>IPRN platform — Fastify API</p>
       <form onSubmit={onSubmit}>
         <label>
-          <div style={{ marginBottom: 6, color: 'var(--muted)' }}>Username</div>
+          <span className="field-label">Username</span>
           <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
         </label>
         <label style={{ display: 'block', marginTop: 16 }}>
-          <div style={{ marginBottom: 6, color: 'var(--muted)' }}>Password</div>
+          <span className="field-label">Password</span>
           <input
             type="password"
             value={password}

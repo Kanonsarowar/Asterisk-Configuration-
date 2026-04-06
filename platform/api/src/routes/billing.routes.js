@@ -113,6 +113,11 @@ export default async function billingRoutes(fastify) {
   fastify.get('/billing/invoices', async (req) => {
     const ctx = req.userCtx;
     if (ctx.role === 'admin') {
+      const uid = req.query.user_id != null ? parseInt(String(req.query.user_id), 10) : null;
+      if (Number.isFinite(uid)) {
+        const r = await query('SELECT * FROM invoices WHERE user_id = ? ORDER BY created_at DESC LIMIT 200', [uid]);
+        return { invoices: r.rows };
+      }
       const r = await query('SELECT * FROM invoices ORDER BY created_at DESC LIMIT 200');
       return { invoices: r.rows };
     }

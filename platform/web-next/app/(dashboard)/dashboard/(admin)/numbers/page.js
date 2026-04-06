@@ -1,7 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
+import PageHeader from '@/components/dashboard/PageHeader';
+import FilterBar from '@/components/dashboard/FilterBar';
+import TableCard from '@/components/dashboard/TableCard';
 
 export default function NumbersPage() {
   const [rows, setRows] = useState([]);
@@ -21,24 +24,34 @@ export default function NumbersPage() {
     load();
   }, []);
 
-  const filtered = rows.filter((n) => {
+  const filtered = useMemo(() => {
     const p = prefix.trim();
-    if (!p) return true;
-    const hay = `${n.did || ''}${n.range_start || ''}${n.prefix || ''}`;
-    return hay.includes(p);
-  });
+    if (!p) return rows;
+    return rows.filter((n) => {
+      const hay = `${n.did || ''}${n.range_start || ''}${n.range_end || ''}${n.prefix || ''}${n.country || ''}`;
+      return hay.includes(p);
+    });
+  }, [rows, prefix]);
 
   return (
     <div>
-      <h1 style={{ marginTop: 0 }}>Numbers</h1>
+      <PageHeader
+        title="Numbers"
+        subtitle="DID inventory: filter by prefix, range, or country substring."
+        actions={
+          <button className="btn" type="button" onClick={load}>
+            Reload
+          </button>
+        }
+      />
       {err && <p style={{ color: '#f87171' }}>{err}</p>}
-      <div className="card">
-        <label>
-          Prefix search
+      <FilterBar>
+        <div className="field" style={{ flex: 1, minWidth: 220, maxWidth: 400 }}>
+          <span className="field-label">Prefix search</span>
           <input value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder="e.g. 44123" />
-        </label>
-      </div>
-      <div className="card" style={{ overflowX: 'auto' }}>
+        </div>
+      </FilterBar>
+      <TableCard>
         <table>
           <thead>
             <tr>
@@ -55,8 +68,8 @@ export default function NumbersPage() {
             {filtered.map((n) => (
               <tr key={n.id}>
                 <td>{n.id}</td>
-                <td>{n.did || `${n.range_start}–${n.range_end}`}</td>
-                <td>{n.prefix}</td>
+                <td style={{ fontFamily: 'ui-monospace, monospace' }}>{n.did || `${n.range_start}–${n.range_end}`}</td>
+                <td style={{ fontWeight: 600 }}>{n.prefix}</td>
                 <td>{n.country}</td>
                 <td>{n.rate_per_min}</td>
                 <td>{n.type}</td>
@@ -65,7 +78,7 @@ export default function NumbersPage() {
             ))}
           </tbody>
         </table>
-      </div>
+      </TableCard>
     </div>
   );
 }

@@ -52,6 +52,31 @@ th {
 .btn:disabled {
   opacity: 0.5;
 }
+.btn-ghost {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.field-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.field {
+  min-width: 160px;
+}
+.field input,
+.field select {
+  max-width: none;
+  width: 100%;
+}
 input,
 select {
   background: #0b0f14;
