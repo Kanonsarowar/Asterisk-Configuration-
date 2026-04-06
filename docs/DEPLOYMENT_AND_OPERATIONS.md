@@ -117,10 +117,8 @@ INTERNAL_API_KEY=... node route-validator.js samples/route-expectations.json
 ```bash
 npm install -g pm2
 cd /path/to/repo
-# Edit deploy/ecosystem.config.cjs if paths differ (e.g. clone at /telecom-system)
-cd platform/api && npm ci
-cd ../web-next && npm ci && npm run build
-cd ../..
+git pull
+./deploy/install-platform.sh   # api npm ci + web build + .env.local stub
 pm2 start ecosystem.config.js
 # or: pm2 start deploy/ecosystem.config.cjs
 pm2 save
