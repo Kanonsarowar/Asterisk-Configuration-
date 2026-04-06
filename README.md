@@ -44,14 +44,20 @@ sudo bash deploy.sh
 ```
 
 The script will:
-1. Install Node.js 22 and Asterisk (if not present)
+1. Install Node.js 22, PM2, Asterisk (if not present)
 2. Backup existing Asterisk configs
-3. Install dashboard to `/opt/asterisk-dashboard` (on **redeploy**, existing `/opt/asterisk-dashboard/data/db.json` is **preserved** so the UI does not reset to first-install data)
-4. Prompt for dashboard username/password
-5. Create systemd service (auto-start on boot)
-6. Configure UFW firewall rules
+3. **Legacy dashboard** → `/opt/asterisk-dashboard` on **port 3000** (systemd); `db.json` preserved on redeploy
+4. **Platform stack** → Fastify **:3010** + Next.js **:3001** (PM2): MySQL `iprn`, `platform/api` + `platform/web-next` build; tablet login uses `/api/platform` proxy
+5. Prompt for legacy dashboard username/password
+6. UFW: **22, 3000, 3001, 3010**, SIP/RTP
 
-Dashboard: **http://167.172.170.88:3000**
+| URL | App |
+|-----|-----|
+| **http://167.172.170.88:3000** | Legacy IPRN dashboard |
+| **http://167.172.170.88:3001** | Platform (Fastify-backed) |
+| **http://167.172.170.88:3001/status** | Platform API connectivity check |
+
+Optional env before `deploy.sh`: `SKIP_PLATFORM=1` (legacy only), `PLATFORM_ADMIN_PASS=...`, `PLATFORM_DB=iprn`, `FORCE_PLATFORM_SCHEMA=1` (re-import schema — **destructive**).
 
 ### Update after `git pull` (why it looked “unchanged” before)
 

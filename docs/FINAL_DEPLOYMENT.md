@@ -5,9 +5,21 @@
 
 ---
 
-## A) Fresh install (recommended)
+## A) One script — legacy + platform (same as old `deploy.sh`)
 
-Run as **root** on a clean or replacement server.
+From repo root on the VPS (clone into e.g. `/opt/telecom` or use your path):
+
+```bash
+cd /path/to/Asterisk-Configuration-
+sudo bash deploy.sh
+```
+
+Installs **:3000** legacy dashboard (systemd) **and** **:3010** API + **:3001** Next (PM2 + MySQL).  
+`SKIP_PLATFORM=1 sudo -E bash deploy.sh` — legacy only.
+
+---
+
+## A2) Fresh platform only (no legacy)
 
 ```bash
 cd /opt
