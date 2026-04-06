@@ -10,6 +10,8 @@
 
 **→ Tablet / phone on Wi‑Fi (Samsung, etc.):** [docs/LOCAL_TABLET_AND_LAN.md](./docs/LOCAL_TABLET_AND_LAN.md)
 
+**→ VPS only + Samsung tablet (no laptop):** [docs/TABLET_AND_VPS_WORKFLOW.md](./docs/TABLET_AND_VPS_WORKFLOW.md) — e.g. `167.172.170.88`
+
 ## Features
 
 | Feature | Description |
