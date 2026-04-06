@@ -9,7 +9,9 @@
     "seed": "node scripts/seed-admin.js",
     "ami": "node scripts/ami-listener.js",
     "finalize-cdr": "node scripts/finalize-pending-cdr.js",
+    "finalize-cdr-loop": "node scripts/finalize-cdr-loop.js",
     "config-outbox": "node scripts/process-config-outbox.js",
+    "config-sync-loop": "node scripts/config-sync-loop.js",
     "sync": "node scripts/trigger-sync.js"
   },
   "dependencies": {

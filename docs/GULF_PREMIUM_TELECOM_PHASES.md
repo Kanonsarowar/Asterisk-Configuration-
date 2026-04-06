@@ -135,6 +135,8 @@ This document maps **phase 1–9** delivery to what exists in this repository. A
 4. **Asterisk**: set `ASTERISK_GENERATED_DIR` / `ASTERISK_INSTALL_DIR`, run `POST /api/config/sync` or enable outbox poller + triggers.
 5. **Tests**: `cd platform/tools` — see `platform/README.md` Tools section.
 
+**Full step-by-step deploy, PM2, backup, zero-downtime, go-live:** [DEPLOYMENT_AND_OPERATIONS.md](./DEPLOYMENT_AND_OPERATIONS.md)
+
 ---
 
 *If your internal Gulf-Premium-Telecom phase doc uses different names, align rows above to that doc — the codebase coverage is as listed.*

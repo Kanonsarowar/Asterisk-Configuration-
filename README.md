@@ -6,6 +6,8 @@
 
 **→ Gulf-Premium-Telecom IPRN panel (phases 1–9) — delivery map:** [docs/GULF_PREMIUM_TELECOM_PHASES.md](./docs/GULF_PREMIUM_TELECOM_PHASES.md)
 
+**→ Deploy, PM2, backup, zero-downtime, checklist:** [docs/DEPLOYMENT_AND_OPERATIONS.md](./docs/DEPLOYMENT_AND_OPERATIONS.md)
+
 ## Features
 
 | Feature | Description |

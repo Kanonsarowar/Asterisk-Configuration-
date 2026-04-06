@@ -2,6 +2,8 @@
 
 **Gulf-Premium-Telecom / IPRN panel phases 1–9 (what ships where):** [../docs/GULF_PREMIUM_TELECOM_PHASES.md](../docs/GULF_PREMIUM_TELECOM_PHASES.md)
 
+**Deploy / PM2 / backup / zero-downtime:** [../docs/DEPLOYMENT_AND_OPERATIONS.md](../docs/DEPLOYMENT_AND_OPERATIONS.md)
+
 Production-oriented stack under `platform/` (alongside the legacy repo `dashboard/`):
 
 - **MySQL 8** schema: `sql/mysql_schema.sql` — users (admin/reseller/user, balance, sub-users), customers, suppliers, numbers (prefix + inclusive range, premium flag), prefix `routes` (failover + LCR fields), CDR, invoices, audit, live_calls, config_versions, system_settings
