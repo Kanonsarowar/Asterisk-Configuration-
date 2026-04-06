@@ -4,6 +4,8 @@
 
 **→ Full operator guide: [PROJECT_INSTRUCTIONS.md](./PROJECT_INSTRUCTIONS.md)** (source of truth, env vars, workflow, MySQL, optional legacy UI).
 
+**→ Gulf-Premium-Telecom IPRN panel (phases 1–9) — delivery map:** [docs/GULF_PREMIUM_TELECOM_PHASES.md](./docs/GULF_PREMIUM_TELECOM_PHASES.md)
+
 ## Features
 
 | Feature | Description |
