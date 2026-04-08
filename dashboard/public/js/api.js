@@ -59,7 +59,7 @@ const API = {
   getModules() { return fetchJsonWithTimeout('/api/modules', 12000); },
   getPjsipContacts() { return fetchJsonWithTimeout('/api/pjsip/contacts', 15000); },
   getIprnBillingSummary(limit = 500) {
-    return fetchJsonWithTimeout(`/api/iprn/billing-summary?limit=${encodeURIComponent(limit)}`, 12000);
+    return fetchJsonWithTimeout(`/api/iprn/billing-summary?limit=${encodeURIComponent(limit)}`, 25000);
   },
   getIprnPanelStatus() {
     return fetchJsonWithTimeout('/api/iprn/panel-status', 8000);
@@ -69,7 +69,7 @@ const API = {
   },
 
   // Suppliers
-  getSuppliers() { return fetchJsonWithTimeout('/api/suppliers', 12000); },
+  getSuppliers() { return fetchJsonWithTimeout('/api/suppliers', 20000); },
   addSupplier(sup) { return this.post('/api/suppliers', sup); },
   updateSupplier(id, sup) { return this.put(`/api/suppliers/${id}`, sup); },
   deleteSupplier(id) { return this.del(`/api/suppliers/${id}`); },
@@ -80,8 +80,8 @@ const API = {
   },
   uploadNumbersCsv(text, supplierId) { return this.postRaw(`/api/numbers/upload-csv?supplier=${encodeURIComponent(supplierId)}`, text); },
 
-  // Numbers
-  getNumbers() { return fetchJsonWithTimeout('/api/numbers', 12000); },
+  // Numbers (large MySQL lists can exceed a few seconds)
+  getNumbers() { return fetchJsonWithTimeout('/api/numbers', 120000); },
   addNumber(num) { return this.post('/api/numbers', num); },
   addBulkNumbers(nums) { return this.post('/api/numbers/bulk', { numbers: nums }); },
   updateNumber(id, num) { return this.put(`/api/numbers/${id}`, num); },
@@ -95,7 +95,7 @@ const API = {
   },
 
   // IVR (fixed 10 slots - only update)
-  getIvrMenus() { return fetchJsonWithTimeout('/api/ivr-menus', 12000); },
+  getIvrMenus() { return fetchJsonWithTimeout('/api/ivr-menus', 20000); },
   updateIvrMenu(id, menu) { return this.put(`/api/ivr-menus/${id}`, menu); },
 
   // Trunk
@@ -103,7 +103,7 @@ const API = {
   updateTrunkConfig(config) { return this.put('/api/trunk-config', config); },
 
   // Globals
-  getGlobals() { return this.get('/api/globals'); },
+  getGlobals() { return fetchJsonWithTimeout('/api/globals', 20000); },
   updateGlobals(globals) { return this.put('/api/globals', globals); },
 
   getBalance() { return fetchJsonWithTimeout('/api/balance', 60000); },

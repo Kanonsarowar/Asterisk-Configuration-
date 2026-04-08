@@ -1584,11 +1584,32 @@ function sipStateForEndpoint(contacts, endpoint) {
 
 // ---- NUMBERS ----
 async function renderNumbers(el) {
-  const [numbers, suppliers, ivrMenus, globals, billingRes, sipRes] = await Promise.all([
-    API.getNumbers(), API.getSuppliers(), API.getIvrMenus(), API.getGlobals(),
+  el.innerHTML = '<div class="card"><div class="card-body padded"><p class="empty-state">Loading number inventory…</p></div></div>';
+  try {
+  const settled = await Promise.allSettled([
+    API.getNumbers(),
+    API.getSuppliers(),
+    API.getIvrMenus(),
+    API.getGlobals(),
     API.getIprnBillingSummary(800).catch(() => ({ rows: [] })),
     API.getPjsipContacts().catch(() => ({ contacts: [] })),
   ]);
+  const numRes = settled[0];
+  let numbers = numRes.status === 'fulfilled' && Array.isArray(numRes.value) ? numRes.value : [];
+  if (numRes.status === 'rejected') {
+    console.error('[numbers]', numRes.reason);
+    toast(`Could not load numbers: ${numRes.reason?.message || numRes.reason}`, 'error');
+  } else if (numRes.status === 'fulfilled' && numRes.value && !Array.isArray(numRes.value) && numRes.value.error) {
+    toast(`Numbers API: ${escHtml(String(numRes.value.error))}`, 'error');
+    numbers = [];
+  }
+  const suppliers = settled[1].status === 'fulfilled' && Array.isArray(settled[1].value) ? settled[1].value : [];
+  const ivrMenus = settled[2].status === 'fulfilled' && Array.isArray(settled[2].value) ? settled[2].value : [];
+  const globals = settled[3].status === 'fulfilled' && settled[3].value && typeof settled[3].value === 'object'
+    ? settled[3].value
+    : {};
+  const billingRes = settled[4].status === 'fulfilled' ? settled[4].value : { rows: [] };
+  const sipRes = settled[5].status === 'fulfilled' ? settled[5].value : { contacts: [] };
   const billRows = billingRes && Array.isArray(billingRes.rows) ? billingRes.rows : [];
   const billByNum = Object.fromEntries(billRows.map((r) => [String(r.number), r]));
   const contacts = sipRes && Array.isArray(sipRes.contacts) ? sipRes.contacts : [];
@@ -2086,6 +2107,16 @@ async function renderNumbers(el) {
       renderNumbers(el);
     });
   });
+  } catch (err) {
+    console.error('[renderNumbers]', err);
+    el.innerHTML = `<div class="card"><div class="card-body padded">
+      <p style="color:var(--danger);margin-bottom:8px"><strong>Number inventory failed to load.</strong></p>
+      <p style="font-size:13px;color:var(--text-muted)">${escHtml(String(err?.message || err))}</p>
+      <p style="font-size:12px;color:var(--text-muted);margin-top:10px">If MySQL is slow or the schema is wrong, check server logs and <code>journalctl -u asterisk-dashboard</code>. Retry after fixing DB or use <code>MYSQL_ENABLED=0</code> to use <code>db.json</code> only.</p>
+      <button type="button" class="btn btn-outline btn-sm" style="margin-top:12px" onclick="navigateTo('numbers')">Retry</button>
+    </div></div>`;
+    toast('Number inventory error — see message above', 'error');
+  }
 }
 
 function showAddNumberModal(suppliers, ivrMenus) {
