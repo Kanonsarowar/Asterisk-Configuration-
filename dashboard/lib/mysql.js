@@ -234,6 +234,15 @@ async function migrateNumbersIprnColumns(p) {
   }
 }
 
+/** Older deployments may have number_inventory without last_used; CREATE IF NOT EXISTS does not add columns. */
+async function migrateNumberInventoryColumns(p) {
+  try {
+    await p.execute('ALTER TABLE `number_inventory` ADD COLUMN `last_used` DATETIME NULL');
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+  }
+}
+
 export async function ensureMysqlSchema() {
   const p = getMysqlPool();
   if (!p) return { ok: false, skipped: true };
@@ -242,6 +251,7 @@ export async function ensureMysqlSchema() {
   await migrateNumbersColumns(p);
   await migrateNumbersIprnColumns(p);
   await p.execute(DDL_NUMBER_INVENTORY);
+  await migrateNumberInventoryColumns(p);
   await p.execute(DDL_CALL_BILLING);
   await p.execute(DDL_DAILY_USAGE);
   await p.execute(DDL_IPRN_USERS);
