@@ -397,10 +397,11 @@ const pageTitles = {
 const GPT_PHASES = [
   {
     id: 'PHASE 1',
-    title: 'CORE_PLATFORM_AND_DATABASE',
-    summary: 'Core platform setup + MySQL schema',
+    title: 'CORE_INFRASTRUCTURE_SETUP',
+    summary:
+      'Base system + telecom engine — VPS, Asterisk (PJSIP), MySQL, Node — running CLI + test call',
     mapsTo:
-      'Environment: <code>dashboard/.env</code> (<code>MYSQL_*</code>, <code>iprn_system</code>). Schema ensured on dashboard start. Validation: <code>check-setup.sh</code>.',
+      '<strong>Purpose:</strong> base system + telecom engine.<br><strong>Includes:</strong> VPS host; Asterisk with PJSIP (<code>res_pjsip</code>, <code>pjsip.conf</code>); MySQL/MariaDB; Node.js for this dashboard.<br><strong>Output:</strong> Asterisk running and reachable via CLI (<code>sudo asterisk -rx &quot;core show version&quot;</code>); inbound test call works once trunk/DID/IVR are configured. Repo: <code>deploy.sh</code>, <code>check-setup.sh</code>, <code>dashboard/.env</code> for DB.',
   },
   {
     id: 'PHASE 2',
