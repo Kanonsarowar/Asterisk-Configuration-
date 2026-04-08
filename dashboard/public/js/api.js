@@ -67,6 +67,10 @@ const API = {
   getAppConfig() {
     return fetchJsonWithTimeout('/api/app-config', 5000);
   },
+  /** Gulf Premium Telecom 13-phase architecture (canonical backend). */
+  getPhaseArchitecture() {
+    return fetchJsonWithTimeout('/api/system/phase-architecture', 8000);
+  },
 
   // Suppliers
   getSuppliers() { return fetchJsonWithTimeout('/api/suppliers', 12000); },

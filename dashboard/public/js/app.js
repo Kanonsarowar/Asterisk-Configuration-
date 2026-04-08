@@ -393,132 +393,52 @@ const pageTitles = {
   roadmap: 'Roadmap — full architecture (13 phases)'
 };
 
-/**
- * Gulf Premium Telecom — FULL PHASE ARCHITECTURE (locked spec for Cursor / operators).
- * Each phase: Purpose, Includes, Output per product doc; last column = mapping to this repo where applicable.
- */
-const GPT_PHASES = [
-  {
-    id: 'PHASE 1',
-    title: 'CORE_INFRASTRUCTURE_SETUP',
-    summary: 'Base system + telecom engine — VPS, Asterisk (PJSIP), MySQL, Node',
-    mapsTo:
-      '<strong>Purpose:</strong> Base system + telecom engine.<br><strong>Includes:</strong> VPS setup; Asterisk (PJSIP); MySQL; Node.js.<br><strong>Output:</strong> Running Asterisk CLI; test call working.<br><strong>In this stack:</strong> <code>deploy.sh</code>, <code>check-setup.sh</code>, <code>/opt/asterisk-dashboard</code>, <code>dashboard/.env</code>.',
-  },
-  {
-    id: 'PHASE 2',
-    title: 'DATABASE_ARCHITECTURE',
-    summary: 'Business backbone — users, suppliers, numbers, routes, CDR, billing tables',
-    mapsTo:
-      '<strong>Purpose:</strong> Business backbone.<br><strong>Includes:</strong> Users; Suppliers; Numbers (DID ranges); Routes (prefix logic); CDR; Billing tables.<br><strong>Output:</strong> Optimized MySQL schema; indexed prefix search.<br><strong>In this stack:</strong> <code>iprn_system</code> tables (<code>numbers</code>, <code>number_inventory</code>, <code>call_billing</code>, …), <code>dashboard/lib/mysql.js</code>.',
-  },
-  {
-    id: 'PHASE 3',
-    title: 'BACKEND_API_LAYER',
-    summary: 'System control — Fastify API, JWT auth, CRUD for users/suppliers/numbers/routes',
-    mapsTo:
-      '<strong>Purpose:</strong> System control layer.<br><strong>Includes:</strong> Fastify API; Auth (JWT); CRUD Users, Suppliers, Numbers, Routes.<br><strong>Output:</strong> Fully functional REST API.<br><strong>In this stack:</strong> Primary API is <code>dashboard/server.js</code> (HTTP); optional <code>platform/api</code> Fastify if deployed separately; panel uses session auth (JWT-style API can be extended).',
-  },
-  {
-    id: 'PHASE 4',
-    title: 'ASTERISK_CONFIG_ENGINE',
-    summary: 'Dynamic routing — pjsip/extensions generators, DB → config sync',
-    mapsTo:
-      '<strong>Purpose:</strong> Dynamic telecom routing engine.<br><strong>Includes:</strong> <code>pjsip.conf</code> generator; <code>extensions.conf</code> generator; DB → config sync.<br><strong>Output:</strong> Auto-generated routing; no manual config edits (goal).<br><strong>In this stack:</strong> <code>dashboard/lib/config-generator.js</code>, <strong>Apply &amp; Reload Asterisk</strong>, <strong>Config Preview</strong>.',
-  },
-  {
-    id: 'PHASE 5',
-    title: 'CDR_COLLECTION_ENGINE',
-    summary: 'Call tracking — Asterisk CDR, AMI/ARI listener, real-time logging',
-    mapsTo:
-      '<strong>Purpose:</strong> Call tracking system.<br><strong>Includes:</strong> Asterisk CDR integration; AMI/ARI listener; real-time call logging.<br><strong>Output:</strong> Accurate call records stored in DB.<br><strong>In this stack:</strong> <strong>CDR</strong>, <strong>Call Stats</strong>, <strong>SIP Log</strong>, CSV/CDR ingest; full AMI/ARI daemon is optional beyond CLI status.',
-  },
-  {
-    id: 'PHASE 6',
-    title: 'BILLING_AND_RATING_ENGINE',
-    summary: 'Revenue — prefix rates, min duration, rounding, balance, profit',
-    mapsTo:
-      '<strong>Purpose:</strong> Revenue engine.<br><strong>Includes:</strong> Rate lookup (prefix); min duration; rounding; balance deduction; profit calculation.<br><strong>Output:</strong> Per-call cost + profit tracking.<br><strong>In this stack:</strong> <strong>Balance</strong>, <strong>IPRN clients</strong>, <code>number_inventory.rate_per_min</code>, <code>call_billing</code> when enabled.',
-  },
-  {
-    id: 'PHASE 7',
-    title: 'FRONTEND_DASHBOARD',
-    summary: 'Operator + client UI — admin/user panels, live calls, CDR, balance, invoices',
-    mapsTo:
-      '<strong>Purpose:</strong> Operator + client interface.<br><strong>Includes:</strong> Admin panel; User panel; Live calls; CDR table; Balance &amp; invoices.<br><strong>Output:</strong> Full Next.js dashboard (spec).<br><strong>In this stack:</strong> Node dashboard (this repo) + tenant portal; optional separate Next.js app — spec may use Next.js; implementation here is server-rendered static + JS.',
-  },
-  {
-    id: 'PHASE 8',
-    title: 'ROUTING_INTELLIGENCE_ENGINE',
-    summary: 'Smart routing — failover, LCR, multi-supplier priority',
-    mapsTo:
-      '<strong>Purpose:</strong> Smart routing (operator level).<br><strong>Includes:</strong> Failover routing; LCR; multi-supplier priority logic.<br><strong>Output:</strong> Optimized call routing.<br><strong>In this stack:</strong> Supplier ordering, ODBC/advanced routing when enabled in dialplan; full LCR engine may extend <code>extensions.conf</code> / external route service.',
-  },
-  {
-    id: 'PHASE 9',
-    title: 'FRAUD_PROTECTION_SYSTEM',
-    summary: 'Protect revenue — CPS, CLI, short calls, country rules',
-    mapsTo:
-      '<strong>Purpose:</strong> Protect revenue.<br><strong>Includes:</strong> CPS limits; CLI validation; short call detection; country restrictions.<br><strong>Output:</strong> Fraud-resistant system.<br><strong>In this stack:</strong> Dialplan/ACL patterns; extend with custom Asterisk logic + dashboard rules as needed.',
-  },
-  {
-    id: 'PHASE 10',
-    title: 'AUTO_SYNC_AND_DEPLOYMENT',
-    summary: 'Live updates — DB-triggered regen, safe reload, partial scripts',
-    mapsTo:
-      '<strong>Purpose:</strong> Live system updates.<br><strong>Includes:</strong> DB-triggered config regeneration; Asterisk safe reload; partial update scripts.<br><strong>Output:</strong> No full system restart needed.<br><strong>In this stack:</strong> <strong>Apply &amp; Reload</strong> (reload not full OS restart); DB triggers for regen are optional — today Apply is UI-driven.',
-  },
-  {
-    id: 'PHASE 11',
-    title: 'BACKUP_AND_RECOVERY_SYSTEM',
-    summary: 'Data protection — daily DB/config backup, retention, restore',
-    mapsTo:
-      '<strong>Purpose:</strong> Data protection.<br><strong>Includes:</strong> Daily MySQL backup; config backup; auto cleanup (7 days); restore script.<br><strong>Output:</strong> Disaster recovery ready.<br><strong>In this stack:</strong> Document in <code>README.md</code> / cron on VPS; <code>deploy.sh</code> backs up configs; automate per ops policy.',
-  },
-  {
-    id: 'PHASE 12',
-    title: 'TESTING_AND_SIMULATION',
-    summary: 'Validation — call simulator, prefix tester, routing validator',
-    mapsTo:
-      '<strong>Purpose:</strong> System validation.<br><strong>Includes:</strong> Call simulator; prefix tester; routing validator.<br><strong>Output:</strong> Verified routing + billing accuracy.<br><strong>In this stack:</strong> <strong>DID Test</strong>, <code>check-setup.sh</code>; extend simulators as needed.',
-  },
-  {
-    id: 'PHASE 13',
-    title: 'MONITORING_AND_ANALYTICS',
-    summary: 'Business visibility — ASR/ACD, revenue, profit, live traffic',
-    mapsTo:
-      '<strong>Purpose:</strong> Business visibility.<br><strong>Includes:</strong> ASR / ACD metrics; revenue per country; profit per supplier; live traffic stats.<br><strong>Output:</strong> Operator insights dashboard.<br><strong>In this stack:</strong> <strong>Dashboard</strong>, <strong>Call Stats</strong> (ASR/ACD-style), live channels; extend reports as needed.',
-  },
-];
-
-function renderRoadmap(el) {
-  const rows = GPT_PHASES.map(
-    (p) => `
-    <tr>
+/** Roadmap HTML is built from GET /api/system/phase-architecture (canonical: dashboard/lib/phase-architecture.js). */
+function buildRoadmapTableRows(phases) {
+  return phases
+    .map((p) => {
+      const inc = (p.includes || []).map((x) => `<li>${escHtml(String(x))}</li>`).join('');
+      const out = (p.outputs || []).map((x) => `<li>${escHtml(String(x))}</li>`).join('');
+      return `<tr>
       <td class="col-phase">${escHtml(p.id)}</td>
       <td class="col-title">
-        <div><strong>${escHtml(p.title)}</strong></div>
-        <div style="margin-top:4px;color:var(--text-muted);font-size:12px">${escHtml(p.summary)}</div>
+        <div><strong>${escHtml(p.code)}</strong></div>
+        <div style="margin-top:6px;font-size:12px"><span style="color:var(--text-muted)">Purpose:</span> ${escHtml(p.purpose)}</div>
+        <div style="margin-top:10px;font-size:12px"><strong>Includes:</strong><ul class="roadmap-phase-list">${inc}</ul></div>
+        <div style="margin-top:8px;font-size:12px"><strong>Output:</strong><ul class="roadmap-phase-list">${out}</ul></div>
       </td>
-      <td class="col-map">${p.mapsTo}</td>
-    </tr>`
-  ).join('');
-  el.innerHTML = `
+      <td class="col-map">${escHtml(p.stackMapping)}</td>
+    </tr>`;
+    })
+    .join('');
+}
+
+async function renderRoadmap(el) {
+  el.innerHTML = '<p class="empty-state">Loading phase architecture from server…</p>';
+  try {
+    const data = await API.getPhaseArchitecture();
+    if (!data || !data.ok || !Array.isArray(data.phases)) {
+      throw new Error(data?.error || 'Invalid phase architecture response');
+    }
+    const ver = data.version ? escHtml(String(data.version)) : '';
+    const rows = buildRoadmapTableRows(data.phases);
+    el.innerHTML = `
     <div class="card">
       <div class="card-header">
-        <h3>Final phase list (locked)</h3>
+        <h3>Full phase architecture</h3>
+        ${ver ? `<span style="font-size:12px;color:var(--text-muted);font-weight:500">v${ver}</span>` : ''}
       </div>
       <div class="card-body padded">
-        <div class="roadmap-locked">Locked baseline — Gulf Premium Telecom</div>
+        <div class="roadmap-locked">Gulf Premium Telecom — backend-driven spec</div>
         <p class="roadmap-intro">
-          Full phase architecture (13 phases) — same structure as the Cursor/engineering spec. Columns 1–2 are the locked definition; column 3 maps each phase to this repo where it exists today or as a planned extension.
+          Source of truth: <code>dashboard/lib/phase-architecture.js</code> and <code>GET /api/system/phase-architecture</code>. Rebuild work extends the codebase to satisfy each phase; the Roadmap reflects the current contract.
         </p>
         <div class="roadmap-table-wrap">
           <table class="roadmap-table">
             <thead>
               <tr>
                 <th>Phase</th>
-                <th>Scope</th>
+                <th>Scope (purpose, includes, output)</th>
                 <th>In this dashboard / stack</th>
               </tr>
             </thead>
@@ -527,6 +447,15 @@ function renderRoadmap(el) {
         </div>
       </div>
     </div>`;
+  } catch (err) {
+    el.innerHTML = `<div class="card"><div class="card-body padded">
+      <p style="color:var(--danger);margin-bottom:12px">Could not load phase architecture: ${escHtml(err.message)}</p>
+      <p class="empty-state" style="font-size:13px">Ensure the dashboard server is running and <code>/api/system/phase-architecture</code> is reachable.</p>
+      <button type="button" class="btn btn-outline btn-sm" id="btn-roadmap-retry">Retry</button>
+    </div></div>`;
+    const btn = document.getElementById('btn-roadmap-retry');
+    if (btn) btn.addEventListener('click', () => renderRoadmap(el));
+  }
 }
 
 async function renderPage(page) {
