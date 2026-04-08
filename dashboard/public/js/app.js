@@ -390,73 +390,7 @@ const pageTitles = {
   'tenant-subusers': 'Subusers',
   'tenant-numbers': 'Number allocation',
   'tenant-call-generator': 'Call generator',
-  roadmap: 'Roadmap — full architecture (13 phases)'
 };
-
-/** Roadmap HTML is built from GET /api/system/phase-architecture (canonical: dashboard/lib/phase-architecture.js). */
-function buildRoadmapTableRows(phases) {
-  return phases
-    .map((p) => {
-      const inc = (p.includes || []).map((x) => `<li>${escHtml(String(x))}</li>`).join('');
-      const out = (p.outputs || []).map((x) => `<li>${escHtml(String(x))}</li>`).join('');
-      return `<tr>
-      <td class="col-phase">${escHtml(p.id)}</td>
-      <td class="col-title">
-        <div><strong>${escHtml(p.code)}</strong></div>
-        <div style="margin-top:6px;font-size:12px"><span style="color:var(--text-muted)">Purpose:</span> ${escHtml(p.purpose)}</div>
-        <div style="margin-top:10px;font-size:12px"><strong>Includes:</strong><ul class="roadmap-phase-list">${inc}</ul></div>
-        <div style="margin-top:8px;font-size:12px"><strong>Output:</strong><ul class="roadmap-phase-list">${out}</ul></div>
-      </td>
-      <td class="col-map">${escHtml(p.stackMapping)}</td>
-    </tr>`;
-    })
-    .join('');
-}
-
-async function renderRoadmap(el) {
-  el.innerHTML = '<p class="empty-state">Loading phase architecture from server…</p>';
-  try {
-    const data = await API.getPhaseArchitecture();
-    if (!data || !data.ok || !Array.isArray(data.phases)) {
-      throw new Error(data?.error || 'Invalid phase architecture response');
-    }
-    const ver = data.version ? escHtml(String(data.version)) : '';
-    const rows = buildRoadmapTableRows(data.phases);
-    el.innerHTML = `
-    <div class="card">
-      <div class="card-header">
-        <h3>Full phase architecture</h3>
-        ${ver ? `<span style="font-size:12px;color:var(--text-muted);font-weight:500">v${ver}</span>` : ''}
-      </div>
-      <div class="card-body padded">
-        <div class="roadmap-locked">Gulf Premium Telecom — backend-driven spec</div>
-        <p class="roadmap-intro">
-          Source of truth: <code>dashboard/lib/phase-architecture.js</code> and <code>GET /api/system/phase-architecture</code>. Rebuild work extends the codebase to satisfy each phase; the Roadmap reflects the current contract.
-        </p>
-        <div class="roadmap-table-wrap">
-          <table class="roadmap-table">
-            <thead>
-              <tr>
-                <th>Phase</th>
-                <th>Scope (purpose, includes, output)</th>
-                <th>In this dashboard / stack</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-      </div>
-    </div>`;
-  } catch (err) {
-    el.innerHTML = `<div class="card"><div class="card-body padded">
-      <p style="color:var(--danger);margin-bottom:12px">Could not load phase architecture: ${escHtml(err.message)}</p>
-      <p class="empty-state" style="font-size:13px">Ensure the dashboard server is running and <code>/api/system/phase-architecture</code> is reachable.</p>
-      <button type="button" class="btn btn-outline btn-sm" id="btn-roadmap-retry">Retry</button>
-    </div></div>`;
-    const btn = document.getElementById('btn-roadmap-retry');
-    if (btn) btn.addEventListener('click', () => renderRoadmap(el));
-  }
-}
 
 async function renderPage(page) {
   const content = document.getElementById('content');
@@ -475,7 +409,6 @@ async function renderPage(page) {
     case 'trunk': return renderTrunk(content);
     case 'did-test': return renderDidTest(content);
     case 'config': return renderConfig(content);
-    case 'roadmap': return renderRoadmap(content);
     case 'admin-users': return renderAdminUsers(content);
     case 'iprn-clients': return renderIprnClients(content);
     case 'tenant-dashboard': return renderTenantDashboard(content);

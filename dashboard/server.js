@@ -32,7 +32,6 @@ import {
 } from './lib/mysql.js';
 import { validateAndNormalizeCallLog } from './lib/call-log-ingest.js';
 import * as numbersService from './lib/numbers-service.js';
-import { PHASE_ARCHITECTURE, PHASE_ARCHITECTURE_VERSION } from './lib/phase-architecture.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -180,15 +179,6 @@ async function handleApi(req, res) {
   const method = req.method;
 
   try {
-    // Public system metadata (phase architecture drives Roadmap UI)
-    if (path === '/api/system/phase-architecture' && method === 'GET') {
-      return sendJson(res, 200, {
-        ok: true,
-        version: PHASE_ARCHITECTURE_VERSION,
-        phases: PHASE_ARCHITECTURE,
-      });
-    }
-
     // Auth endpoints (no auth required)
     if (path === '/api/auth/login' && method === 'POST') {
       const body = await parseBody(req);
