@@ -2471,6 +2471,23 @@ async function renderDidTest(el) {
 // ---- CONFIG PREVIEW ----
 async function renderConfig(el) {
   const config = await API.previewConfig();
+  if (config && config.ok === false) {
+    el.innerHTML = `<div class="card"><div class="card-body padded">
+      <p style="color:var(--danger);margin-bottom:8px"><strong>Could not load config preview.</strong>${config.error ? ` ${escHtml(config.error)}` : ''}</p>
+      <p class="empty-state" style="font-size:13px">Sign in to the operator panel and refresh. Preview requires a valid session cookie.</p>
+      <button type="button" class="btn btn-outline btn-sm" onclick="navigateTo('config')">Retry</button>
+    </div></div>`;
+    return;
+  }
+  const ext = String(config.extensionsConf ?? '').trim();
+  const pj = String(config.pjsipConf ?? '').trim();
+  const acl = String(config.aclConf ?? '').trim();
+  const rtp = String(config.rtpConf ?? '').trim();
+  const odbc = String(config.funcOdbcConf ?? '').trim();
+  if (!ext && !pj) {
+    el.innerHTML = `<div class="card"><div class="card-body padded"><p class="empty-state">No generated config returned. Check server logs and <code>dashboard/lib/config-generator.js</code>.</p></div></div>`;
+    return;
+  }
   el.innerHTML = `
     <div class="card">
       <div class="card-header"><h3>Deploy</h3></div>
@@ -2481,23 +2498,23 @@ async function renderConfig(el) {
     </div>
     <div class="card">
       <div class="card-header"><h3>extensions.conf</h3></div>
-      <div class="card-body padded"><div class="config-preview">${escHtml(config.extensionsConf)}</div></div>
+      <div class="card-body padded"><div class="config-preview">${escHtml(ext || '(empty)')}</div></div>
     </div>
     <div class="card">
       <div class="card-header"><h3>pjsip.conf</h3></div>
-      <div class="card-body padded"><div class="config-preview">${escHtml(config.pjsipConf)}</div></div>
+      <div class="card-body padded"><div class="config-preview">${escHtml(pj || '(empty)')}</div></div>
     </div>
-    ${config.aclConf ? `<div class="card">
-      <div class="card-header"><h3>acl.conf</h3></div>
-      <div class="card-body padded"><div class="config-preview">${escHtml(config.aclConf)}</div></div>
+    ${acl ? `<div class="card">
+      <div class="card-header"><h3>acl.conf</h3><span style="font-size:12px;color:var(--text-muted);font-weight:400">Supplier IP allow list (from Suppliers)</span></div>
+      <div class="card-body padded"><div class="config-preview">${escHtml(acl)}</div></div>
     </div>` : ''}
-    ${config.rtpConf ? `<div class="card">
+    ${rtp ? `<div class="card">
       <div class="card-header"><h3>rtp.conf</h3></div>
-      <div class="card-body padded"><div class="config-preview">${escHtml(config.rtpConf)}</div></div>
+      <div class="card-body padded"><div class="config-preview">${escHtml(rtp)}</div></div>
     </div>` : ''}
-    ${config.funcOdbcConf ? `<div class="card">
+    ${odbc ? `<div class="card">
       <div class="card-header"><h3>func_odbc.conf (DSN iprn_db)</h3></div>
-      <div class="card-body padded"><div class="config-preview">${escHtml(config.funcOdbcConf)}</div></div>
+      <div class="card-body padded"><div class="config-preview">${escHtml(odbc)}</div></div>
     </div>` : ''}`;
 
   document.getElementById('btn-apply-config-preview').onclick = async () => {

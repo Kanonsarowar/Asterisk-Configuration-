@@ -122,7 +122,35 @@ const API = {
 
   // Apply
   apply() { return this.post('/api/apply', {}); },
-  previewConfig() { return this.get('/api/preview-config'); },
+  /** Requires panel session cookie — same-origin credentials. */
+  async previewConfig() {
+    const res = await fetch('/api/preview-config', { credentials: 'same-origin' });
+    let data = {};
+    try {
+      data = await res.json();
+    } catch {
+      data = { error: 'Invalid JSON response' };
+    }
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: data.error || `HTTP ${res.status}`,
+        extensionsConf: '',
+        pjsipConf: '',
+        aclConf: '',
+        rtpConf: '',
+        funcOdbcConf: '',
+      };
+    }
+    return {
+      ok: true,
+      extensionsConf: data.extensionsConf ?? data.extensions ?? '',
+      pjsipConf: data.pjsipConf ?? data.pjsip ?? '',
+      aclConf: data.aclConf ?? '',
+      rtpConf: data.rtpConf ?? '',
+      funcOdbcConf: data.funcOdbcConf ?? '',
+    };
+  },
 
   // Panel admins (extra logins besides DASH_USER)
   getAdminUsers() { return this.get('/api/admin/users'); },
