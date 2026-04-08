@@ -1633,6 +1633,49 @@ async function renderNumbers(el) {
   }, {});
   const detectedCountryOrder = Object.keys(groupedByDetectedCountry).sort();
 
+  const prefixRowsSorted = [...flatPrefixes].sort((a, b) => {
+    const ca = String(a.detectedCountry || '');
+    const cb = String(b.detectedCountry || '');
+    if (ca !== cb) return ca.localeCompare(cb);
+    const pa = `${a.pg.countryCode || ''}${a.pg.prefix || ''}`;
+    const pb = `${b.pg.countryCode || ''}${b.pg.prefix || ''}`;
+    return pa.localeCompare(pb);
+  });
+  const prefixInventoryTable = prefixRowsSorted.length
+    ? `<table>
+        <thead>
+          <tr>
+            <th>Country</th>
+            <th>Prefix</th>
+            <th>DIDs</th>
+            <th>Default IVR</th>
+            <th>Tariff</th>
+            <th>Suppliers</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${prefixRowsSorted.map((entry) => {
+            const { pg, detectedCountry } = entry;
+            const fullP = `${pg.countryCode || ''}${pg.prefix || ''}`;
+            const ivrId = pg.numbers[0]?.destinationId;
+            const ivrName = ivrMenus.find((i) => i.id === ivrId)?.name || '—';
+            const supNames = [...new Set(
+              pg.numbers.map((n) => suppliers.find((s) => s.id === n.supplierId)?.name).filter(Boolean)
+            )];
+            const supStr = supNames.length ? supNames.map((x) => escHtml(String(x))).join(', ') : '—';
+            return `<tr>
+              <td>${escHtml(String(detectedCountry || '—'))}</td>
+              <td style="font-family:monospace"><strong>${escHtml(fullP)}</strong></td>
+              <td>${pg.numbers.length}</td>
+              <td>${escHtml(ivrName)}</td>
+              <td style="font-size:12px">${formatPrefixTariff(pg)}</td>
+              <td style="font-size:12px;color:var(--text-muted)">${supStr}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`
+    : '<p class="empty-state">No prefixes yet — add DIDs below.</p>';
+
   el.innerHTML = `
     <div class="card" style="margin-bottom:20px">
       <div class="card-header"><h3>IPRN routing defaults</h3></div>
@@ -1664,6 +1707,15 @@ async function renderNumbers(el) {
       <div class="stat-card"><div class="label">Total DIDs</div><div class="value blue">${totalNumbers}</div></div>
       <div class="stat-card"><div class="label">Countries</div><div class="value">${detectedCountryCount}</div></div>
       <div class="stat-card"><div class="label">Prefixes</div><div class="value">${totalPrefixes}</div></div>
+    </div>
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><h3>Prefix inventory</h3></div>
+      <div class="card-body padded">
+        <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px;line-height:1.45">
+          One row per routing prefix (country code + prefix). Expand a prefix in <strong>Number inventory</strong> to edit individual DIDs, rates, and allocation.
+        </p>
+        ${prefixInventoryTable}
+      </div>
     </div>
     <div class="card">
       <div class="card-header">
