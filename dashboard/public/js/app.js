@@ -393,71 +393,70 @@ const pageTitles = {
   roadmap: 'Roadmap — final phases (locked)'
 };
 
-/** Gulf Premium Telecom — locked delivery phases; maps to areas in this console. */
+/** Gulf Premium Telecom — locked phases (9); each row: purpose + includes + output + console mapping. */
 const GPT_PHASES = [
   {
     id: 'PHASE 1',
-    title: 'CORE_INFRASTRUCTURE_SETUP',
-    summary:
-      'Base system + telecom engine — VPS, Asterisk (PJSIP), MySQL, Node — running CLI + test call',
+    title: 'CORE_PLATFORM_AND_DATABASE',
+    summary: 'Core platform + MySQL schema — VPS, Asterisk (PJSIP), Node, running CLI + test call',
     mapsTo:
-      '<strong>Purpose:</strong> base system + telecom engine.<br><strong>Includes:</strong> VPS host; Asterisk with PJSIP (<code>res_pjsip</code>, <code>pjsip.conf</code>); MySQL/MariaDB; Node.js for this dashboard.<br><strong>Output:</strong> Asterisk running and reachable via CLI (<code>sudo asterisk -rx &quot;core show version&quot;</code>); inbound test call works once trunk/DID/IVR are configured. Repo: <code>deploy.sh</code>, <code>check-setup.sh</code>, <code>dashboard/.env</code> for DB.',
+      '<strong>Purpose:</strong> base system + telecom engine + database layer.<br><strong>Includes:</strong> VPS; Asterisk with PJSIP; MySQL/MariaDB (<code>iprn_system</code>, <code>numbers</code>, <code>number_inventory</code>, …); Node.js + <code>deploy.sh</code>.<br><strong>Output:</strong> Asterisk CLI OK; schema ensured on dashboard start; inbound test call after trunk/DID/IVR.<br><strong>Here:</strong> <code>check-setup.sh</code>, <code>dashboard/.env</code>, <code>dashboard/lib/mysql.js</code>.',
   },
   {
     id: 'PHASE 2',
     title: 'AUTH_RBAC_AND_AUDIT',
     summary: 'Authentication, roles, permissions, audit logs',
     mapsTo:
-      'Panel login, sessions, <strong>Panel admins</strong> (extra operators). Tenant portal roles when MySQL clients are enabled. Extend server-side audit as needed.',
+      '<strong>Purpose:</strong> who may change production config.<br><strong>Includes:</strong> session login; panel operators; optional tenant roles (MySQL).<br><strong>Output:</strong> authenticated Apply; auditable actions (extend server logs as needed).<br><strong>Here:</strong> login, <strong>Panel admins</strong>, <strong>IPRN clients</strong> portal when enabled.',
   },
   {
     id: 'PHASE 3',
     title: 'NUMBERS_AND_DID_MANAGEMENT',
     summary: 'DID inventory, prefix ranges, premium tagging, UI',
     mapsTo:
-      '<strong>Number inventory</strong> — DIDs, prefixes, IVR destination, supplier linkage; drives <code>did-routing</code> in Asterisk.',
+      '<strong>Purpose:</strong> map inbound DIDs to IVR/routes.<br><strong>Includes:</strong> prefix patterns, destinations, supplier linkage.<br><strong>Output:</strong> <code>did-routing</code> dialplan entries from UI.<br><strong>Here:</strong> <strong>Number inventory</strong>, prefix-level IVR selection.',
   },
   {
     id: 'PHASE 4',
     title: 'SUPPLIERS_AND_ROUTING_ENGINE',
     summary: 'Suppliers, routes, failover, LCR, /route, Asterisk config generation',
     mapsTo:
-      '<strong>Suppliers</strong>, <strong>Trunk Config</strong>, <strong>Config Preview</strong>. Generated <code>pjsip.conf</code> / <code>extensions.conf</code>. Advanced LCR/failover via ODBC or custom dialplan when enabled.',
+      '<strong>Purpose:</strong> IP-authenticated trunks + generated SIP/dialplan.<br><strong>Includes:</strong> supplier IPs, codecs, RTP; optional ODBC/LCR hooks.<br><strong>Output:</strong> <code>pjsip.conf</code>, <code>extensions.conf</code>, <code>acl.conf</code>.<br><strong>Here:</strong> <strong>Suppliers</strong>, <strong>Trunk Config</strong>, <strong>Config Preview</strong>, <strong>Apply &amp; Reload</strong>.',
   },
   {
     id: 'PHASE 5',
     title: 'ASTERISK_AND_CDR_INTEGRATION',
     summary: 'Asterisk configs, CDR (ODBC/AMI), config sync, rollback',
     mapsTo:
-      '<strong>Apply &amp; Reload Asterisk</strong>, <strong>CDR</strong>, <strong>Call Stats</strong>, <strong>SIP Log</strong>. Keep backups of <code>/etc/asterisk/</code> before major changes.',
+      '<strong>Purpose:</strong> stable PBX + call records in the panel.<br><strong>Includes:</strong> CDR files / ODBC; AMI-style status via CLI; config copy + reload.<br><strong>Output:</strong> CDR visible in UI; rollback via restored <code>/etc/asterisk</code> backups.<br><strong>Here:</strong> <strong>CDR</strong>, <strong>Call Stats</strong>, <strong>SIP Log</strong>, <strong>Dashboard</strong> live stats.',
   },
   {
     id: 'PHASE 6',
     title: 'BILLING_AND_INVOICING',
     summary: 'Billing engine, balances, rating, invoices',
     mapsTo:
-      '<strong>Balance</strong>, <strong>IPRN clients</strong> (MySQL): balances, invoices, <code>call_billing</code> / rates when configured.',
+      '<strong>Purpose:</strong> commercial usage + balances.<br><strong>Includes:</strong> rates, <code>call_billing</code>, client balances, invoices.<br><strong>Output:</strong> reports and tenant-facing balance/invoice views.<br><strong>Here:</strong> <strong>Balance</strong>, <strong>IPRN clients</strong> (MySQL), billing-related MySQL tables.',
   },
   {
     id: 'PHASE 7',
     title: 'FRAUD_AND_LIVE_MONITORING',
     summary: 'Fraud protection, CLI rules, live call tracking',
     mapsTo:
-      '<strong>Dashboard</strong> live channels, <strong>SIP Log</strong>, CDR views. CLI manipulation rules live in generated dialplan (e.g. <code>extensions.conf</code>).',
+      '<strong>Purpose:</strong> abuse reduction + visibility.<br><strong>Includes:</strong> CLI normalization rules in dialplan; live channel view.<br><strong>Output:</strong> policy enforced in Asterisk; operators see active calls.<br><strong>Here:</strong> <strong>Dashboard</strong> live channels, <strong>SIP Log</strong>, dialplan rules in generated <code>extensions.conf</code>.',
   },
   {
     id: 'PHASE 8',
     title: 'DASHBOARD_AND_UI',
-    summary: 'Next.js admin + user panels',
+    summary: 'Admin + user panels — this Gulf Premium Telecom console (Node); optional separate Next.js stack',
     mapsTo:
-      'This <strong>Gulf Premium Telecom</strong> operator console (vanilla Node dashboard). <strong>IPRN clients</strong> tenant portal when MySQL is on. External Next.js stacks are optional and separate.',
+      '<strong>Purpose:</strong> operator and (optional) client UX.<br><strong>Includes:</strong> this Node dashboard; tenant portal when MySQL on; external Next.js only if you deploy it separately.<br><strong>Output:</strong> HTTPS panel (e.g. nginx → :3000); optional :3010.<br><strong>Here:</strong> full sidebar; <strong>IPRN clients</strong>.',
   },
   {
     id: 'PHASE 9',
     title: 'TESTING_AND_DOCUMENTATION',
     summary: 'Testing tools, validation scripts, documentation',
     mapsTo:
-      '<strong>DID Test</strong>, repo docs (<code>README.md</code>, <code>PROJECT_INSTRUCTIONS.md</code>, <code>AGENTS.md</code>), <code>check-setup.sh</code>.',
+      '<strong>Purpose:</strong> repeatable checks and operator docs.<br><strong>Includes:</strong> DID route tests, setup scripts, README/AGENTS.<br><strong>Output:</strong> confidence before/after changes.<br><strong>Here:</strong> <strong>DID Test</strong>, <code>check-setup.sh</code>, repo markdown, <strong>Config Preview</strong>.',
   },
 ];
 
@@ -481,7 +480,7 @@ function renderRoadmap(el) {
       <div class="card-body padded">
         <div class="roadmap-locked">Locked baseline — Gulf Premium Telecom</div>
         <p class="roadmap-intro">
-          Nine phases below are the agreed delivery backbone. Each row maps to features or touchpoints in this console and generated Asterisk/MySQL artifacts — not all logic is UI-only; some phases extend server config and dialplan.
+          All nine locked phases are listed below. The third column ties each phase to this Gulf Premium Telecom console and repo (deploy, <code>.env</code>, generated Asterisk/MySQL). Each phase includes <strong>Purpose</strong>, <strong>Includes</strong>, and <strong>Output</strong> where applicable.
         </p>
         <div class="roadmap-table-wrap">
           <table class="roadmap-table">
