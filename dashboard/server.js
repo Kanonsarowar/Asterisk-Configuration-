@@ -157,6 +157,42 @@ function serveStatic(req, res, urlPath) {
 }
 
 const CONF_SRC = process.env.ASTERISK_CONF_DIR || join(__dirname, '..', 'asterisk');
+/** Files Asterisk loads after Apply (same paths deploy uses). */
+const LIVE_AST_PREVIEW_FILES = [
+  ['extensions.conf', 'extensionsConf'],
+  ['pjsip.conf', 'pjsipConf'],
+  ['acl.conf', 'aclConf'],
+  ['rtp.conf', 'rtpConf'],
+  ['func_odbc.conf', 'funcOdbcConf'],
+];
+
+function readLiveAsteriskPreviewPayload() {
+  const dir = '/etc/asterisk';
+  const out = {
+    ok: true,
+    source: 'live',
+    livePath: dir,
+    extensionsConf: '',
+    pjsipConf: '',
+    aclConf: '',
+    rtpConf: '',
+    funcOdbcConf: '',
+    liveReadErrors: /** @type {string[]} */ ([]),
+  };
+  for (const [filename, key] of LIVE_AST_PREVIEW_FILES) {
+    const fp = join(dir, filename);
+    try {
+      if (existsSync(fp) && statSync(fp).isFile()) {
+        out[key] = readFileSync(fp, 'utf8');
+      } else {
+        out.liveReadErrors.push(`${filename}: not found`);
+      }
+    } catch (e) {
+      out.liveReadErrors.push(`${filename}: ${String(e?.message || e)}`);
+    }
+  }
+  return out;
+}
 
 async function deployConfigs() {
   const configs = await writeConfigs(store, numbersService.getNumbers);
@@ -841,10 +877,37 @@ async function handleApi(req, res) {
       return sendJson(res, result.ok ? 200 : 500, result);
     }
 
-    // Preview generated configs
+    // Preview: show what Asterisk actually uses — read /etc/asterisk (no DB). Optional generated fallback.
     if (path === '/api/preview-config' && method === 'GET') {
-      const configs = await writeConfigs(store, numbersService.getNumbers);
-      return sendJson(res, 200, configs);
+      const live = readLiveAsteriskPreviewPayload();
+      const extLen = String(live.extensionsConf || '').length;
+      const pjLen = String(live.pjsipConf || '').length;
+      const hasUsefulLive = extLen > 0 || pjLen > 0;
+      if (hasUsefulLive || live.liveReadErrors.length === 0) {
+        return sendJson(res, 200, live);
+      }
+      try {
+        const gen = await writeConfigs(store, numbersService.getNumbers);
+        return sendJson(res, 200, {
+          ok: true,
+          source: 'generated',
+          livePath: '/etc/asterisk',
+          liveReadErrors: live.liveReadErrors,
+          note: 'Live files missing or empty — showing generated preview from dashboard (not yet deployed).',
+          extensionsConf: gen.extensionsConf,
+          pjsipConf: gen.pjsipConf,
+          aclConf: gen.aclConf,
+          rtpConf: gen.rtpConf,
+          funcOdbcConf: gen.funcOdbcConf,
+        });
+      } catch (e) {
+        return sendJson(res, 500, {
+          ok: false,
+          error: String(e?.message || e),
+          livePath: '/etc/asterisk',
+          liveReadErrors: live.liveReadErrors,
+        });
+      }
     }
 
     // Optional MySQL (env-driven; does not replace db.json)

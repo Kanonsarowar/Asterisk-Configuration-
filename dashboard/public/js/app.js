@@ -2485,10 +2485,24 @@ async function renderConfig(el) {
   const rtp = String(config.rtpConf ?? '').trim();
   const odbc = String(config.funcOdbcConf ?? '').trim();
   if (!ext && !pj) {
-    el.innerHTML = `<div class="card"><div class="card-body padded"><p class="empty-state">No generated config returned. Check server logs and <code>dashboard/lib/config-generator.js</code>.</p></div></div>`;
+    el.innerHTML = `<div class="card"><div class="card-body padded"><p class="empty-state">No config text returned. If Asterisk configs are missing under <code>/etc/asterisk/</code>, click Apply after fixing DB/schema issues.</p></div></div>`;
     return;
   }
-  el.innerHTML = `
+  const srcLive = config.source === 'live';
+  const previewBanner = srcLive
+    ? `<div class="card" style="margin-bottom:16px;border-color:var(--success);background:rgba(34,197,94,.08)">
+        <div class="card-body padded" style="font-size:13px">
+          <strong>Live Asterisk files</strong> — text below is read from <code>${escHtml(config.livePath || '/etc/asterisk')}</code> (what the PBX is using now).
+        </div>
+      </div>`
+    : config.note
+      ? `<div class="card" style="margin-bottom:16px;border-color:var(--warning);background:rgba(245,158,11,.08)">
+          <div class="card-body padded" style="font-size:13px;color:var(--text-muted)">
+            <strong>Generated preview</strong> — ${escHtml(config.note)}${(config.liveReadErrors && config.liveReadErrors.length) ? `<br><span style="font-size:11px">${escHtml(config.liveReadErrors.join('; '))}</span>` : ''}
+          </div>
+        </div>`
+      : '';
+  el.innerHTML = `${previewBanner}
     <div class="card">
       <div class="card-header"><h3>Deploy</h3></div>
       <div class="card-body padded" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">

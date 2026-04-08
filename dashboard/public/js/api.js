@@ -144,6 +144,10 @@ const API = {
     }
     return {
       ok: true,
+      source: data.source || 'generated',
+      livePath: data.livePath || '/etc/asterisk',
+      note: data.note || '',
+      liveReadErrors: data.liveReadErrors || [],
       extensionsConf: data.extensionsConf ?? data.extensions ?? '',
       pjsipConf: data.pjsipConf ?? data.pjsip ?? '',
       aclConf: data.aclConf ?? '',
