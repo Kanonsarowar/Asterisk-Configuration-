@@ -505,7 +505,7 @@ select.form-control { cursor: pointer; }
   margin-bottom: 16px;
   line-height: 1.5;
 }
-.roadmap-table-wrap { overflow-x: auto; }
+.roadmap-table-wrap { overflow-x: auto; max-height: min(70vh, 720px); overflow-y: auto; }
 .roadmap-table {
   width: 100%;
   border-collapse: collapse;

@@ -390,73 +390,104 @@ const pageTitles = {
   'tenant-subusers': 'Subusers',
   'tenant-numbers': 'Number allocation',
   'tenant-call-generator': 'Call generator',
-  roadmap: 'Roadmap — final phases (locked)'
+  roadmap: 'Roadmap — full architecture (13 phases)'
 };
 
-/** Gulf Premium Telecom — locked phases (9); each row: purpose + includes + output + console mapping. */
+/**
+ * Gulf Premium Telecom — FULL PHASE ARCHITECTURE (locked spec for Cursor / operators).
+ * Each phase: Purpose, Includes, Output per product doc; last column = mapping to this repo where applicable.
+ */
 const GPT_PHASES = [
   {
     id: 'PHASE 1',
-    title: 'CORE_PLATFORM_AND_DATABASE',
-    summary: 'Core platform + MySQL schema — VPS, Asterisk (PJSIP), Node, running CLI + test call',
+    title: 'CORE_INFRASTRUCTURE_SETUP',
+    summary: 'Base system + telecom engine — VPS, Asterisk (PJSIP), MySQL, Node',
     mapsTo:
-      '<strong>Purpose:</strong> base system + telecom engine + database layer.<br><strong>Includes:</strong> VPS; Asterisk with PJSIP; MySQL/MariaDB (<code>iprn_system</code>, <code>numbers</code>, <code>number_inventory</code>, …); Node.js + <code>deploy.sh</code>.<br><strong>Output:</strong> Asterisk CLI OK; schema ensured on dashboard start; inbound test call after trunk/DID/IVR.<br><strong>Here:</strong> <code>check-setup.sh</code>, <code>dashboard/.env</code>, <code>dashboard/lib/mysql.js</code>.',
+      '<strong>Purpose:</strong> Base system + telecom engine.<br><strong>Includes:</strong> VPS setup; Asterisk (PJSIP); MySQL; Node.js.<br><strong>Output:</strong> Running Asterisk CLI; test call working.<br><strong>In this stack:</strong> <code>deploy.sh</code>, <code>check-setup.sh</code>, <code>/opt/asterisk-dashboard</code>, <code>dashboard/.env</code>.',
   },
   {
     id: 'PHASE 2',
-    title: 'AUTH_RBAC_AND_AUDIT',
-    summary: 'Authentication, roles, permissions, audit logs',
+    title: 'DATABASE_ARCHITECTURE',
+    summary: 'Business backbone — users, suppliers, numbers, routes, CDR, billing tables',
     mapsTo:
-      '<strong>Purpose:</strong> who may change production config.<br><strong>Includes:</strong> session login; panel operators; optional tenant roles (MySQL).<br><strong>Output:</strong> authenticated Apply; auditable actions (extend server logs as needed).<br><strong>Here:</strong> login, <strong>Panel admins</strong>, <strong>IPRN clients</strong> portal when enabled.',
+      '<strong>Purpose:</strong> Business backbone.<br><strong>Includes:</strong> Users; Suppliers; Numbers (DID ranges); Routes (prefix logic); CDR; Billing tables.<br><strong>Output:</strong> Optimized MySQL schema; indexed prefix search.<br><strong>In this stack:</strong> <code>iprn_system</code> tables (<code>numbers</code>, <code>number_inventory</code>, <code>call_billing</code>, …), <code>dashboard/lib/mysql.js</code>.',
   },
   {
     id: 'PHASE 3',
-    title: 'NUMBERS_AND_DID_MANAGEMENT',
-    summary: 'DID inventory, prefix ranges, premium tagging, UI',
+    title: 'BACKEND_API_LAYER',
+    summary: 'System control — Fastify API, JWT auth, CRUD for users/suppliers/numbers/routes',
     mapsTo:
-      '<strong>Purpose:</strong> map inbound DIDs to IVR/routes.<br><strong>Includes:</strong> prefix patterns, destinations, supplier linkage.<br><strong>Output:</strong> <code>did-routing</code> dialplan entries from UI.<br><strong>Here:</strong> <strong>Number inventory</strong>, prefix-level IVR selection.',
+      '<strong>Purpose:</strong> System control layer.<br><strong>Includes:</strong> Fastify API; Auth (JWT); CRUD Users, Suppliers, Numbers, Routes.<br><strong>Output:</strong> Fully functional REST API.<br><strong>In this stack:</strong> Primary API is <code>dashboard/server.js</code> (HTTP); optional <code>platform/api</code> Fastify if deployed separately; panel uses session auth (JWT-style API can be extended).',
   },
   {
     id: 'PHASE 4',
-    title: 'SUPPLIERS_AND_ROUTING_ENGINE',
-    summary: 'Suppliers, routes, failover, LCR, /route, Asterisk config generation',
+    title: 'ASTERISK_CONFIG_ENGINE',
+    summary: 'Dynamic routing — pjsip/extensions generators, DB → config sync',
     mapsTo:
-      '<strong>Purpose:</strong> IP-authenticated trunks + generated SIP/dialplan.<br><strong>Includes:</strong> supplier IPs, codecs, RTP; optional ODBC/LCR hooks.<br><strong>Output:</strong> <code>pjsip.conf</code>, <code>extensions.conf</code>, <code>acl.conf</code>.<br><strong>Here:</strong> <strong>Suppliers</strong>, <strong>Trunk Config</strong>, <strong>Config Preview</strong>, <strong>Apply &amp; Reload</strong>.',
+      '<strong>Purpose:</strong> Dynamic telecom routing engine.<br><strong>Includes:</strong> <code>pjsip.conf</code> generator; <code>extensions.conf</code> generator; DB → config sync.<br><strong>Output:</strong> Auto-generated routing; no manual config edits (goal).<br><strong>In this stack:</strong> <code>dashboard/lib/config-generator.js</code>, <strong>Apply &amp; Reload Asterisk</strong>, <strong>Config Preview</strong>.',
   },
   {
     id: 'PHASE 5',
-    title: 'ASTERISK_AND_CDR_INTEGRATION',
-    summary: 'Asterisk configs, CDR (ODBC/AMI), config sync, rollback',
+    title: 'CDR_COLLECTION_ENGINE',
+    summary: 'Call tracking — Asterisk CDR, AMI/ARI listener, real-time logging',
     mapsTo:
-      '<strong>Purpose:</strong> stable PBX + call records in the panel.<br><strong>Includes:</strong> CDR files / ODBC; AMI-style status via CLI; config copy + reload.<br><strong>Output:</strong> CDR visible in UI; rollback via restored <code>/etc/asterisk</code> backups.<br><strong>Here:</strong> <strong>CDR</strong>, <strong>Call Stats</strong>, <strong>SIP Log</strong>, <strong>Dashboard</strong> live stats.',
+      '<strong>Purpose:</strong> Call tracking system.<br><strong>Includes:</strong> Asterisk CDR integration; AMI/ARI listener; real-time call logging.<br><strong>Output:</strong> Accurate call records stored in DB.<br><strong>In this stack:</strong> <strong>CDR</strong>, <strong>Call Stats</strong>, <strong>SIP Log</strong>, CSV/CDR ingest; full AMI/ARI daemon is optional beyond CLI status.',
   },
   {
     id: 'PHASE 6',
-    title: 'BILLING_AND_INVOICING',
-    summary: 'Billing engine, balances, rating, invoices',
+    title: 'BILLING_AND_RATING_ENGINE',
+    summary: 'Revenue — prefix rates, min duration, rounding, balance, profit',
     mapsTo:
-      '<strong>Purpose:</strong> commercial usage + balances.<br><strong>Includes:</strong> rates, <code>call_billing</code>, client balances, invoices.<br><strong>Output:</strong> reports and tenant-facing balance/invoice views.<br><strong>Here:</strong> <strong>Balance</strong>, <strong>IPRN clients</strong> (MySQL), billing-related MySQL tables.',
+      '<strong>Purpose:</strong> Revenue engine.<br><strong>Includes:</strong> Rate lookup (prefix); min duration; rounding; balance deduction; profit calculation.<br><strong>Output:</strong> Per-call cost + profit tracking.<br><strong>In this stack:</strong> <strong>Balance</strong>, <strong>IPRN clients</strong>, <code>number_inventory.rate_per_min</code>, <code>call_billing</code> when enabled.',
   },
   {
     id: 'PHASE 7',
-    title: 'FRAUD_AND_LIVE_MONITORING',
-    summary: 'Fraud protection, CLI rules, live call tracking',
+    title: 'FRONTEND_DASHBOARD',
+    summary: 'Operator + client UI — admin/user panels, live calls, CDR, balance, invoices',
     mapsTo:
-      '<strong>Purpose:</strong> abuse reduction + visibility.<br><strong>Includes:</strong> CLI normalization rules in dialplan; live channel view.<br><strong>Output:</strong> policy enforced in Asterisk; operators see active calls.<br><strong>Here:</strong> <strong>Dashboard</strong> live channels, <strong>SIP Log</strong>, dialplan rules in generated <code>extensions.conf</code>.',
+      '<strong>Purpose:</strong> Operator + client interface.<br><strong>Includes:</strong> Admin panel; User panel; Live calls; CDR table; Balance &amp; invoices.<br><strong>Output:</strong> Full Next.js dashboard (spec).<br><strong>In this stack:</strong> Node dashboard (this repo) + tenant portal; optional separate Next.js app — spec may use Next.js; implementation here is server-rendered static + JS.',
   },
   {
     id: 'PHASE 8',
-    title: 'DASHBOARD_AND_UI',
-    summary: 'Admin + user panels — this Gulf Premium Telecom console (Node); optional separate Next.js stack',
+    title: 'ROUTING_INTELLIGENCE_ENGINE',
+    summary: 'Smart routing — failover, LCR, multi-supplier priority',
     mapsTo:
-      '<strong>Purpose:</strong> operator and (optional) client UX.<br><strong>Includes:</strong> this Node dashboard; tenant portal when MySQL on; external Next.js only if you deploy it separately.<br><strong>Output:</strong> HTTPS panel (e.g. nginx → :3000); optional :3010.<br><strong>Here:</strong> full sidebar; <strong>IPRN clients</strong>.',
+      '<strong>Purpose:</strong> Smart routing (operator level).<br><strong>Includes:</strong> Failover routing; LCR; multi-supplier priority logic.<br><strong>Output:</strong> Optimized call routing.<br><strong>In this stack:</strong> Supplier ordering, ODBC/advanced routing when enabled in dialplan; full LCR engine may extend <code>extensions.conf</code> / external route service.',
   },
   {
     id: 'PHASE 9',
-    title: 'TESTING_AND_DOCUMENTATION',
-    summary: 'Testing tools, validation scripts, documentation',
+    title: 'FRAUD_PROTECTION_SYSTEM',
+    summary: 'Protect revenue — CPS, CLI, short calls, country rules',
     mapsTo:
-      '<strong>Purpose:</strong> repeatable checks and operator docs.<br><strong>Includes:</strong> DID route tests, setup scripts, README/AGENTS.<br><strong>Output:</strong> confidence before/after changes.<br><strong>Here:</strong> <strong>DID Test</strong>, <code>check-setup.sh</code>, repo markdown, <strong>Config Preview</strong>.',
+      '<strong>Purpose:</strong> Protect revenue.<br><strong>Includes:</strong> CPS limits; CLI validation; short call detection; country restrictions.<br><strong>Output:</strong> Fraud-resistant system.<br><strong>In this stack:</strong> Dialplan/ACL patterns; extend with custom Asterisk logic + dashboard rules as needed.',
+  },
+  {
+    id: 'PHASE 10',
+    title: 'AUTO_SYNC_AND_DEPLOYMENT',
+    summary: 'Live updates — DB-triggered regen, safe reload, partial scripts',
+    mapsTo:
+      '<strong>Purpose:</strong> Live system updates.<br><strong>Includes:</strong> DB-triggered config regeneration; Asterisk safe reload; partial update scripts.<br><strong>Output:</strong> No full system restart needed.<br><strong>In this stack:</strong> <strong>Apply &amp; Reload</strong> (reload not full OS restart); DB triggers for regen are optional — today Apply is UI-driven.',
+  },
+  {
+    id: 'PHASE 11',
+    title: 'BACKUP_AND_RECOVERY_SYSTEM',
+    summary: 'Data protection — daily DB/config backup, retention, restore',
+    mapsTo:
+      '<strong>Purpose:</strong> Data protection.<br><strong>Includes:</strong> Daily MySQL backup; config backup; auto cleanup (7 days); restore script.<br><strong>Output:</strong> Disaster recovery ready.<br><strong>In this stack:</strong> Document in <code>README.md</code> / cron on VPS; <code>deploy.sh</code> backs up configs; automate per ops policy.',
+  },
+  {
+    id: 'PHASE 12',
+    title: 'TESTING_AND_SIMULATION',
+    summary: 'Validation — call simulator, prefix tester, routing validator',
+    mapsTo:
+      '<strong>Purpose:</strong> System validation.<br><strong>Includes:</strong> Call simulator; prefix tester; routing validator.<br><strong>Output:</strong> Verified routing + billing accuracy.<br><strong>In this stack:</strong> <strong>DID Test</strong>, <code>check-setup.sh</code>; extend simulators as needed.',
+  },
+  {
+    id: 'PHASE 13',
+    title: 'MONITORING_AND_ANALYTICS',
+    summary: 'Business visibility — ASR/ACD, revenue, profit, live traffic',
+    mapsTo:
+      '<strong>Purpose:</strong> Business visibility.<br><strong>Includes:</strong> ASR / ACD metrics; revenue per country; profit per supplier; live traffic stats.<br><strong>Output:</strong> Operator insights dashboard.<br><strong>In this stack:</strong> <strong>Dashboard</strong>, <strong>Call Stats</strong> (ASR/ACD-style), live channels; extend reports as needed.',
   },
 ];
 
@@ -480,7 +511,7 @@ function renderRoadmap(el) {
       <div class="card-body padded">
         <div class="roadmap-locked">Locked baseline — Gulf Premium Telecom</div>
         <p class="roadmap-intro">
-          All nine locked phases are listed below. The third column ties each phase to this Gulf Premium Telecom console and repo (deploy, <code>.env</code>, generated Asterisk/MySQL). Each phase includes <strong>Purpose</strong>, <strong>Includes</strong>, and <strong>Output</strong> where applicable.
+          Full phase architecture (13 phases) — same structure as the Cursor/engineering spec. Columns 1–2 are the locked definition; column 3 maps each phase to this repo where it exists today or as a planned extension.
         </p>
         <div class="roadmap-table-wrap">
           <table class="roadmap-table">
