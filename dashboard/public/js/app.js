@@ -389,8 +389,114 @@ const pageTitles = {
   'tenant-invoices': 'Invoices',
   'tenant-subusers': 'Subusers',
   'tenant-numbers': 'Number allocation',
-  'tenant-call-generator': 'Call generator'
+  'tenant-call-generator': 'Call generator',
+  roadmap: 'Roadmap — final phases (locked)'
 };
+
+/** Gulf Premium Telecom — locked delivery phases; maps to areas in this console. */
+const GPT_PHASES = [
+  {
+    id: 'PHASE 1',
+    title: 'CORE_PLATFORM_AND_DATABASE',
+    summary: 'Core platform setup + MySQL schema',
+    mapsTo:
+      'Environment: <code>dashboard/.env</code> (<code>MYSQL_*</code>, <code>iprn_system</code>). Schema ensured on dashboard start. Validation: <code>check-setup.sh</code>.',
+  },
+  {
+    id: 'PHASE 2',
+    title: 'AUTH_RBAC_AND_AUDIT',
+    summary: 'Authentication, roles, permissions, audit logs',
+    mapsTo:
+      'Panel login, sessions, <strong>Panel admins</strong> (extra operators). Tenant portal roles when MySQL clients are enabled. Extend server-side audit as needed.',
+  },
+  {
+    id: 'PHASE 3',
+    title: 'NUMBERS_AND_DID_MANAGEMENT',
+    summary: 'DID inventory, prefix ranges, premium tagging, UI',
+    mapsTo:
+      '<strong>Number inventory</strong> — DIDs, prefixes, IVR destination, supplier linkage; drives <code>did-routing</code> in Asterisk.',
+  },
+  {
+    id: 'PHASE 4',
+    title: 'SUPPLIERS_AND_ROUTING_ENGINE',
+    summary: 'Suppliers, routes, failover, LCR, /route, Asterisk config generation',
+    mapsTo:
+      '<strong>Suppliers</strong>, <strong>Trunk Config</strong>, <strong>Config Preview</strong>. Generated <code>pjsip.conf</code> / <code>extensions.conf</code>. Advanced LCR/failover via ODBC or custom dialplan when enabled.',
+  },
+  {
+    id: 'PHASE 5',
+    title: 'ASTERISK_AND_CDR_INTEGRATION',
+    summary: 'Asterisk configs, CDR (ODBC/AMI), config sync, rollback',
+    mapsTo:
+      '<strong>Apply &amp; Reload Asterisk</strong>, <strong>CDR</strong>, <strong>Call Stats</strong>, <strong>SIP Log</strong>. Keep backups of <code>/etc/asterisk/</code> before major changes.',
+  },
+  {
+    id: 'PHASE 6',
+    title: 'BILLING_AND_INVOICING',
+    summary: 'Billing engine, balances, rating, invoices',
+    mapsTo:
+      '<strong>Balance</strong>, <strong>IPRN clients</strong> (MySQL): balances, invoices, <code>call_billing</code> / rates when configured.',
+  },
+  {
+    id: 'PHASE 7',
+    title: 'FRAUD_AND_LIVE_MONITORING',
+    summary: 'Fraud protection, CLI rules, live call tracking',
+    mapsTo:
+      '<strong>Dashboard</strong> live channels, <strong>SIP Log</strong>, CDR views. CLI manipulation rules live in generated dialplan (e.g. <code>extensions.conf</code>).',
+  },
+  {
+    id: 'PHASE 8',
+    title: 'DASHBOARD_AND_UI',
+    summary: 'Next.js admin + user panels',
+    mapsTo:
+      'This <strong>Gulf Premium Telecom</strong> operator console (vanilla Node dashboard). <strong>IPRN clients</strong> tenant portal when MySQL is on. External Next.js stacks are optional and separate.',
+  },
+  {
+    id: 'PHASE 9',
+    title: 'TESTING_AND_DOCUMENTATION',
+    summary: 'Testing tools, validation scripts, documentation',
+    mapsTo:
+      '<strong>DID Test</strong>, repo docs (<code>README.md</code>, <code>PROJECT_INSTRUCTIONS.md</code>, <code>AGENTS.md</code>), <code>check-setup.sh</code>.',
+  },
+];
+
+function renderRoadmap(el) {
+  const rows = GPT_PHASES.map(
+    (p) => `
+    <tr>
+      <td class="col-phase">${escHtml(p.id)}</td>
+      <td class="col-title">
+        <div><strong>${escHtml(p.title)}</strong></div>
+        <div style="margin-top:4px;color:var(--text-muted);font-size:12px">${escHtml(p.summary)}</div>
+      </td>
+      <td class="col-map">${p.mapsTo}</td>
+    </tr>`
+  ).join('');
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <h3>Final phase list (locked)</h3>
+      </div>
+      <div class="card-body padded">
+        <div class="roadmap-locked">Locked baseline — Gulf Premium Telecom</div>
+        <p class="roadmap-intro">
+          Nine phases below are the agreed delivery backbone. Each row maps to features or touchpoints in this console and generated Asterisk/MySQL artifacts — not all logic is UI-only; some phases extend server config and dialplan.
+        </p>
+        <div class="roadmap-table-wrap">
+          <table class="roadmap-table">
+            <thead>
+              <tr>
+                <th>Phase</th>
+                <th>Scope</th>
+                <th>In this dashboard / stack</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
 
 async function renderPage(page) {
   const content = document.getElementById('content');
@@ -409,6 +515,7 @@ async function renderPage(page) {
     case 'trunk': return renderTrunk(content);
     case 'did-test': return renderDidTest(content);
     case 'config': return renderConfig(content);
+    case 'roadmap': return renderRoadmap(content);
     case 'admin-users': return renderAdminUsers(content);
     case 'iprn-clients': return renderIprnClients(content);
     case 'tenant-dashboard': return renderTenantDashboard(content);
@@ -2632,7 +2739,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
       if (navTenant) navTenant.style.display = '';
       if (applyBanner) applyBanner.style.display = 'none';
       const brand = document.querySelector('.sidebar-brand span');
-      if (brand) brand.textContent = 'Client portal';
+      if (brand) brand.textContent = 'Gulf Premium Telecom — client portal';
       if (me.role === 'user' || me.role === 'admin') {
         document.querySelectorAll('.tenant-client-only').forEach((n) => { n.style.display = ''; });
       }
