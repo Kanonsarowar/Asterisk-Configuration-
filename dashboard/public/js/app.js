@@ -219,6 +219,9 @@ function markSaved() {
   document.getElementById('apply-banner').classList.remove('visible');
 }
 
+/** Panel pages removed from sidebar — old bookmarks redirect to Dashboard. */
+const REMOVED_PANEL_PAGES = new Set(['balance', 'sip-log', 'did-test', 'admin-users']);
+
 // Navigation
 document.querySelectorAll('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -228,6 +231,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
 });
 
 function navigateTo(page) {
+  if (REMOVED_PANEL_PAGES.has(page)) page = 'dashboard';
   currentPage = page;
   const navTenant = document.getElementById('nav-tenant');
   const navPanel = document.getElementById('nav-panel');
@@ -372,15 +376,11 @@ const pageTitles = {
   dashboard: 'Dashboard',
   'call-stats': 'Call Statistics',
   'cdr-history': 'CDR',
-  balance: 'Balance',
-  'sip-log': 'SIP Invite Log',
   suppliers: 'Suppliers',
   numbers: 'Number inventory',
   'ivr-menus': 'IVR Audio',
   trunk: 'Trunk Configuration',
-  'did-test': 'DID Test',
   config: 'Config Preview',
-  'admin-users': 'Panel admins',
   'iprn-clients': 'IPRN clients',
   'tenant-dashboard': 'Overview',
   'tenant-live-calls': 'Live calls',
@@ -397,19 +397,17 @@ async function renderPage(page) {
   if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
   if (tenantLiveInterval) { clearInterval(tenantLiveInterval); tenantLiveInterval = null; }
 
+  if (REMOVED_PANEL_PAGES.has(page)) return renderDashboard(content);
+
   switch (page) {
     case 'dashboard': return renderDashboard(content);
     case 'call-stats': return renderCallStats(content);
     case 'cdr-history': return renderCdrHistory(content);
-    case 'balance': return renderBalance(content);
-    case 'sip-log': return renderSipLog(content);
     case 'suppliers': return renderSuppliers(content);
     case 'numbers': return renderNumbers(content);
     case 'ivr-menus': return renderIvrMenus(content);
     case 'trunk': return renderTrunk(content);
-    case 'did-test': return renderDidTest(content);
     case 'config': return renderConfig(content);
-    case 'admin-users': return renderAdminUsers(content);
     case 'iprn-clients': return renderIprnClients(content);
     case 'tenant-dashboard': return renderTenantDashboard(content);
     case 'tenant-live-calls': return renderTenantLiveCalls(content);
@@ -1048,7 +1046,7 @@ async function renderSipLog(el) {
     <div class="card">
       <div class="card-header">
         <h3>Recent SIP Events</h3>
-        <button class="btn btn-outline btn-sm" onclick="navigateTo('sip-log')">Refresh</button>
+        <button class="btn btn-outline btn-sm" type="button" onclick="location.reload()">Refresh</button>
       </div>
       <div class="card-body">
         ${invites.length ? `
