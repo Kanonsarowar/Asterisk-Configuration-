@@ -213,6 +213,9 @@ export function aggregateCallLogsPro(rows, numbers, suppliers, hoursWindow) {
     return { cli_type, calls: x.calls, asr: +asr.toFixed(1) };
   });
 
+  const spanMinutes = Math.max(1, h * 60);
+  const callsPerMinute = +(totalCurr / spanMinutes).toFixed(2);
+
   return {
     summary: {
       total_calls: totalCurr,
@@ -222,6 +225,7 @@ export function aggregateCallLogsPro(rows, numbers, suppliers, hoursWindow) {
       total_duration: totalDurationCurr,
       revenue: +revenueCurr.toFixed(4),
       asr: +asrCurr.toFixed(2),
+      calls_per_minute: callsPerMinute,
       hours: h,
       previous_asr: asrPrev != null ? +asrPrev.toFixed(2) : null,
       asr_drop:
@@ -232,4 +236,54 @@ export function aggregateCallLogsPro(rows, numbers, suppliers, hoursWindow) {
     failures: failureRows,
     cli: cliRows,
   };
+}
+
+/**
+ * Recent rows for Call Statistics table (MySQL), with DID match for prefix / supplier label.
+ */
+export async function fetchCallLogsRecentForUi(pool, numbers, suppliers, hours, limit) {
+  const h = Math.min(168, Math.max(1, parseInt(String(hours), 10) || 24));
+  const lim = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 50));
+  const supplierNameById = new Map();
+  for (const s of suppliers || []) {
+    if (s && s.id != null) supplierNameById.set(Number(s.id), String(s.name || `Supplier ${s.id}`));
+  }
+  const appNums = Array.isArray(numbers) ? numbers.map(toAppNumberShape).filter(Boolean) : [];
+
+  const [rows] = await pool.query(
+    `SELECT \`caller\`, \`destination\`, \`duration\`, \`status\`,
+            COALESCE(\`cdr_start\`, \`created_at\`) AS \`ts\`
+     FROM \`call_logs\`
+     WHERE COALESCE(\`cdr_start\`, \`created_at\`) >= DATE_SUB(NOW(), INTERVAL ? HOUR)
+     ORDER BY COALESCE(\`cdr_start\`, \`created_at\`) DESC
+     LIMIT ?`,
+    [h, lim]
+  );
+
+  const list = rows || [];
+  return list.map((r) => {
+    const dst = r.destination;
+    const matched = matchNumberForDestination(dst, appNums);
+    const supIdRaw = matched?.supplierId ?? matched?.supplier_id;
+    const supId = supIdRaw !== undefined && supIdRaw !== '' ? Number(supIdRaw) : NaN;
+    let supplierName = '—';
+    if (!isNaN(supId) && supplierNameById.has(supId)) supplierName = supplierNameById.get(supId);
+    else if (!isNaN(supId)) supplierName = `ID ${supId}`;
+
+    const dstr = String(dst || '');
+    const prefix = matched?.prefix
+      ? String(matched.prefix)
+      : (dstr.length > 4 ? dstr.substring(0, dstr.length - 4) : dstr);
+
+    const disp = String(r.status || '').toUpperCase() === 'ANSWERED' ? 'ANSWERED' : String(r.status || 'UNKNOWN');
+    return {
+      src: String(r.caller || ''),
+      dst: dstr,
+      billsec: Math.max(0, parseInt(String(r.duration), 10) || 0),
+      disposition: disp,
+      prefix,
+      supplierName,
+      source: 'mysql',
+    };
+  });
 }

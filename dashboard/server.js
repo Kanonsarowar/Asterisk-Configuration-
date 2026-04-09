@@ -34,7 +34,11 @@ import {
 import { validateAndNormalizeCallLog } from './lib/call-log-ingest.js';
 import * as numbersService from './lib/numbers-service.js';
 import * as iprnInv from './lib/iprn-inventory-mysql.js';
-import { fetchCallLogsInHours, aggregateCallLogsPro } from './lib/call-stats-mysql.js';
+import {
+  fetchCallLogsInHours,
+  aggregateCallLogsPro,
+  fetchCallLogsRecentForUi,
+} from './lib/call-stats-mysql.js';
 import { syncCdrToCallLogs } from './lib/cdr-sync.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -96,7 +100,14 @@ async function buildCallStatsProFromDb(hoursParam) {
   const { rows, hoursWindow } = await fetchCallLogsInHours(pool, hours);
   const numbers = await numbersService.getNumbers(store);
   const suppliers = store.getSuppliers();
-  return { ok: true, ...aggregateCallLogsPro(rows, numbers, suppliers, hoursWindow) };
+  const agg = aggregateCallLogsPro(rows, numbers, suppliers, hoursWindow);
+  let recentSample = [];
+  try {
+    recentSample = await fetchCallLogsRecentForUi(pool, numbers, suppliers, hoursWindow, 50);
+  } catch {
+    recentSample = [];
+  }
+  return { ok: true, ...agg, recentSample };
 }
 
 const MIME_TYPES = {

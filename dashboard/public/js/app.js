@@ -717,14 +717,16 @@ async function renderCallStats(el, hours = 24) {
     : '';
 
   const sum = pro?.summary;
+  const recentDb = Array.isArray(pro?.recentSample) ? pro.recentSample : [];
+  const useDbPrimary = sum && Number(sum.total_calls) > 0;
   const proGrid = pro && sum
-    ? `<div class="stats-grid" style="margin-bottom:16px">
+    ? `${buildCallStatsProAlerts(sum)}
+    ${!useDbPrimary ? `<div class="stats-grid" style="margin-bottom:16px">
       <div class="stat-card"><div class="label">MySQL window</div><div class="value">${escHtml(String(sum.hours || h))}h</div><div class="sub">call_logs + DID match</div></div>
       <div class="stat-card"><div class="label">Est. revenue (${sum.hours || h}h)</div><div class="value green">${escHtml(String(sum.revenue))}</div><div class="sub">duration × DID rate</div></div>
       <div class="stat-card"><div class="label">ASR (logs)</div><div class="value blue">${escHtml(String(sum.asr))}%</div><div class="sub">vs prior: ${sum.previous_asr != null ? escHtml(String(sum.previous_asr)) + '%' : '—'}</div></div>
       <div class="stat-card"><div class="label">ACD (logs)</div><div class="value amber">${escHtml(String(sum.acd))}s</div><div class="sub">answered only</div></div>
-    </div>
-    ${buildCallStatsProAlerts(sum)}
+    </div>` : `<p style="font-size:12px;color:var(--text-muted);margin:0 0 12px 0">ASR trend vs prior window: ${sum.previous_asr != null ? escHtml(String(sum.previous_asr)) + '%' : '—'} · Est. revenue (matched DIDs): <strong>${escHtml(String(sum.revenue))}</strong></p>`}
     <div class="card" style="margin-bottom:16px">
       <div class="card-header"><h3>Prefix performance</h3></div>
       <div class="card-body" style="overflow:auto">
@@ -778,10 +780,41 @@ async function renderCallStats(el, hours = 24) {
     </div>
     ${proBanner}
     ${proGrid}
-    <p style="font-size:12px;color:var(--text-muted);margin:0 0 12px 0"><strong>CDR (Master.csv)</strong> — Asterisk file; ${h}h window for buttons below. If this never changes, check file growth and permissions.</p>
+    <p style="font-size:12px;color:var(--text-muted);margin:0 0 12px 0">
+      <strong>Summary (${h}h)</strong> — ${useDbPrimary
+        ? `from <strong>MySQL call_logs</strong> (synced from CDR). Est. revenue: <strong>${escHtml(String(sum.revenue))}</strong>.`
+        : `from <strong>CDR Master.csv</strong> until call_logs has rows; enable sync and deploy the collation fix.`}
+    </p>
     <div class="stats-grid">
+      ${useDbPrimary ? `
       <div class="stat-card">
-        <div class="label">Total Calls (${h}h)</div>
+        <div class="label">Total calls (${h}h) · DB</div>
+        <div class="value blue">${sum.total_calls}</div>
+        <div class="sub">${sum.calls_per_minute != null ? escHtml(String(sum.calls_per_minute)) : stats.callsPerMinute} / min</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Answered · DB</div>
+        <div class="value green">${sum.answered}</div>
+        <div class="sub">ASR: ${escHtml(String(sum.asr))}%</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Failed · DB</div>
+        <div class="value" style="color:var(--danger)">${sum.failed}</div>
+        <div class="sub">${sum.total_calls ? ((sum.failed / sum.total_calls) * 100).toFixed(1) : 0}% fail rate</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">ACD · DB</div>
+        <div class="value amber">${escHtml(String(sum.acd))}s</div>
+        <div class="sub">answered calls</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Total duration · DB</div>
+        <div class="value">${Math.round(sum.total_duration / 60)}m</div>
+        <div class="sub">${sum.total_duration}s total billsec</div>
+      </div>
+      ` : `
+      <div class="stat-card">
+        <div class="label">Total Calls (${h}h) · CDR file</div>
         <div class="value blue">${stats.totalCalls}</div>
         <div class="sub">${stats.callsPerMinute} calls/min avg</div>
       </div>
@@ -805,10 +838,12 @@ async function renderCallStats(el, hours = 24) {
         <div class="value">${Math.round(stats.totalDuration / 60)}m</div>
         <div class="sub">${stats.totalDuration}s total</div>
       </div>
+      `}
     </div>
+    ${useDbPrimary ? `<p style="font-size:11px;color:var(--text-muted);margin:0 0 12px 0">CDR file reference — ${stats.totalCalls} calls in same window (may differ until fully synced).</p>` : ''}
     <div class="card">
       <div class="card-header">
-        <h3>Recent Calls</h3>
+        <h3>${recentDb.length ? 'Recent calls (MySQL)' : 'Recent calls (CDR file)'}</h3>
         <div style="display:flex;gap:8px">
           <button class="btn btn-outline btn-sm" onclick="renderCallStatsForHours(1)">1h</button>
           <button class="btn btn-outline btn-sm" onclick="renderCallStatsForHours(6)">6h</button>
@@ -816,7 +851,22 @@ async function renderCallStats(el, hours = 24) {
         </div>
       </div>
       <div class="card-body">
-        ${stats.recentCalls.length ? `
+        ${recentDb.length ? `
+        <table>
+          <thead><tr><th>SL</th><th>Prefix</th><th>Caller</th><th>Destination</th><th>Duration</th><th>Supplier</th><th>Status</th></tr></thead>
+          <tbody>${recentDb.map((c, i) => {
+            const statusClass = c.disposition === 'ANSWERED' ? 'badge-ring' : 'badge-direct';
+            return `<tr>
+              <td>${i + 1}</td>
+              <td style="font-family:monospace;font-size:12px"><span class="badge badge-ivr">${escHtml(c.prefix)}</span></td>
+              <td style="font-family:monospace;font-size:12px">${escHtml(c.src)}</td>
+              <td style="font-family:monospace;font-size:12px"><strong>${escHtml(c.dst)}</strong></td>
+              <td>${c.billsec}s</td>
+              <td><span class="badge badge-direct" style="font-size:11px">${escHtml(c.supplierName)}</span></td>
+              <td><span class="badge ${statusClass}">${escHtml(c.disposition)}</span></td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>` : (stats.recentCalls.length ? `
         <table>
           <thead><tr><th>SL</th><th>Prefix</th><th>Caller Number</th><th>Calling Number</th><th>Duration</th><th>Supplier</th><th>Status</th></tr></thead>
           <tbody>${stats.recentCalls.map((c, i) => {
@@ -833,7 +883,7 @@ async function renderCallStats(el, hours = 24) {
               <td><span class="badge ${statusClass}">${c.disposition}</span></td>
             </tr>`;
           }).join('')}</tbody>
-        </table>` : '<div class="empty-state">No calls recorded in this period.<br>CDR data is read from /var/log/asterisk/cdr-csv/Master.csv</div>'}
+        </table>` : '<div class="empty-state">No calls in this window.<br>Ensure CDR sync populates <code>call_logs</code> or check Master.csv.</div>')}
       </div>
     </div>`;
 
