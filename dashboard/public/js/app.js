@@ -2571,6 +2571,7 @@ function showAddNumberModal(suppliers, ivrMenus) {
       <div class="form-group">
         <label>DID Prefix</label>
         <input class="form-control" id="num-prefix" placeholder="e.g. 393199050">
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Routing block (country code + prefix). Extensions are added below.</div>
       </div>
       <div class="form-group">
         <label>Rate / min</label>
@@ -2593,14 +2594,13 @@ function showAddNumberModal(suppliers, ivrMenus) {
           <option value="monthly">Monthly → monthly wallet</option>
         </select>
       </div>
-      <div class="form-group"></div>
-    </div>
-    <div class="form-group">
-      <label>Supplier</label>
-      <select class="form-control" id="num-supplier">
-        <option value="">— No Supplier —</option>
-        ${suppliers.map(s => `<option value="${s.id}">${escHtml(s.name)}</option>`).join('')}
-      </select>
+      <div class="form-group">
+        <label>Supplier</label>
+        <select class="form-control" id="num-supplier">
+          <option value="">— No Supplier —</option>
+          ${suppliers.map(s => `<option value="${s.id}">${escHtml(s.name)}</option>`).join('')}
+        </select>
+      </div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -2611,22 +2611,23 @@ function showAddNumberModal(suppliers, ivrMenus) {
       </div>
     </div>
     <div class="form-group">
-      <label style="display:flex;align-items:center;gap:12px">
-        Extensions
+      <label style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        Extensions (after prefix)
         <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--primary)">
-          <input type="checkbox" id="num-range-mode"> Range mode (from-to)
+          <input type="checkbox" id="num-range-mode"> Range mode (from → to, zero-padded)
         </label>
       </label>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Single: one extension per line. Range: numeric from/to (e.g. 0–9999 for 4-digit extensions). Full DID = country code + prefix + extension.</div>
       <div id="num-ext-manual">
-        <textarea class="form-control" id="num-extensions" rows="5" style="font-family:monospace" placeholder="5550100\n5550101\n5550102"></textarea>
+        <textarea class="form-control" id="num-extensions" rows="5" style="font-family:monospace" placeholder="One extension per line (e.g. fixed width):&#10;646&#10;642&#10;645"></textarea>
       </div>
       <div id="num-ext-range" style="display:none">
         <div class="form-row">
           <div class="form-group" style="margin-bottom:0">
-            <input class="form-control" id="num-range-from" placeholder="From: 0000" style="font-family:monospace">
+            <input class="form-control" id="num-range-from" aria-label="Extension range from" placeholder="From (e.g. 0 or 0000)" style="font-family:monospace">
           </div>
           <div class="form-group" style="margin-bottom:0">
-            <input class="form-control" id="num-range-to" placeholder="To: 9999" style="font-family:monospace">
+            <input class="form-control" id="num-range-to" aria-label="Extension range to" placeholder="To (e.g. 9999)" style="font-family:monospace">
           </div>
         </div>
         <div style="font-size:12px;color:var(--text-muted);margin-top:6px" id="num-range-count"></div>
