@@ -1,4 +1,5 @@
 import API from './api.js';
+import { buildPanelNavHtml } from './nav-config.js';
 
 const COUNTRIES = [
   { code: 'AF', name: 'Afghanistan', dial: '93' },
@@ -199,6 +200,7 @@ let hasUnsavedChanges = false;
 let statusInterval = null;
 let tenantLiveInterval = null;
 let callStatsInterval = null;
+let liveCallsInterval = null;
 
 // Toast notifications
 function toast(msg, type = 'success') {
@@ -223,13 +225,50 @@ function markSaved() {
 /** Panel pages removed from sidebar — old bookmarks redirect to Dashboard. */
 const REMOVED_PANEL_PAGES = new Set(['balance', 'sip-log', 'did-test', 'admin-users']);
 
-// Navigation
-document.querySelectorAll('.nav-item').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const page = btn.dataset.page;
-    if (page) navigateTo(page);
+function wireNavClicks(root) {
+  if (!root) return;
+  root.querySelectorAll('.nav-item[data-page]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const page = btn.dataset.page;
+      if (page) navigateTo(page);
+    });
   });
-});
+}
+
+function initPanelNavigation() {
+  const nav = document.getElementById('nav-panel');
+  if (!nav || nav.querySelector('.nav-group')) return;
+  nav.innerHTML = buildPanelNavHtml();
+  wireNavClicks(nav);
+  nav.querySelectorAll('[data-nav-toggle]').forEach((hdr) => {
+    hdr.addEventListener('click', () => {
+      const id = hdr.getAttribute('data-nav-toggle');
+      const group = nav.querySelector(`.nav-group[data-group-id="${id}"]`);
+      const body = group?.querySelector('.nav-group-body');
+      const expanded = hdr.getAttribute('aria-expanded') === 'true';
+      hdr.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      if (group) group.classList.toggle('nav-group--collapsed', expanded);
+      if (body) body.style.display = expanded ? 'none' : '';
+    });
+  });
+}
+
+initPanelNavigation();
+wireNavClicks(document.getElementById('nav-tenant'));
+
+function expandNavGroupForPage(page) {
+  const nav = document.getElementById('nav-panel');
+  if (!nav) return;
+  const escSel = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(page) : String(page).replace(/"/g, '\\"');
+  const btn = nav.querySelector(`.nav-item[data-page="${escSel}"]`);
+  const group = btn?.closest?.('.nav-group');
+  if (!group) return;
+  const hdr = group.querySelector('.nav-group-header');
+  const body = group.querySelector('.nav-group-body');
+  group.classList.remove('nav-group--collapsed');
+  if (hdr) hdr.setAttribute('aria-expanded', 'true');
+  if (body) body.style.display = '';
+}
 
 function navigateTo(page) {
   if (REMOVED_PANEL_PAGES.has(page)) page = 'dashboard';
@@ -243,6 +282,7 @@ function navigateTo(page) {
   } else {
     document.querySelectorAll('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   }
+  if (!tenantVisible) expandNavGroupForPage(page);
   document.getElementById('page-title').textContent = pageTitles[page] || page;
   renderPage(page);
 }
@@ -375,6 +415,7 @@ function buildIprnLiveBanner(iprn) {
 
 const pageTitles = {
   dashboard: 'Dashboard',
+  'live-calls': 'Live Calls',
   'call-stats': 'Call Statistics',
   'cdr-history': 'CDR',
   suppliers: 'Suppliers',
@@ -392,6 +433,9 @@ const pageTitles = {
   'tenant-subusers': 'Subusers',
   'tenant-numbers': 'Number allocation',
   'tenant-call-generator': 'Call generator',
+  'routing-rules': 'Routing rules',
+  billing: 'Billing',
+  'profit-reports': 'Profit reports',
 };
 
 async function renderPage(page) {
@@ -399,11 +443,13 @@ async function renderPage(page) {
   if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
   if (tenantLiveInterval) { clearInterval(tenantLiveInterval); tenantLiveInterval = null; }
   if (callStatsInterval) { clearInterval(callStatsInterval); callStatsInterval = null; }
+  if (liveCallsInterval) { clearInterval(liveCallsInterval); liveCallsInterval = null; }
 
   if (REMOVED_PANEL_PAGES.has(page)) return renderDashboard(content);
 
   switch (page) {
     case 'dashboard': return renderDashboard(content);
+    case 'live-calls': return renderLiveCalls(content);
     case 'call-stats': return renderCallStats(content);
     case 'cdr-history': return renderCdrHistory(content);
     case 'suppliers': return renderSuppliers(content);
@@ -412,6 +458,9 @@ async function renderPage(page) {
     case 'ivr-menus': return renderIvrMenus(content);
     case 'trunk': return renderTrunk(content);
     case 'config': return renderConfig(content);
+    case 'routing-rules': return renderRoutingRules(content);
+    case 'billing': return renderPlaceholderPage(content, 'Billing', 'Invoicing, balances, and payment tracking will appear here.');
+    case 'profit-reports': return renderPlaceholderPage(content, 'Profit reports', 'Margin and profitability analytics will appear here.');
     case 'iprn-clients': return renderIprnClients(content);
     case 'tenant-dashboard': return renderTenantDashboard(content);
     case 'tenant-live-calls': return renderTenantLiveCalls(content);
@@ -426,8 +475,14 @@ async function renderPage(page) {
 
 // ---- DASHBOARD ----
 async function renderDashboard(el) {
+  el.innerHTML = `<div class="stats-grid" id="stats-grid"></div>
+    <p class="empty-state" style="padding:16px 0 0;font-size:13px">Use <strong>Operations → Live Calls</strong> for the live channel table.</p>`;
+  await refreshDashboard();
+  statusInterval = setInterval(refreshDashboard, 10000);
+}
+
+async function renderLiveCalls(el) {
   el.innerHTML = `
-    <div class="stats-grid" id="stats-grid"></div>
     <div class="card">
       <div class="card-header">
         <h3>Live Channels</h3>
@@ -439,9 +494,61 @@ async function renderDashboard(el) {
       <div class="card-body padded" id="channels-box"><p class="empty-state">Loading...</p></div>
     </div>`;
   const liveBtn = document.getElementById('btn-live-refresh');
-  if (liveBtn) liveBtn.addEventListener('click', () => refreshDashboard());
-  await refreshDashboard();
-  statusInterval = setInterval(refreshDashboard, 10000);
+  if (liveBtn) liveBtn.addEventListener('click', () => refreshLiveChannels());
+  await refreshLiveChannels();
+  if (liveCallsInterval) clearInterval(liveCallsInterval);
+  liveCallsInterval = setInterval(refreshLiveChannels, 10000);
+}
+
+function renderPlaceholderPage(el, title, body) {
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header"><h3>${escHtml(title)}</h3></div>
+      <div class="card-body padded">
+        <p class="empty-state" style="padding:24px;text-align:left;max-width:520px">${escHtml(body)}</p>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:8px">Placeholder — no backend changes in this release.</p>
+      </div>
+    </div>`;
+}
+
+async function renderRoutingRules(el) {
+  el.innerHTML = '<div class="card"><div class="card-body padded"><p class="empty-state">Loading routing defaults…</p></div></div>';
+  let globals = {};
+  let ivrMenus = [];
+  try {
+    [globals, ivrMenus] = await Promise.all([API.getGlobals(), API.getIvrMenus()]);
+  } catch (e) {
+    el.innerHTML = `<div class="card"><div class="card-body padded"><p class="empty-state">Could not load settings.</p></div></div>`;
+    return;
+  }
+  if (!Array.isArray(ivrMenus)) ivrMenus = [];
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header"><h3>Routing rules</h3></div>
+      <div class="card-body padded">
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">
+          Defaults for inbound DID handling: fallback IVR and optional ODBC-based supplier routing (same as Number inventory → IPRN routing defaults).
+        </p>
+        <div class="form-group">
+          <label>Fallback IVR (unmatched / ODBC empty)</label>
+          <select class="form-control" id="routing-fallback-ivr">
+            ${ivrMenus.map((ivr) => `<option value="${escHtml(ivr.id)}" ${String(globals.fallbackIvrId || '1') === ivr.id ? 'selected' : ''}>${escHtml(ivr.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:10px">
+          <input type="checkbox" id="routing-odbc" ${globals.iprnOdbcRouting ? 'checked' : ''} />
+          <label for="routing-odbc" style="margin:0;cursor:pointer">Enable ODBC / PJSIP supplier routing for matched DIDs (<code>number_inventory</code> + DSN <code>iprn_db</code>)</label>
+        </div>
+        <button type="button" class="btn btn-primary" id="btn-save-routing-rules">Save routing defaults</button>
+      </div>
+    </div>`;
+  document.getElementById('btn-save-routing-rules').onclick = async () => {
+    const fallbackIvrId = document.getElementById('routing-fallback-ivr').value;
+    const iprnOdbcRouting = !!document.getElementById('routing-odbc')?.checked;
+    await API.updateGlobals({ fallbackIvrId, iprnOdbcRouting });
+    markChanged();
+    toast(`Routing defaults saved (fallback IVR ${fallbackIvrId}${iprnOdbcRouting ? ', ODBC on' : ''})`);
+  };
 }
 
 async function refreshDashboard() {
@@ -556,13 +663,44 @@ async function refreshDashboard() {
         <div class="sub">Calls in last 60s ÷ 60</div>
       </div>
     `;
-
-    let ch;
-    try {
-      ch = await API.getChannels();
-    } catch (e) {
-      ch = { output: '', calls: [], _timeout: true };
+  } catch (err) {
+    console.error('Dashboard refresh error:', err);
+    const grid = document.getElementById('stats-grid');
+    if (grid) {
+      grid.innerHTML = `
+        <div class="stat-card">
+          <div class="label">STATUS</div>
+          <div class="value">ERROR</div>
+          <div class="sub">Could not load dashboard data</div>
+        </div>`;
     }
+  }
+}
+
+async function refreshLiveChannels() {
+  const box = document.getElementById('channels-box');
+  if (!box) return;
+  try {
+    const [statusRes, suppliersRes, iprnPanelRes, chRes] = await Promise.allSettled([
+      API.getStatus(),
+      API.getSuppliers(),
+      API.getIprnPanelStatus(),
+      API.getChannels(),
+    ]);
+    const rawStatus = statusRes.status === 'fulfilled' ? statusRes.value : {};
+    const status = (rawStatus && !rawStatus.error) ? rawStatus : {
+      running: false, activeCalls: 0, activeChannels: 0,
+    };
+    const suppliers = suppliersRes.status === 'fulfilled' && Array.isArray(suppliersRes.value) ? suppliersRes.value : [];
+    let iprn = {};
+    if (iprnPanelRes.status === 'fulfilled' && iprnPanelRes.value && typeof iprnPanelRes.value === 'object') {
+      iprn = iprnPanelRes.value;
+    } else {
+      iprn = { skipped: true };
+    }
+    const iprnBanner = buildIprnLiveBanner(iprn);
+
+    let ch = chRes.status === 'fulfilled' ? chRes.value : { output: '', calls: [], _timeout: true };
     if (!ch || typeof ch !== 'object') ch = { output: '', calls: [] };
     const normalize = (v) => String(v || '').trim();
     const slugify = (s) => normalize(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -580,22 +718,22 @@ async function refreshDashboard() {
     const calls = Array.isArray(ch.calls) ? ch.calls : [];
     const hasActive = (Number(status.activeCalls) > 0) || (Number(status.activeChannels) > 0);
     if (ch._timeout) {
-      document.getElementById('channels-box').innerHTML = `${iprnBanner}<p class="empty-state">CHANNEL LIST TIMED OUT — ASTERISK CLI SLOW OR BLOCKED. RETRY OR CHECK SUDO.</p>`;
+      box.innerHTML = `${iprnBanner}<p class="empty-state">CHANNEL LIST TIMED OUT — ASTERISK CLI SLOW OR BLOCKED. RETRY OR CHECK SUDO.</p>`;
       return;
     }
     if (!calls.length) {
       if (hasActive && ch.output) {
-        document.getElementById('channels-box').innerHTML = `${iprnBanner}
+        box.innerHTML = `${iprnBanner}
           <p class="empty-state" style="margin-bottom:8px">ACTIVE CALL (RAW — PARSER COULD NOT BUILD TABLE)</p>
           <pre style="font-size:12px;color:var(--text-muted);white-space:pre-wrap">${escHtml(ch.output)}</pre>
         `;
         return;
       }
       if (hasActive && !ch.output) {
-        document.getElementById('channels-box').innerHTML = `${iprnBanner}<p class="empty-state">ACTIVE CALL DETECTED BUT CHANNEL LIST EMPTY — CHECK SUDO ASTERISK FOR DASHBOARD USER</p>`;
+        box.innerHTML = `${iprnBanner}<p class="empty-state">ACTIVE CALL DETECTED BUT CHANNEL LIST EMPTY — CHECK SUDO ASTERISK FOR DASHBOARD USER</p>`;
         return;
       }
-      document.getElementById('channels-box').innerHTML = `${iprnBanner}<p class="empty-state">NO ACTIVE CALLS</p>`;
+      box.innerHTML = `${iprnBanner}<p class="empty-state">NO ACTIVE CALLS</p>`;
       return;
     }
 
@@ -606,7 +744,7 @@ async function refreshDashboard() {
       return normalize(a.channel).localeCompare(normalize(b.channel));
     });
 
-    document.getElementById('channels-box').innerHTML = `${iprnBanner}
+    box.innerHTML = `${iprnBanner}
       <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Rows are sorted by caller (NUMBER A). Same caller uses the same row color.</p>
       <table class="live-channels-table">
         <thead>
@@ -635,20 +773,8 @@ async function refreshDashboard() {
         </tbody>
       </table>`;
   } catch (err) {
-    console.error('Dashboard refresh error:', err);
-    const grid = document.getElementById('stats-grid');
-    const box = document.getElementById('channels-box');
-    if (grid) {
-      grid.innerHTML = `
-        <div class="stat-card">
-          <div class="label">STATUS</div>
-          <div class="value">ERROR</div>
-          <div class="sub">Could not load dashboard data</div>
-        </div>`;
-    }
-    if (box) {
-      box.innerHTML = '<p class="empty-state">DASHBOARD DATA LOAD FAILED</p>';
-    }
+    console.error('Live channels refresh error:', err);
+    box.innerHTML = '<p class="empty-state">LIVE CHANNEL DATA FAILED</p>';
   }
 }
 
