@@ -3032,7 +3032,8 @@ async function renderPrefixStaging(el) {
         return;
       }
       markChanged();
-      toast(`Test DID promoted${r.number ? ` (${escHtml(String(r.number.extension || ''))})` : ''}`);
+      const ext = r.number && r.number.extension != null ? String(r.number.extension) : '';
+      toast(ext ? `Test DID promoted (ext ${ext})` : 'Test DID promoted');
       renderPrefixStaging(el);
     };
   });
