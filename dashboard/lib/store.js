@@ -23,7 +23,7 @@ const DEFAULT_DATA = {
     { id: '4', name: 'Supplier 4 (Hetzner-2)', ips: ['95.217.90.21'] },
     { id: '5', name: 'Supplier 5 (AWS)', ips: ['52.28.165.40', '52.57.172.184', '35.156.119.128'] },
     { id: '6', name: 'Supplier 6 (Contabo)', ips: ['149.12.160.10'] },
-    { id: '7', name: 'Supplier 7 (myLoc)', ips: ['93.94.120.49'] },
+    { id: '7', name: '24seven.co.uk', ips: ['93.94.120.49'] },
     { id: '8', name: 'Supplier 8 (DataClub)', ips: ['185.209.147.14'] }
   ],
   ivrMenus: [
@@ -110,6 +110,14 @@ function load() {
       data.numbers = [];
       data.globals.didDataResetDone = true;
       save(data);
+    }
+    // Rename supplier 7 (93.94.120.49) to 24seven.co.uk when still default label.
+    if (Array.isArray(data.suppliers)) {
+      const s7 = data.suppliers.find((s) => String(s.id) === '7');
+      if (s7 && (s7.ips || []).includes('93.94.120.49') && /Supplier 7 \(myLoc\)/i.test(String(s7.name || ''))) {
+        s7.name = '24seven.co.uk';
+        save(data);
+      }
     }
     return data;
   } catch {
