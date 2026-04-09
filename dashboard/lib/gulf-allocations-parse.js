@@ -1,6 +1,6 @@
 /**
  * Parse Gulf Telecom allocation TSV (Country, Range, Rate_USD) or pypdf blob.
- * - Trailing `x` = one wildcard digit → **10 DIDs** (0–9), e.g. `35376405881x` → …880 …889.
+ * - `x` (any) = test digit **9** (one DID per row from your sheet), e.g. `35376405881x` → `353764058819`.
  * - Ranges: "A to B" (full E.164 digits, inclusive).
  * - Splits full number into countryCode + prefix + extension (last 4 national digits = extension).
  */
@@ -205,38 +205,20 @@ export function parseAllocationsText(raw) {
     }
 
     let pat = rangeField.replace(/\s+/g, '');
-    const isX = /x$/i.test(pat);
-    pat = pat.replace(/x$/i, '');
-    const digits = pat.replace(/\D/g, '');
-    if (isX) {
-      for (let d = 0; d <= 9; d++) {
-        const testFull = `${digits}${d}`;
-        const cc = detectCountryCode(testFull);
-        const { countryCode, prefix, extension } = splitNational(cc, testFull);
-        out.push({
-          country: iso,
-          countryIso: iso,
-          rate,
-          fullNumber: testFull,
-          countryCode,
-          prefix,
-          extension,
-        });
-      }
-    } else {
-      const testFull = digits;
-      const cc = detectCountryCode(testFull);
-      const { countryCode, prefix, extension } = splitNational(cc, testFull);
-      out.push({
-        country: iso,
-        countryIso: iso,
-        rate,
-        fullNumber: testFull,
-        countryCode,
-        prefix,
-        extension,
-      });
-    }
+    const testFull = /x/i.test(pat)
+      ? pat.replace(/x/gi, '9').replace(/\D/g, '')
+      : pat.replace(/\D/g, '');
+    const cc = detectCountryCode(testFull);
+    const { countryCode, prefix, extension } = splitNational(cc, testFull);
+    out.push({
+      country: iso,
+      countryIso: iso,
+      rate,
+      fullNumber: testFull,
+      countryCode,
+      prefix,
+      extension,
+    });
   }
   return out;
 }
