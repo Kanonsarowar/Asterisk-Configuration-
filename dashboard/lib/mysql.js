@@ -83,6 +83,16 @@ CREATE TABLE IF NOT EXISTS \`numbers\` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 `;
 
+/** Suppliers, IVR, trunk, globals, balance, panel admins — single JSON row (MySQL-only app settings). */
+const DDL_DASHBOARD_APP_STATE = `
+CREATE TABLE IF NOT EXISTS \`dashboard_app_state\` (
+  \`id\` TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  \`state_json\` JSON NOT NULL,
+  \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (\`id\`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+`;
+
 /** iprn_system-style tables for ODBC routing + billing (optional; created when MySQL is enabled). */
 const DDL_NUMBER_INVENTORY = `
 CREATE TABLE IF NOT EXISTS \`number_inventory\` (
@@ -328,6 +338,7 @@ export async function ensureMysqlSchema() {
   await p.execute(DDL_IPRN_INVOICES);
   await ensureIprnInventorySchema(p);
   await p.execute(DDL_PREFIX_CATALOG);
+  await p.execute(DDL_DASHBOARD_APP_STATE);
   return { ok: true };
 }
 

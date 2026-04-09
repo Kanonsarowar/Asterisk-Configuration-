@@ -5,7 +5,8 @@ import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
-import { Store } from './lib/store.js';
+import { Store, hydrateStoreFromData, setStorePersistenceMode } from './lib/store.js';
+import { migrateAppStateFromJsonIfNeeded, loadAppStateFromMysql } from './lib/app-settings-mysql.js';
 import { writeConfigs } from './lib/config-generator.js';
 import * as asterisk from './lib/asterisk.js';
 import {
@@ -1204,6 +1205,19 @@ const server = createServer(async (req, res) => {
   const m = await initMysql();
   if (m.enabled) {
     console.log(m.schemaOk === false ? `[mysql] ${m.error || 'schema/connection issue'}` : `[mysql] ${m.message || 'ok'}`);
+  }
+  if (m.enabled && m.schemaOk !== false && isMysqlNumbersReady()) {
+    try {
+      await migrateAppStateFromJsonIfNeeded();
+      const appState = await loadAppStateFromMysql();
+      if (appState) {
+        hydrateStoreFromData(store, appState);
+        setStorePersistenceMode('mysql');
+        console.log('[mysql] App settings loaded from dashboard_app_state (suppliers/IVR/trunk/globals — DIDs remain in `numbers` table)');
+      }
+    } catch (e) {
+      console.error('[mysql] app settings load:', e?.message || e);
+    }
   }
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`Asterisk Dashboard running at http://localhost:${PORT}`);
