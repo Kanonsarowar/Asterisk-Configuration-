@@ -2067,39 +2067,53 @@ async function renderNumbers(el) {
     const pb = `${b.pg.countryCode || ''}${b.pg.prefix || ''}`;
     return pa.localeCompare(pb);
   });
+  const prefixSummaryByCountry = prefixRowsSorted.reduce((acc, entry) => {
+    const k = String(entry.detectedCountry || '—');
+    if (!acc[k]) acc[k] = [];
+    acc[k].push(entry);
+    return acc;
+  }, {});
+  const prefixSummaryCountryOrder = Object.keys(prefixSummaryByCountry).sort();
   const prefixInventoryTable = prefixRowsSorted.length
-    ? `<table>
-        <thead>
-          <tr>
-            <th>Country</th>
-            <th>CC + prefix</th>
-            <th>DIDs</th>
-            <th>Default IVR</th>
-            <th>Tariff</th>
-            <th>Suppliers</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${prefixRowsSorted.map((entry) => {
-            const { pg, detectedCountry } = entry;
-            const fullP = `${pg.countryCode || ''}${pg.prefix || ''}`;
-            const ivrId = pg.numbers[0]?.destinationId;
-            const ivrName = ivrMenus.find((i) => i.id === ivrId)?.name || '—';
-            const supNames = [...new Set(
-              pg.numbers.map((n) => suppliers.find((s) => s.id === n.supplierId)?.name).filter(Boolean)
-            )];
-            const supStr = supNames.length ? supNames.map((x) => escHtml(String(x))).join(', ') : '—';
-            return `<tr>
-              <td>${escHtml(String(detectedCountry || '—'))}</td>
-              <td style="font-family:monospace"><strong>${escHtml(fullP)}</strong></td>
-              <td>${pg.numbers.length}</td>
-              <td>${escHtml(ivrName)}</td>
-              <td style="font-size:12px">${formatPrefixTariff(pg)}</td>
-              <td style="font-size:12px;color:var(--text-muted)">${supStr}</td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>`
+    ? `<div class="did-inventory-wrap">
+        ${prefixSummaryCountryOrder.map((cLabel) => {
+          const entries = prefixSummaryByCountry[cLabel];
+          return `
+          <section class="did-country-block">
+            <h4 class="did-country-title">${escHtml(cLabel)} <span class="did-country-meta">(${entries.length} prefix${entries.length !== 1 ? 'es' : ''})</span></h4>
+            ${entries.map((entry) => {
+              const { pg, detectedCountry } = entry;
+              const fullP = `${pg.countryCode || ''}${pg.prefix || ''}`;
+              const ivrId = pg.numbers[0]?.destinationId;
+              const ivrName = ivrMenus.find((i) => i.id === ivrId)?.name || '—';
+              const supNames = [...new Set(
+                pg.numbers.map((n) => suppliers.find((s) => s.id === n.supplierId)?.name).filter(Boolean)
+              )];
+              const supStr = supNames.length ? supNames.map((x) => escHtml(String(x))).join(', ') : '—';
+              return `
+              <div class="did-prefix-card did-prefix-card--summary">
+                <div class="did-prefix-card-toolbar">
+                  <div class="did-prefix-line">
+                    <span class="did-prefix-key">${escHtml(fullP)}</span>
+                    <span class="did-prefix-count">(${pg.numbers.length} number${pg.numbers.length !== 1 ? 's' : ''})</span>
+                  </div>
+                  <div class="did-prefix-meta-inline" style="font-size:12px;color:var(--text-muted)">${escHtml(String(detectedCountry || '—'))}</div>
+                </div>
+                <div class="did-prefix-body">
+                  <table class="did-simple-table">
+                    <thead><tr><th>Default IVR</th><th>IVR tariff</th><th>Termination</th></tr></thead>
+                    <tbody><tr>
+                      <td>${escHtml(ivrName)}</td>
+                      <td>${formatPrefixTariff(pg)}</td>
+                      <td style="color:var(--text-muted);font-size:12px">${supStr}</td>
+                    </tr></tbody>
+                  </table>
+                </div>
+              </div>`;
+            }).join('')}
+          </section>`;
+        }).join('')}
+      </div>`
     : '<p class="empty-state">No prefixes yet — add DIDs below.</p>';
 
   el.innerHTML = `
@@ -2759,6 +2773,23 @@ async function renderIprnInventory(el) {
   const rows = (rangeRes && rangeRes.rows) || [];
   const statusOpts = ['NEW', 'TESTING', 'ACTIVE', 'DEGRADED', 'BLOCKED', 'ARCHIVED'];
 
+  function iprnRouteKey(n) {
+    const c = String(n.country || '').trim();
+    const p = String(n.prefix || '').trim();
+    const cd = digitsOnly(c);
+    if (cd.length >= 1 && p) return cd + digitsOnly(p);
+    if (c && p) return `${c} ${p}`;
+    return p || c || '—';
+  }
+
+  const iprnByCountry = rows.reduce((acc, r) => {
+    const k = String(r.country || '—');
+    if (!acc[k]) acc[k] = [];
+    acc[k].push(r);
+    return acc;
+  }, {});
+  const iprnCountryOrder = Object.keys(iprnByCountry).sort();
+
   el.innerHTML = `
     <div class="card" style="margin-bottom:20px">
       <div class="card-header"><h3>Add IPRN range</h3></div>
@@ -2798,25 +2829,54 @@ async function renderIprnInventory(el) {
       </div>
     </div>
     <div class="card">
-      <div class="card-header"><h3>Ranges</h3></div>
+      <div class="card-header"><h3>Prefix Routing Map</h3></div>
       <div class="card-body padded">
-        <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">ASR / ACD placeholders in <code>iprn_inv_stats</code> (update via your billing pipeline). Health job: <code>node dashboard/jobs/numberHealth.js</code>.</p>
-        ${rows.length ? `<table><thead><tr><th>ID</th><th>Country</th><th>Prefix</th><th>Range</th><th>Type</th><th>Supplier</th><th>Access</th><th>Status</th><th>ASR / ACD (placeholder)</th></tr></thead><tbody>
-          ${rows.map((n) => {
-            const sel = statusOpts.map((s) => `<option value="${s}" ${n.status === s ? 'selected' : ''}>${s}</option>`).join('');
-            return `<tr>
-              <td>${n.id}</td>
-              <td>${escHtml(String(n.country || ''))}</td>
-              <td style="font-family:monospace">${escHtml(String(n.prefix || ''))}</td>
-              <td style="font-family:monospace">${escHtml(String(n.range_start || ''))} – ${escHtml(String(n.range_end || ''))}</td>
-              <td>${escHtml(String(n.type || ''))}</td>
-              <td>${escHtml(String(n.supplier_name || '—'))}</td>
-              <td>${escHtml(String(n.access_type || ''))}</td>
-              <td><select class="form-control iprn-inv-status" data-id="${n.id}" style="width:auto;padding:4px 8px;font-size:12px">${sel}</select></td>
-              <td style="font-size:11px;color:var(--text-muted)">— / —</td>
-            </tr>`;
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Range blocks in <code>iprn_inv_numbers</code>, grouped by country (same panel style as DID Inventory). ASR / ACD placeholders in <code>iprn_inv_stats</code>. Health job: <code>node dashboard/jobs/numberHealth.js</code>.</p>
+        ${rows.length ? `<div class="did-inventory-wrap">
+          ${iprnCountryOrder.map((cLabel) => {
+            const list = iprnByCountry[cLabel];
+            return `
+            <section class="did-country-block">
+              <h4 class="did-country-title">${escHtml(cLabel)} <span class="did-country-meta">(${list.length} range${list.length !== 1 ? 's' : ''})</span></h4>
+              ${list.map((n) => {
+                const rk = iprnRouteKey(n);
+                const sel = statusOpts.map((s) => `<option value="${s}" ${n.status === s ? 'selected' : ''}>${s}</option>`).join('');
+                return `
+                <div class="did-prefix-card">
+                  <div class="did-prefix-card-toolbar">
+                    <div class="did-prefix-line">
+                      <span class="did-prefix-key">${escHtml(rk)}</span>
+                      <span class="did-prefix-count">(${escHtml(String(n.type || 'IPRN'))})</span>
+                    </div>
+                    <div class="did-prefix-meta-inline" style="font-size:12px;color:var(--text-muted)">ID ${n.id}</div>
+                  </div>
+                  <div class="did-prefix-body">
+                    <table class="did-simple-table">
+                      <thead>
+                        <tr>
+                          <th>Range</th>
+                          <th>Supplier</th>
+                          <th>Access</th>
+                          <th>Status</th>
+                          <th>ASR / ACD</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td style="font-family:monospace;font-size:13px">${escHtml(String(n.range_start || ''))} – ${escHtml(String(n.range_end || ''))}</td>
+                          <td>${escHtml(String(n.supplier_name || '—'))}</td>
+                          <td>${escHtml(String(n.access_type || '—'))}</td>
+                          <td><select class="form-control iprn-inv-status" data-id="${n.id}" style="width:auto;min-width:120px;padding:4px 8px;font-size:12px">${sel}</select></td>
+                          <td style="font-size:12px;color:var(--text-muted)">— / —</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>`;
+              }).join('')}
+            </section>`;
           }).join('')}
-        </tbody></table>` : '<p class="empty-state">No IPRN ranges yet.</p>'}
+        </div>` : '<p class="empty-state">No IPRN ranges yet.</p>'}
       </div>
     </div>`;
 
