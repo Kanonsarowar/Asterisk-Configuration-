@@ -41,7 +41,6 @@ export function rowToApp(r) {
     costPerMin: r.cost_per_min != null ? String(r.cost_per_min) : '0',
     iprnPriority: r.iprn_priority != null ? parseInt(String(r.iprn_priority), 10) || 0 : 0,
     lastUsedInventory: invLast,
-    prefixInventoryId: r.prefix_inventory_id != null ? String(r.prefix_inventory_id) : '',
   };
 }
 
@@ -68,11 +67,6 @@ function toRowPayload(n) {
     iprn_route_status: iprnRs,
     cost_per_min: parseFloat(String(n.costPerMin ?? n.cost_per_min ?? '0').replace(',', '.')) || 0,
     iprn_priority: parseInt(String(n.iprnPriority ?? n.iprn_priority ?? 0), 10) || 0,
-    prefix_inventory_id: n.prefixInventoryId != null && String(n.prefixInventoryId).trim() !== ''
-      ? parseInt(String(n.prefixInventoryId), 10)
-      : n.prefix_inventory_id != null && String(n.prefix_inventory_id).trim() !== ''
-        ? parseInt(String(n.prefix_inventory_id), 10)
-        : null,
   };
 }
 
@@ -83,8 +77,8 @@ INSERT INTO \`numbers\` (
   \`rate\`, \`rate_currency\`, \`payment_term\`,
   \`supplier_id\`, \`destination_type\`, \`destination_id\`,
   \`routing_pjsip_endpoint\`, \`backup_pjsip_endpoint\`, \`iprn_route_status\`,
-  \`cost_per_min\`, \`iprn_priority\`, \`prefix_inventory_id\`
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  \`cost_per_min\`, \`iprn_priority\`
+) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON DUPLICATE KEY UPDATE
   \`status\` = VALUES(\`status\`),
   \`client_name\` = VALUES(\`client_name\`),
@@ -103,8 +97,7 @@ ON DUPLICATE KEY UPDATE
   \`backup_pjsip_endpoint\` = VALUES(\`backup_pjsip_endpoint\`),
   \`iprn_route_status\` = VALUES(\`iprn_route_status\`),
   \`cost_per_min\` = VALUES(\`cost_per_min\`),
-  \`iprn_priority\` = VALUES(\`iprn_priority\`),
-  \`prefix_inventory_id\` = VALUES(\`prefix_inventory_id\`)
+  \`iprn_priority\` = VALUES(\`iprn_priority\`)
 `;
 
 const UPSERT_INVENTORY_SQL = `
@@ -195,7 +188,6 @@ export async function mysqlUpsertDashboardNumber(n) {
     row.iprn_route_status,
     row.cost_per_min,
     row.iprn_priority,
-    row.prefix_inventory_id,
   ];
   await p.execute(UPSERT_SQL, vals);
   const [rows] = await p.query(
@@ -267,7 +259,6 @@ export async function mysqlBulkUpsert(nums) {
         row.iprn_route_status,
         row.cost_per_min,
         row.iprn_priority,
-        row.prefix_inventory_id,
       ];
       await conn.execute(UPSERT_SQL, vals);
       const [rows] = await conn.query(

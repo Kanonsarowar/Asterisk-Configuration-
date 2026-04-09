@@ -158,9 +158,6 @@ export function normalizeNumberRecord(n) {
   if (!['weekly', 'monthly', 'daily'].includes(paymentTerm)) paymentTerm = 'weekly';
   const status = normalizeAllocationStatus(n.status);
   const out = { ...n, rateCurrency, paymentTerm, status };
-  if (n.prefixInventoryId != null && String(n.prefixInventoryId).trim() !== '') {
-    out.prefixInventoryId = String(n.prefixInventoryId).trim();
-  }
   const pc = pickClientName(n);
   if (pc !== undefined) out.clientName = pc;
   const pd = pickAllocationDate(n);

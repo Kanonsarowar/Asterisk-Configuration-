@@ -1,14 +1,8 @@
-async function fetchJsonWithTimeout(url, ms = 15000, method = 'GET', body = undefined) {
+async function fetchJsonWithTimeout(url, ms = 15000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
   try {
-    const opts = { signal: ctrl.signal, credentials: 'same-origin' };
-    if (method && method !== 'GET') {
-      opts.method = method;
-      opts.headers = { 'Content-Type': 'application/json' };
-      opts.body = body != null ? JSON.stringify(body) : '{}';
-    }
-    const res = await fetch(url, opts);
+    const res = await fetch(url, { signal: ctrl.signal, credentials: 'same-origin' });
     if (!res.ok) {
       try {
         return await res.json();
@@ -111,22 +105,6 @@ const API = {
   releaseNumber(id) { return this.post(`/api/numbers/${encodeURIComponent(id)}/release`, {}); },
   deleteNumber(id) { return this.del(`/api/numbers/${id}`); },
   deletePrefix(country, countryCode, prefix) { return this.post('/api/numbers/delete-prefix', { country, countryCode, prefix }); },
-
-  /** Prefix catalog (MySQL): countries → prefix templates */
-  getPrefixCountries() { return fetchJsonWithTimeout('/api/prefix-countries', 20000); },
-  postPrefixCountry(body) { return this.post('/api/prefix-countries', body); },
-  putPrefixCountry(id, body) { return this.put(`/api/prefix-countries/${encodeURIComponent(id)}`, body); },
-  deletePrefixCountry(id) { return this.del(`/api/prefix-countries/${encodeURIComponent(id)}`); },
-  getPrefixInventory(countryId) {
-    const q = countryId != null && String(countryId) !== '' ? `?countryId=${encodeURIComponent(countryId)}` : '';
-    return fetchJsonWithTimeout(`/api/prefix-inventory${q}`, 35000);
-  },
-  postPrefixInventory(body) { return this.post('/api/prefix-inventory', body); },
-  putPrefixInventory(id, body) { return this.put(`/api/prefix-inventory/${encodeURIComponent(id)}`, body); },
-  deletePrefixInventory(id) { return this.del(`/api/prefix-inventory/${encodeURIComponent(id)}`); },
-  createDidsFromPrefix(prefixId, body) {
-    return fetchJsonWithTimeout(`/api/prefix-inventory/${encodeURIComponent(prefixId)}/create-dids`, 45000, 'POST', body);
-  },
   testDidRoute(did, sourceIp = '') {
     const qs = `did=${encodeURIComponent(did)}&sourceIp=${encodeURIComponent(sourceIp)}`;
     return this.get(`/api/numbers/test-route?${qs}`);

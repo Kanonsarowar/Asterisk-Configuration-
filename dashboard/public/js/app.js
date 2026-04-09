@@ -1998,8 +1998,6 @@ async function renderNumbers(el) {
     API.getGlobals(),
     API.getIprnBillingSummary(800).catch(() => ({ rows: [] })),
     API.getPjsipContacts().catch(() => ({ contacts: [] })),
-    API.getPrefixCountries().catch(() => ({ error: 'no-mysql' })),
-    API.getPrefixInventory().catch(() => ({ error: 'no-mysql' })),
   ]);
   const numRes = settled[0];
   let numbers = numRes.status === 'fulfilled' && Array.isArray(numRes.value) ? numRes.value : [];
@@ -2020,12 +2018,6 @@ async function renderNumbers(el) {
   const billRows = billingRes && Array.isArray(billingRes.rows) ? billingRes.rows : [];
   const billByNum = Object.fromEntries(billRows.map((r) => [String(r.number), r]));
   const contacts = sipRes && Array.isArray(sipRes.contacts) ? sipRes.contacts : [];
-  const pcRes = settled[6];
-  const piRes = settled[7];
-  const prefixCountries = pcRes.status === 'fulfilled' && Array.isArray(pcRes.value) ? pcRes.value : [];
-  const prefixCatalog = piRes.status === 'fulfilled' && Array.isArray(piRes.value) ? piRes.value : [];
-  const catalogMysqlOk = pcRes.status === 'fulfilled' && Array.isArray(pcRes.value) && !pcRes.value.error;
-  const poolNumbers = numbers.filter((n) => String(n.status || '').toLowerCase() !== 'allocated');
 
   const byCountry = {};
   for (const n of numbers) {
@@ -2082,77 +2074,6 @@ async function renderNumbers(el) {
     return acc;
   }, {});
   const prefixSummaryCountryOrder = Object.keys(prefixSummaryByCountry).sort();
-  const catalogByCountry = {};
-  for (const row of prefixCatalog) {
-    const k = row.countryName || '—';
-    if (!catalogByCountry[k]) catalogByCountry[k] = [];
-    catalogByCountry[k].push(row);
-  }
-  const catalogCountryOrder = Object.keys(catalogByCountry).sort();
-  const prefixCatalogTable = !catalogMysqlOk
-    ? `<p class="empty-state">Prefix catalog needs MySQL (<code>MYSQL_ENABLED=1</code>). Tables: <code>prefix_countries</code>, <code>prefix_inventory</code>.</p>`
-    : prefixCatalog.length === 0
-      ? `<p class="empty-state">No catalog rows yet. Add a country, then add a prefix (rate, term, supplier, IVR, routes, test number).</p>`
-      : `<div class="did-inventory-wrap">
-        ${catalogCountryOrder.map((cLabel) => {
-          const rows = catalogByCountry[cLabel];
-          return `
-          <section class="did-country-block">
-            <h4 class="did-country-title">${escHtml(cLabel)} <span class="did-country-meta">(${rows.length} prefix${rows.length !== 1 ? 'es' : ''})</span></h4>
-            ${rows.map((pr) => {
-              const supNm = suppliers.find((s) => s.id === pr.supplierId)?.name || '—';
-              const ivrNm = ivrMenus.find((i) => i.id === pr.destinationId)?.name || '—';
-              const st = String(pr.status || 'active').toLowerCase() === 'inactive' ? 'inactive' : 'active';
-              return `
-              <div class="did-prefix-card did-prefix-card--summary">
-                <div class="did-prefix-card-toolbar">
-                  <div class="did-prefix-line">
-                    <span class="did-prefix-key">${escHtml(pr.fullPrefix)}</span>
-                    <span class="badge ${st === 'active' ? 'badge-direct' : 'badge-ring'}" style="margin-left:8px">${escHtml(st)}</span>
-                  </div>
-                  <div style="display:flex;gap:6px;flex-wrap:wrap">
-                    <button type="button" class="btn btn-primary btn-sm btn-cat-add-dids" data-id="${escHtml(pr.id)}">Add DIDs</button>
-                    <button type="button" class="btn btn-outline btn-sm btn-cat-del" data-id="${escHtml(pr.id)}">Delete</button>
-                  </div>
-                </div>
-                <div class="did-prefix-body">
-                  <table class="did-simple-table">
-                    <thead><tr><th>IVR</th><th>Rate</th><th>Term</th><th>Supplier</th><th>Routes</th><th>Test</th></tr></thead>
-                    <tbody><tr>
-                      <td>${escHtml(ivrNm)}</td>
-                      <td>${escHtml(String(pr.rate))} ${pr.rateCurrency === 'eur' ? '€' : '$'}/m</td>
-                      <td>${escHtml(String(pr.paymentTerm))}</td>
-                      <td style="font-size:12px">${escHtml(String(supNm))}</td>
-                      <td style="font-size:11px;color:var(--text-muted);max-width:180px">${pr.routesLogic ? escHtml(String(pr.routesLogic).slice(0, 120)) + (String(pr.routesLogic).length > 120 ? '…' : '') : '—'}</td>
-                      <td style="font-family:monospace;font-size:12px">${pr.testNumber ? escHtml(String(pr.testNumber)) : '—'}</td>
-                    </tr></tbody>
-                  </table>
-                </div>
-              </div>`;
-            }).join('')}
-          </section>`;
-        }).join('')}
-      </div>`;
-
-  const poolAvail = poolNumbers.slice().sort((a, b) => {
-    const fa = `${a.countryCode || ''}${a.prefix || ''}${a.extension || ''}`;
-    const fb = `${b.countryCode || ''}${b.prefix || ''}${b.extension || ''}`;
-    return fa.localeCompare(fb);
-  });
-  const availableNumbersTable = poolAvail.length === 0
-    ? '<p class="empty-state">No numbers in pool yet. Create DIDs from a catalog prefix or use Add DID / upload.</p>'
-    : `<div style="overflow:auto;max-height:320px"><table class="did-simple-table"><thead><tr><th>Full DID</th><th>Prefix</th><th>Ext</th><th>Assign</th></tr></thead><tbody>
-      ${poolAvail.slice(0, 200).map((n) => {
-        const full = `${n.countryCode || ''}${n.prefix || ''}${n.extension || ''}`;
-        return `<tr>
-          <td style="font-family:monospace">${escHtml(full)}</td>
-          <td style="font-family:monospace;font-size:12px">${escHtml(String(n.countryCode || '') + String(n.prefix || ''))}</td>
-          <td style="font-family:monospace;font-size:12px">${escHtml(String(n.extension || ''))}</td>
-          <td><button type="button" class="btn btn-outline btn-sm btn-pool-assign" data-id="${escHtml(n.id)}">Assign</button></td>
-        </tr>`;
-      }).join('')}
-      </tbody></table>${poolAvail.length > 200 ? `<p style="font-size:12px;color:var(--text-muted);margin-top:8px">Showing first 200 of ${poolAvail.length} pool numbers.</p>` : ''}</div>`;
-
   const prefixInventoryTable = prefixRowsSorted.length
     ? `<div class="did-inventory-wrap">
         ${prefixSummaryCountryOrder.map((cLabel) => {
@@ -2224,46 +2145,21 @@ async function renderNumbers(el) {
     </div>
     <div class="stats-grid" style="margin-bottom:20px">
       <div class="stat-card"><div class="label">Total DIDs</div><div class="value blue">${totalNumbers}</div></div>
-      <div class="stat-card"><div class="label">In pool (unassigned)</div><div class="value">${poolNumbers.length}</div></div>
       <div class="stat-card"><div class="label">Countries</div><div class="value">${detectedCountryCount}</div></div>
       <div class="stat-card"><div class="label">Prefixes</div><div class="value">${totalPrefixes}</div></div>
     </div>
     <div class="card" style="margin-bottom:20px">
-      <div class="card-header">
-        <h3>Prefix catalog (database)</h3>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="btn btn-outline btn-sm" id="btn-add-pc-country">+ Country</button>
-          <button type="button" class="btn btn-outline btn-sm" id="btn-add-pc-prefix">+ Prefix row</button>
-        </div>
-      </div>
+      <div class="card-header"><h3>Prefix inventory</h3></div>
       <div class="card-body padded">
         <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px;line-height:1.45">
-          Define <strong>commercial + routing template</strong> per prefix under a country. Then use <strong>Add DIDs</strong> to materialize numbers into the pool; assign clients from <strong>Available numbers</strong> or the table below.
-        </p>
-        ${prefixCatalogTable}
-      </div>
-    </div>
-    <div class="card" style="margin-bottom:20px">
-      <div class="card-header"><h3>Available numbers (pool)</h3></div>
-      <div class="card-body padded">
-        <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px;line-height:1.45">
-          DIDs with status <strong>active</strong> (not allocated). Use <strong>Assign</strong> to give a number to a client.
-        </p>
-        ${availableNumbersTable}
-      </div>
-    </div>
-    <div class="card" style="margin-bottom:20px">
-      <div class="card-header"><h3>Prefix summary (from live DIDs)</h3></div>
-      <div class="card-body padded">
-        <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px;line-height:1.45">
-          One summary row per <strong>CC + prefix</strong> from current DIDs. Full edits are in <strong>All DIDs</strong> below.
+          One summary row per <strong>CC + prefix</strong>. Full DID lists and per-number edits are in <strong>DID Inventory</strong> below (grouped by country, same layout as wholesale number panels).
         </p>
         ${prefixInventoryTable}
       </div>
     </div>
     <div class="card">
       <div class="card-header">
-        <h3>All DIDs</h3>
+        <h3>DID Inventory</h3>
         <div style="display:flex;gap:8px">
           <button class="btn btn-outline" id="btn-upload-file">Upload File</button>
           <button class="btn btn-primary" id="btn-add-number">+ Add DID</button>
@@ -2450,69 +2346,6 @@ async function renderNumbers(el) {
   };
 
   document.getElementById('btn-add-number').onclick = () => showAddNumberModal(suppliers, ivrMenus);
-
-  const refreshNumbers = () => renderNumbers(el);
-  document.getElementById('btn-add-pc-country')?.addEventListener('click', () => {
-    showAddPrefixCountryModal(refreshNumbers);
-  });
-  document.getElementById('btn-add-pc-prefix')?.addEventListener('click', () => {
-    if (!catalogMysqlOk) {
-      toast('Prefix catalog requires MySQL', 'error');
-      return;
-    }
-    showAddPrefixRowModal(prefixCountries, suppliers, ivrMenus, refreshNumbers);
-  });
-  el.querySelectorAll('.btn-cat-add-dids').forEach((btn) => {
-    btn.onclick = () => {
-      const id = btn.dataset.id;
-      const row = prefixCatalog.find((p) => String(p.id) === String(id));
-      if (!row) {
-        toast('Prefix row not found', 'error');
-        return;
-      }
-      showAddDidsFromPrefixModal(row, refreshNumbers);
-    };
-  });
-  el.querySelectorAll('.btn-cat-del').forEach((btn) => {
-    btn.onclick = async () => {
-      const id = btn.dataset.id;
-      if (!id || !confirm('Delete this prefix catalog row? (Does not delete existing DIDs.)')) return;
-      const r = await API.deletePrefixInventory(id);
-      if (r && r.error) {
-        toast(r.error, 'error');
-        return;
-      }
-      toast('Catalog row removed');
-      renderNumbers(el);
-    };
-  });
-  el.querySelectorAll('.btn-pool-assign').forEach((btn) => {
-    btn.onclick = () => {
-      const id = btn.dataset.id;
-      showModal('Assign DID', `
-        <div class="form-group">
-          <label>Client name</label>
-          <input class="form-control" id="assign-client-name-pool" placeholder="Client or company name" maxlength="255" autocomplete="organization">
-        </div>
-        <p style="font-size:12px;color:var(--text-muted)">Status → <strong>allocated</strong>.</p>
-      `, async () => {
-        const clientName = document.getElementById('assign-client-name-pool').value;
-        try {
-          const result = await API.assignNumber(id, { clientName });
-          if (result && result.error) {
-            toast(result.error, 'error');
-            return;
-          }
-          markChanged();
-          toast('DID allocated');
-          closeModal();
-          renderNumbers(el);
-        } catch (e) {
-          toast(e.message || 'Assign failed', 'error');
-        }
-      });
-    };
-  });
 
   el.querySelectorAll('.del-prefix').forEach(b => b.onclick = async () => {
     const prefix = b.dataset.prefix;
@@ -2726,168 +2559,6 @@ async function renderNumbers(el) {
     </div></div>`;
     toast('Number inventory error — see message above', 'error');
   }
-}
-
-function showAddPrefixCountryModal(onSuccess) {
-  showModal('Add country (catalog)', `
-    <div class="form-group">
-      <label>Display name</label>
-      <input class="form-control" id="pc-name" placeholder="e.g. Italy wholesale">
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>ISO / label (optional)</label>
-        <input class="form-control" id="pc-country" placeholder="IT" maxlength="8">
-      </div>
-      <div class="form-group">
-        <label>Dial prefix (optional)</label>
-        <input class="form-control" id="pc-dial" placeholder="39" style="font-family:monospace">
-      </div>
-    </div>
-  `, async () => {
-    const name = document.getElementById('pc-name').value.trim();
-    if (!name) { toast('Name is required', 'error'); return; }
-    const r = await API.postPrefixCountry({
-      name,
-      country: document.getElementById('pc-country').value.trim() || 'XX',
-      dialPrefix: document.getElementById('pc-dial').value.trim().replace(/\D/g, ''),
-    });
-    if (r && r.error) { toast(r.error, 'error'); return; }
-    toast('Country added');
-    closeModal();
-    if (typeof onSuccess === 'function') onSuccess();
-  });
-}
-
-function showAddPrefixRowModal(countries, suppliers, ivrMenus, onSuccess) {
-  const opts = (countries || []).map((c) => `<option value="${escHtml(c.id)}">${escHtml(c.name)}</option>`).join('');
-  showModal('Add prefix (catalog)', `
-    <div class="form-group">
-      <label>Country group</label>
-      <select class="form-control" id="pi-country-id">${opts || '<option value="">— create a country first —</option>'}</select>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Country code (digits)</label>
-        <input class="form-control" id="pi-cc" placeholder="39" style="font-family:monospace">
-      </div>
-      <div class="form-group">
-        <label>Prefix (digits)</label>
-        <input class="form-control" id="pi-prefix" placeholder="3199050" style="font-family:monospace">
-      </div>
-    </div>
-    <div class="form-row-3">
-      <div class="form-group">
-        <label>Rate / min</label>
-        <input class="form-control" id="pi-rate" type="number" step="0.001" value="0.01">
-      </div>
-      <div class="form-group">
-        <label>Currency</label>
-        <select class="form-control" id="pi-cy"><option value="usd">USD</option><option value="eur">EUR</option></select>
-      </div>
-      <div class="form-group">
-        <label>Payment term</label>
-        <select class="form-control" id="pi-term">
-          <option value="weekly">Weekly</option>
-          <option value="daily">Daily</option>
-          <option value="monthly">Monthly</option>
-        </select>
-      </div>
-    </div>
-    <div class="form-group">
-      <label>Supplier</label>
-      <select class="form-control" id="pi-supplier">
-        <option value="">— None —</option>
-        ${(suppliers || []).map((s) => `<option value="${s.id}">${escHtml(s.name)}</option>`).join('')}
-      </select>
-    </div>
-    <div class="form-group">
-      <label>Default IVR</label>
-      <select class="form-control" id="pi-ivr">
-        ${(ivrMenus || []).map((m) => `<option value="${m.id}">${escHtml(m.name)}</option>`).join('')}
-      </select>
-    </div>
-    <div class="form-group">
-      <label>Routes / logic (notes)</label>
-      <textarea class="form-control" id="pi-routes" rows="2" placeholder="Failover, LCR, geo…"></textarea>
-    </div>
-    <div class="form-group">
-      <label>Test number (digits)</label>
-      <input class="form-control" id="pi-test" placeholder="3931990501234" style="font-family:monospace">
-    </div>
-  `, async () => {
-    const countryId = document.getElementById('pi-country-id').value;
-    if (!countryId) { toast('Select a country group', 'error'); return; }
-    const body = {
-      countryId,
-      countryCode: document.getElementById('pi-cc').value.trim().replace(/\D/g, ''),
-      prefix: document.getElementById('pi-prefix').value.trim().replace(/\D/g, ''),
-      rate: document.getElementById('pi-rate').value || '0.01',
-      rateCurrency: document.getElementById('pi-cy').value,
-      paymentTerm: document.getElementById('pi-term').value,
-      supplierId: document.getElementById('pi-supplier').value,
-      destinationId: document.getElementById('pi-ivr').value,
-      routesLogic: document.getElementById('pi-routes').value,
-      testNumber: document.getElementById('pi-test').value.trim().replace(/\D/g, ''),
-    };
-    if (!body.prefix) { toast('Prefix is required', 'error'); return; }
-    const r = await API.postPrefixInventory(body);
-    if (r && r.error) { toast(r.error, 'error'); return; }
-    toast('Prefix row saved');
-    closeModal();
-    if (typeof onSuccess === 'function') onSuccess();
-  });
-}
-
-function showAddDidsFromPrefixModal(prefixRow, onSuccess) {
-  const fullP = escHtml(prefixRow.fullPrefix || `${prefixRow.countryCode || ''}${prefixRow.prefix || ''}`);
-  showModal(`Add DIDs — ${fullP}`, `
-    <p style="font-size:12px;color:var(--text-muted);margin:0 0 12px">Uses rate, term, supplier, and IVR from the catalog row. Full DID = country code + prefix + extension.</p>
-    <div style="display:flex;gap:16px;margin-bottom:10px;font-size:13px">
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-        <input type="radio" name="cdf-mode" id="cdf-list" value="list" checked> List
-      </label>
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-        <input type="radio" name="cdf-mode" id="cdf-range" value="range"> Range
-      </label>
-    </div>
-    <div id="cdf-list-box">
-      <label>Extensions (one per line)</label>
-      <textarea class="form-control" id="cdf-exts" rows="6" style="font-family:monospace" placeholder="646&#10;647"></textarea>
-    </div>
-    <div id="cdf-range-box" style="display:none">
-      <div class="form-row">
-        <div class="form-group"><input class="form-control" id="cdf-from" placeholder="From" style="font-family:monospace"></div>
-        <div class="form-group"><input class="form-control" id="cdf-to" placeholder="To" style="font-family:monospace"></div>
-      </div>
-    </div>
-  `, async () => {
-    const useRange = document.getElementById('cdf-range').checked;
-    let body;
-    if (useRange) {
-      body = {
-        rangeFrom: document.getElementById('cdf-from').value.trim(),
-        rangeTo: document.getElementById('cdf-to').value.trim(),
-      };
-    } else {
-      body = { extensionsText: document.getElementById('cdf-exts').value };
-    }
-    const r = await API.createDidsFromPrefix(prefixRow.id, body);
-    if (r && r.error) { toast(r.error, 'error'); return; }
-    toast(`Created ${r.count || 0} DID(s)`);
-    closeModal();
-    markChanged();
-    if (typeof onSuccess === 'function') onSuccess();
-  });
-  const lb = document.getElementById('cdf-list-box');
-  const rb = document.getElementById('cdf-range-box');
-  const syncCdf = () => {
-    const range = document.getElementById('cdf-range')?.checked;
-    if (lb) lb.style.display = range ? 'none' : '';
-    if (rb) rb.style.display = range ? '' : 'none';
-  };
-  document.getElementById('cdf-list')?.addEventListener('change', syncCdf);
-  document.getElementById('cdf-range')?.addEventListener('change', syncCdf);
 }
 
 function showAddNumberModal(suppliers, ivrMenus) {
