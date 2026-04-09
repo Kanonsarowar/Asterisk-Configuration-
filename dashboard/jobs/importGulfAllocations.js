@@ -2,6 +2,7 @@
 /**
  * Import Gulf Telecom allocation list into DID inventory (numbers table).
  * Source: dashboard/data/gulf-telecom-allocations.tsv (Country, Range, Rate_USD).
+ * Range ending in `x` expands to 10 DIDs (digits 0–9).
  *
  *   node dashboard/jobs/importGulfAllocations.js
  *   ALLOCATION_FILE=/path/to/file.tsv IVR_DEST_ID=1 node dashboard/jobs/importGulfAllocations.js

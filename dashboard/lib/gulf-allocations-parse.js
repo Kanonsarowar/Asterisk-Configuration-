@@ -1,6 +1,6 @@
 /**
  * Parse Gulf Telecom allocation TSV (Country, Range, Rate_USD) or pypdf blob.
- * - Trailing `x` = wildcard; test DID uses `0` for each x.
+ * - Trailing `x` = one wildcard digit → **10 DIDs** (0–9), e.g. `35376405881x` → …880 …889.
  * - Ranges: "A to B" (full E.164 digits, inclusive).
  * - Splits full number into countryCode + prefix + extension (last 4 national digits = extension).
  */
@@ -147,15 +147,6 @@ export function splitNational(cc, fullDigits) {
   };
 }
 
-/** Replace trailing x with 0 for test pattern. */
-export function patternToTestFullDigits(patternDigits) {
-  let s = String(patternDigits).replace(/\D/g, '');
-  if (/x$/i.test(String(patternDigits).trim())) {
-    s = s.replace(/x$/i, '0');
-  }
-  return s;
-}
-
 /**
  * @returns {Array<{ country: string, countryIso: string, rate: string, fullNumber: string, countryCode: string, prefix: string, extension: string }>}
  */
@@ -217,18 +208,35 @@ export function parseAllocationsText(raw) {
     const isX = /x$/i.test(pat);
     pat = pat.replace(/x$/i, '');
     const digits = pat.replace(/\D/g, '');
-    const testFull = isX ? `${digits}0` : digits;
-    const cc = detectCountryCode(testFull);
-    const { countryCode, prefix, extension } = splitNational(cc, testFull);
-    out.push({
-      country: iso,
-      countryIso: iso,
-      rate,
-      fullNumber: testFull,
-      countryCode,
-      prefix,
-      extension,
-    });
+    if (isX) {
+      for (let d = 0; d <= 9; d++) {
+        const testFull = `${digits}${d}`;
+        const cc = detectCountryCode(testFull);
+        const { countryCode, prefix, extension } = splitNational(cc, testFull);
+        out.push({
+          country: iso,
+          countryIso: iso,
+          rate,
+          fullNumber: testFull,
+          countryCode,
+          prefix,
+          extension,
+        });
+      }
+    } else {
+      const testFull = digits;
+      const cc = detectCountryCode(testFull);
+      const { countryCode, prefix, extension } = splitNational(cc, testFull);
+      out.push({
+        country: iso,
+        countryIso: iso,
+        rate,
+        fullNumber: testFull,
+        countryCode,
+        prefix,
+        extension,
+      });
+    }
   }
   return out;
 }
