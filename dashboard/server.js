@@ -40,8 +40,19 @@ import {
   fetchCallLogsRecentForUi,
 } from './lib/call-stats-mysql.js';
 import { syncCdrToCallLogs } from './lib/cdr-sync.js';
+import * as prefixInv from './lib/prefix-inventory-mysql.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function prefixCatalogUnavailable(res) {
+  if (!isMysqlNumbersReady()) {
+    return sendJson(res, 503, {
+      error: 'Prefix catalog requires MySQL (MYSQL_ENABLED=1 and working schema)',
+      enabled: false,
+    });
+  }
+  return null;
+}
 
 /** Load dashboard/.env if present (keys only when not already set — systemd wins). */
 function loadDashboardDotEnv() {
@@ -877,6 +888,97 @@ async function handleApi(req, res) {
     if (path.startsWith('/api/numbers/') && method === 'DELETE') {
       const id = path.split('/').pop();
       return (await numbersService.deleteNumber(store, id)) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
+    }
+
+    // Prefix catalog (countries → prefix templates; DIDs created from catalog)
+    if (path === '/api/prefix-countries' && method === 'GET') {
+      if (prefixCatalogUnavailable(res)) return;
+      try {
+        return sendJson(res, 200, await prefixInv.mysqlListPrefixCountries());
+      } catch (e) {
+        return sendJson(res, 500, { error: String(e?.message || e) });
+      }
+    }
+    if (path === '/api/prefix-countries' && method === 'POST') {
+      if (prefixCatalogUnavailable(res)) return;
+      try {
+        const body = await parseBody(req);
+        const row = await prefixInv.mysqlCreatePrefixCountry(body);
+        return sendJson(res, 201, row);
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e?.message || e) });
+      }
+    }
+    const pcMatch = path.match(/^\/api\/prefix-countries\/([^/]+)$/);
+    if (pcMatch && method === 'PUT') {
+      if (prefixCatalogUnavailable(res)) return;
+      try {
+        const body = await parseBody(req);
+        const row = await prefixInv.mysqlUpdatePrefixCountry(pcMatch[1], body);
+        return row ? sendJson(res, 200, row) : sendJson(res, 404, { error: 'Not found' });
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e?.message || e) });
+      }
+    }
+    if (pcMatch && method === 'DELETE') {
+      if (prefixCatalogUnavailable(res)) return;
+      try {
+        const ok = await prefixInv.mysqlDeletePrefixCountry(pcMatch[1]);
+        return ok ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e?.message || e) });
+      }
+    }
+
+    if (path === '/api/prefix-inventory' && method === 'GET') {
+      if (prefixCatalogUnavailable(res)) return;
+      try {
+        const cid = url.searchParams.get('countryId');
+        return sendJson(res, 200, await prefixInv.mysqlListPrefixInventory(cid));
+      } catch (e) {
+        return sendJson(res, 500, { error: String(e?.message || e) });
+      }
+    }
+    if (path === '/api/prefix-inventory' && method === 'POST') {
+      if (prefixCatalogUnavailable(res)) return;
+      try {
+        const body = await parseBody(req);
+        const row = await prefixInv.mysqlCreatePrefixInventory(body);
+        return sendJson(res, 201, row);
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e?.message || e) });
+      }
+    }
+    const piMatch = path.match(/^\/api\/prefix-inventory\/([^/]+)$/);
+    if (piMatch && method === 'PUT') {
+      if (prefixCatalogUnavailable(res)) return;
+      try {
+        const body = await parseBody(req);
+        const row = await prefixInv.mysqlUpdatePrefixInventory(piMatch[1], body);
+        return row ? sendJson(res, 200, row) : sendJson(res, 404, { error: 'Not found' });
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e?.message || e) });
+      }
+    }
+    if (piMatch && method === 'DELETE') {
+      if (prefixCatalogUnavailable(res)) return;
+      try {
+        const ok = await prefixInv.mysqlDeletePrefixInventory(piMatch[1]);
+        return ok ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e?.message || e) });
+      }
+    }
+    const piDidMatch = path.match(/^\/api\/prefix-inventory\/([^/]+)\/create-dids$/);
+    if (piDidMatch && method === 'POST') {
+      if (prefixCatalogUnavailable(res)) return;
+      try {
+        const body = await parseBody(req);
+        const created = await prefixInv.mysqlCreateDidsFromPrefixInventory(piDidMatch[1], body);
+        return sendJson(res, 201, { ok: true, count: created.length, numbers: created });
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e?.message || e) });
+      }
     }
 
     // Audio file upload & list

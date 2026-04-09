@@ -249,6 +249,62 @@ async function migrateNumberInventoryColumns(p) {
 }
 
 /** CDR → call_logs deduplication (sync job inserts with stable hash per Master.csv row). */
+/** Catalog: countries → prefix rows (commercial + routing template). DIDs link via numbers.prefix_inventory_id. */
+const DDL_PREFIX_COUNTRIES = `
+CREATE TABLE IF NOT EXISTS \`prefix_countries\` (
+  \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  \`name\` VARCHAR(128) NOT NULL DEFAULT '',
+  \`country\` VARCHAR(8) NOT NULL DEFAULT 'XX',
+  \`dial_prefix\` VARCHAR(32) NOT NULL DEFAULT '',
+  \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (\`id\`),
+  KEY \`idx_prefix_countries_country\` (\`country\`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+`;
+
+const DDL_PREFIX_INVENTORY = `
+CREATE TABLE IF NOT EXISTS \`prefix_inventory\` (
+  \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  \`country_id\` INT UNSIGNED NOT NULL,
+  \`country_code\` VARCHAR(32) NOT NULL DEFAULT '',
+  \`prefix\` VARCHAR(64) NOT NULL DEFAULT '',
+  \`rate\` VARCHAR(32) NOT NULL DEFAULT '0.01',
+  \`rate_currency\` VARCHAR(8) NOT NULL DEFAULT 'usd',
+  \`payment_term\` VARCHAR(16) NOT NULL DEFAULT 'weekly',
+  \`supplier_id\` VARCHAR(32) NOT NULL DEFAULT '',
+  \`destination_id\` VARCHAR(16) NOT NULL DEFAULT '1',
+  \`routes_logic\` TEXT NULL,
+  \`test_number\` VARCHAR(64) NOT NULL DEFAULT '',
+  \`status\` VARCHAR(16) NOT NULL DEFAULT 'active',
+  \`notes\` TEXT NULL,
+  \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (\`id\`),
+  UNIQUE KEY \`uk_prefix_inv_cc_prefix\` (\`country_id\`, \`country_code\`(16), \`prefix\`(32)),
+  KEY \`idx_prefix_inv_country\` (\`country_id\`),
+  CONSTRAINT \`fk_prefix_inv_country\` FOREIGN KEY (\`country_id\`) REFERENCES \`prefix_countries\` (\`id\`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+`;
+
+async function migrateNumbersPrefixInventoryId(p) {
+  try {
+    await p.execute(
+      'ALTER TABLE `numbers` ADD COLUMN `prefix_inventory_id` INT UNSIGNED NULL COMMENT \'FK prefix_inventory template\''
+    );
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+  }
+  try {
+    await p.execute(
+      'ALTER TABLE `numbers` ADD CONSTRAINT `fk_numbers_prefix_inventory` FOREIGN KEY (`prefix_inventory_id`) REFERENCES `prefix_inventory` (`id`) ON DELETE SET NULL'
+    );
+  } catch (e) {
+    const msg = String(e?.message || e);
+    if (e.code !== 'ER_DUP_KEY' && e.code !== 'ER_CANT_CREATE_TABLE' && e.code !== 'ER_FK_DUP_NAME' && !msg.includes('Duplicate')) {
+      console.warn('[mysql] fk_numbers_prefix_inventory:', msg);
+    }
+  }
+}
+
 async function migrateCallLogsDedupHash(p) {
   try {
     await p.execute(
@@ -306,6 +362,9 @@ export async function ensureMysqlSchema() {
   await p.execute(DDL_USER_NUMBERS);
   await p.execute(DDL_IPRN_INVOICES);
   await ensureIprnInventorySchema(p);
+  await p.execute(DDL_PREFIX_COUNTRIES);
+  await p.execute(DDL_PREFIX_INVENTORY);
+  await migrateNumbersPrefixInventoryId(p);
   return { ok: true };
 }
 
