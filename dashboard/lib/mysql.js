@@ -248,6 +248,29 @@ async function migrateNumberInventoryColumns(p) {
   }
 }
 
+/** CDR → call_logs deduplication (sync job inserts with stable hash per Master.csv row). */
+async function migrateCallLogsDedupHash(p) {
+  try {
+    await p.execute(
+      'ALTER TABLE `call_logs` ADD COLUMN `dedup_hash` CHAR(64) NULL COMMENT \'sha256 CDR row fingerprint\''
+    );
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+  }
+  try {
+    await p.execute('ALTER TABLE `call_logs` ADD UNIQUE KEY `uk_call_logs_dedup_hash` (`dedup_hash`)');
+  } catch (e) {
+    if (e.code !== 'ER_DUP_KEYNAME') throw e;
+  }
+  try {
+    await p.execute(
+      'ALTER TABLE `call_logs` ADD COLUMN `cdr_start` DATETIME NULL COMMENT \'Call start from CDR (for time windows)\''
+    );
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+  }
+}
+
 /** IPRN range inventory tables — /sql/iprn_inventory.sql (CREATE IF NOT EXISTS). */
 async function ensureIprnInventorySchema(p) {
   const sqlPath = join(__dirnameMysql, '..', '..', 'sql', 'iprn_inventory.sql');
@@ -272,6 +295,7 @@ export async function ensureMysqlSchema() {
   if (!p) return { ok: false, skipped: true };
   await p.execute(DDL_NUMBERS);
   await p.execute(DDL_CALL_LOGS);
+  await migrateCallLogsDedupHash(p);
   await migrateNumbersColumns(p);
   await migrateNumbersIprnColumns(p);
   await p.execute(DDL_NUMBER_INVENTORY);

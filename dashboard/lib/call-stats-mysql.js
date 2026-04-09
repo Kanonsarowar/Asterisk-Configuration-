@@ -49,7 +49,7 @@ function isAnsweredStatus(status) {
 }
 
 function rowTimeMs(row) {
-  const t = row.created_at;
+  const t = row.cdr_start != null ? row.cdr_start : row.created_at;
   if (t instanceof Date) return t.getTime();
   const n = new Date(t).getTime();
   return isNaN(n) ? 0 : n;
@@ -63,9 +63,9 @@ export async function fetchCallLogsInHours(pool, hoursWindow) {
   const h = Math.min(168, Math.max(1, parseInt(String(hoursWindow), 10) || 24));
   const spanHours = h * 2;
   const [rows] = await pool.query(
-    `SELECT \`caller\`, \`destination\`, \`duration\`, \`status\`, \`created_at\`
+    `SELECT \`caller\`, \`destination\`, \`duration\`, \`status\`, \`created_at\`, \`cdr_start\`
      FROM \`call_logs\`
-     WHERE \`created_at\` >= DATE_SUB(NOW(), INTERVAL ? HOUR)`,
+     WHERE COALESCE(\`cdr_start\`, \`created_at\`) >= DATE_SUB(NOW(), INTERVAL ? HOUR)`,
     [spanHours]
   );
   return { rows, hoursWindow: h };

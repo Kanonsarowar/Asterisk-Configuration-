@@ -35,6 +35,7 @@ import { validateAndNormalizeCallLog } from './lib/call-log-ingest.js';
 import * as numbersService from './lib/numbers-service.js';
 import * as iprnInv from './lib/iprn-inventory-mysql.js';
 import { fetchCallLogsInHours, aggregateCallLogsPro } from './lib/call-stats-mysql.js';
+import { syncCdrToCallLogs } from './lib/cdr-sync.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -71,6 +72,16 @@ const execAsync = promisify(exec);
 const PUBLIC_DIR = join(__dirname, 'public');
 const PORT = process.env.PORT || 3000;
 const store = new Store();
+
+async function runCdrSyncOnce() {
+  try {
+    const nums = await numbersService.getNumbers(store);
+    return await syncCdrToCallLogs(nums);
+  } catch (e) {
+    console.error('[cdr-sync]', e?.message || e);
+    return { ok: false, skipped: true, reason: String(e?.message || e) };
+  }
+}
 
 async function buildCallStatsProFromDb(hoursParam) {
   const pool = getMysqlPool();
@@ -240,6 +251,15 @@ async function handleApi(req, res) {
 
   try {
     // Auth endpoints (no auth required)
+    if (path === '/api/internal/cdr-sync' && method === 'GET') {
+      const tok = String(process.env.CDR_SYNC_INTERNAL_TOKEN || '').trim();
+      if (!tok || url.searchParams.get('token') !== tok) {
+        return sendJson(res, 404, { error: 'Not found' });
+      }
+      const r = await runCdrSyncOnce();
+      return sendJson(res, 200, r);
+    }
+
     if (path === '/api/auth/login' && method === 'POST') {
       const body = await parseBody(req);
       let token = authenticate(body.username, body.password, () => store.getAdminUsers());
@@ -1110,4 +1130,18 @@ const server = createServer(async (req, res) => {
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`Asterisk Dashboard running at http://localhost:${PORT}`);
   });
+
+  const disableCdr = /^(1|true|yes|on)$/i.test(String(process.env.CDR_SYNC_DISABLE || ''));
+  if (getMysqlPool() && !disableCdr) {
+    const ms = Math.min(3_600_000, Math.max(10_000, parseInt(process.env.CDR_SYNC_INTERVAL_MS || '60000', 10) || 60000));
+    runCdrSyncOnce().then((r) => {
+      if (r && (r.inserted > 0 || r.errors > 0)) console.log('[cdr-sync] initial', JSON.stringify(r));
+    });
+    setInterval(() => {
+      runCdrSyncOnce().then((r) => {
+        if (r && r.inserted > 0) console.log('[cdr-sync]', JSON.stringify(r));
+      });
+    }, ms);
+    console.log(`[cdr-sync] interval ${ms}ms (set CDR_SYNC_DISABLE=1 to stop)`);
+  }
 })();
