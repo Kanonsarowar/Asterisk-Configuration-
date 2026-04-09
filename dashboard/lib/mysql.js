@@ -2,7 +2,12 @@
  * Optional MySQL integration. Disabled unless MYSQL_ENABLED is set and required env vars are present.
  * When enabled and healthy, DID inventory is read/written from the `numbers` table (see numbers-service).
  */
+import { readFileSync, existsSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import mysql from 'mysql2/promise';
+
+const __dirnameMysql = dirname(fileURLToPath(import.meta.url));
 
 /** Set true after a failed init so health reflects degraded state without throwing elsewhere. */
 let initFailed = false;
@@ -243,6 +248,25 @@ async function migrateNumberInventoryColumns(p) {
   }
 }
 
+/** IPRN range inventory tables — /sql/iprn_inventory.sql (CREATE IF NOT EXISTS). */
+async function ensureIprnInventorySchema(p) {
+  const sqlPath = join(__dirnameMysql, '..', '..', 'sql', 'iprn_inventory.sql');
+  if (!existsSync(sqlPath)) return;
+  try {
+    let raw = readFileSync(sqlPath, 'utf8');
+    raw = raw.replace(/^\s*SET\s+[^;]+;/gim, '');
+    const parts = raw
+      .split(';')
+      .map((s) => s.replace(/--[^\n]*/g, '').trim())
+      .filter((s) => s.length > 0);
+    for (const st of parts) {
+      await p.query(st);
+    }
+  } catch (e) {
+    console.error('[mysql] iprn_inventory.sql:', e?.message || e);
+  }
+}
+
 export async function ensureMysqlSchema() {
   const p = getMysqlPool();
   if (!p) return { ok: false, skipped: true };
@@ -257,6 +281,7 @@ export async function ensureMysqlSchema() {
   await p.execute(DDL_IPRN_USERS);
   await p.execute(DDL_USER_NUMBERS);
   await p.execute(DDL_IPRN_INVOICES);
+  await ensureIprnInventorySchema(p);
   return { ok: true };
 }
 

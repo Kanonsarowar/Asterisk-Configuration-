@@ -2,7 +2,7 @@ async function fetchJsonWithTimeout(url, ms = 15000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
   try {
-    const res = await fetch(url, { signal: ctrl.signal });
+    const res = await fetch(url, { signal: ctrl.signal, credentials: 'same-origin' });
     if (!res.ok) {
       try {
         return await res.json();
@@ -21,19 +21,29 @@ async function fetchJsonWithTimeout(url, ms = 15000) {
 
 const API = {
   async get(url) {
-    const res = await fetch(url);
+    const res = await fetch(url, { credentials: 'same-origin' });
     return res.json();
   },
   async post(url, data) {
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(data),
+    });
     return res.json();
   },
   async put(url, data) {
-    const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(data),
+    });
     return res.json();
   },
   async del(url) {
-    const res = await fetch(url, { method: 'DELETE' });
+    const res = await fetch(url, { method: 'DELETE', credentials: 'same-origin' });
     return res.json();
   },
 
@@ -168,6 +178,23 @@ const API = {
 
   getAuthMe() {
     return fetch('/api/auth/me', { credentials: 'same-origin' }).then((r) => r.json());
+  },
+
+  /** IPRN range inventory (MySQL iprn_inv_*). */
+  getIprnInventoryRanges() {
+    return fetchJsonWithTimeout('/api/iprn-inventory/ranges', 30000);
+  },
+  getIprnInventorySuppliers() {
+    return fetchJsonWithTimeout('/api/iprn-inventory/suppliers', 15000);
+  },
+  postIprnInventoryRange(body) {
+    return this.post('/api/iprn-inventory/ranges', body);
+  },
+  postIprnInventorySupplier(body) {
+    return this.post('/api/iprn-inventory/suppliers', body);
+  },
+  putIprnInventoryRangeStatus(id, status) {
+    return this.put(`/api/iprn-inventory/ranges/${encodeURIComponent(id)}/status`, { status });
   },
 
   getTenantDashboard() {

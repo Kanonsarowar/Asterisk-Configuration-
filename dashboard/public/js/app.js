@@ -378,6 +378,7 @@ const pageTitles = {
   'cdr-history': 'CDR',
   suppliers: 'Suppliers',
   numbers: 'Number inventory',
+  'iprn-inventory': 'IPRN range inventory',
   'ivr-menus': 'IVR Audio',
   trunk: 'Trunk Configuration',
   config: 'Config Preview',
@@ -405,6 +406,7 @@ async function renderPage(page) {
     case 'cdr-history': return renderCdrHistory(content);
     case 'suppliers': return renderSuppliers(content);
     case 'numbers': return renderNumbers(content);
+    case 'iprn-inventory': return renderIprnInventory(content);
     case 'ivr-menus': return renderIvrMenus(content);
     case 'trunk': return renderTrunk(content);
     case 'config': return renderConfig(content);
@@ -2314,6 +2316,133 @@ function showAddNumberModal(suppliers, ivrMenus) {
 
 }
 
+// ---- IPRN RANGE INVENTORY (MySQL iprn_inv_* — Phase 1) ----
+async function renderIprnInventory(el) {
+  el.innerHTML = '<div class="card"><div class="card-body padded"><p class="empty-state">Loading IPRN range inventory…</p></div></div>';
+  const [supRes, rangeRes] = await Promise.all([
+    API.getIprnInventorySuppliers(),
+    API.getIprnInventoryRanges(),
+  ]);
+  if (supRes && supRes.error && supRes.enabled === false) {
+    el.innerHTML = `<div class="card"><div class="card-body padded">
+      <p style="color:var(--danger)"><strong>MySQL required.</strong> Set <code>MYSQL_ENABLED=1</code> and DB credentials, restart the dashboard, then refresh. Tables <code>iprn_inv_*</code> are created on connect from <code>sql/iprn_inventory.sql</code>.</p>
+    </div></div>`;
+    return;
+  }
+  const suppliers = (supRes && supRes.rows) || [];
+  const rows = (rangeRes && rangeRes.rows) || [];
+  const statusOpts = ['NEW', 'TESTING', 'ACTIVE', 'DEGRADED', 'BLOCKED', 'ARCHIVED'];
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><h3>Add IPRN range</h3></div>
+      <div class="card-body padded">
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Range-based rows in <code>iprn_inv_numbers</code>. Separate from per-DID <strong>Number inventory</strong>.</p>
+        <div class="form-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div class="form-group"><label>Country</label><input class="form-control" id="iprn-add-country" placeholder="e.g. DE"></div>
+          <div class="form-group"><label>Prefix</label><input class="form-control" id="iprn-add-prefix" placeholder="e.g. 49"></div>
+          <div class="form-group"><label>Range start</label><input class="form-control" id="iprn-add-rs" placeholder="digits"></div>
+          <div class="form-group"><label>Range end</label><input class="form-control" id="iprn-add-re" placeholder="digits"></div>
+          <div class="form-group"><label>Supplier</label>
+            <select class="form-control" id="iprn-add-sup">${suppliers.length ? suppliers.map((s) => `<option value="${escHtml(String(s.id))}">${escHtml(s.name)}</option>`).join('') : '<option value="">— add supplier first —</option>'}</select>
+          </div>
+          <div class="form-group"><label>Access</label>
+            <select class="form-control" id="iprn-add-acc"><option value="IVR">IVR</option><option value="DIRECT">DIRECT</option><option value="SIP">SIP</option></select>
+          </div>
+          <div class="form-group"><label>Type</label>
+            <select class="form-control" id="iprn-add-typ"><option value="IPRN">IPRN</option><option value="TEST">TEST</option></select>
+          </div>
+          <button type="button" class="btn btn-primary" id="iprn-add-btn">Add range</button>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><h3>Add supplier (IPRN module)</h3></div>
+      <div class="card-body padded">
+        <div class="form-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div class="form-group"><label>Name</label><input class="form-control" id="iprn-sup-name" placeholder="Name"></div>
+          <div class="form-group"><label>Country</label><input class="form-control" id="iprn-sup-country" placeholder=""></div>
+          <div class="form-group"><label>SIP host</label><input class="form-control" id="iprn-sup-host" placeholder="sip.example.com"></div>
+          <div class="form-group"><label>Protocol</label>
+            <select class="form-control" id="iprn-sup-prot"><option value="SIP">SIP</option><option value="IAX">IAX</option></select>
+          </div>
+          <div class="form-group"><label>Reliability</label><input class="form-control" id="iprn-sup-rel" type="number" step="0.1" value="0"></div>
+          <button type="button" class="btn btn-outline" id="iprn-sup-btn">Add supplier</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>Ranges</h3></div>
+      <div class="card-body padded">
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">ASR / ACD placeholders in <code>iprn_inv_stats</code> (update via your billing pipeline). Health job: <code>node dashboard/jobs/numberHealth.js</code>.</p>
+        ${rows.length ? `<table><thead><tr><th>ID</th><th>Country</th><th>Prefix</th><th>Range</th><th>Type</th><th>Supplier</th><th>Access</th><th>Status</th><th>ASR / ACD (placeholder)</th></tr></thead><tbody>
+          ${rows.map((n) => {
+            const sel = statusOpts.map((s) => `<option value="${s}" ${n.status === s ? 'selected' : ''}>${s}</option>`).join('');
+            return `<tr>
+              <td>${n.id}</td>
+              <td>${escHtml(String(n.country || ''))}</td>
+              <td style="font-family:monospace">${escHtml(String(n.prefix || ''))}</td>
+              <td style="font-family:monospace">${escHtml(String(n.range_start || ''))} – ${escHtml(String(n.range_end || ''))}</td>
+              <td>${escHtml(String(n.type || ''))}</td>
+              <td>${escHtml(String(n.supplier_name || '—'))}</td>
+              <td>${escHtml(String(n.access_type || ''))}</td>
+              <td><select class="form-control iprn-inv-status" data-id="${n.id}" style="width:auto;padding:4px 8px;font-size:12px">${sel}</select></td>
+              <td style="font-size:11px;color:var(--text-muted)">— / —</td>
+            </tr>`;
+          }).join('')}
+        </tbody></table>` : '<p class="empty-state">No IPRN ranges yet.</p>'}
+      </div>
+    </div>`;
+
+  document.getElementById('iprn-add-btn').onclick = async () => {
+    const body = {
+      country: document.getElementById('iprn-add-country').value.trim(),
+      prefix: document.getElementById('iprn-add-prefix').value.trim(),
+      range_start: document.getElementById('iprn-add-rs').value.trim(),
+      range_end: document.getElementById('iprn-add-re').value.trim(),
+      supplier_id: document.getElementById('iprn-add-sup').value || null,
+      access_type: document.getElementById('iprn-add-acc').value,
+      type: document.getElementById('iprn-add-typ').value,
+    };
+    const r = await API.postIprnInventoryRange(body);
+    if (r && r.error) {
+      toast(String(r.error), 'error');
+      return;
+    }
+    toast('Range added');
+    renderIprnInventory(el);
+  };
+
+  document.getElementById('iprn-sup-btn').onclick = async () => {
+    const body = {
+      name: document.getElementById('iprn-sup-name').value.trim(),
+      country: document.getElementById('iprn-sup-country').value.trim(),
+      sip_host: document.getElementById('iprn-sup-host').value.trim(),
+      protocol: document.getElementById('iprn-sup-prot').value,
+      reliability_score: parseFloat(document.getElementById('iprn-sup-rel').value) || 0,
+    };
+    const r = await API.postIprnInventorySupplier(body);
+    if (r && r.error) {
+      toast(String(r.error), 'error');
+      return;
+    }
+    toast('Supplier added');
+    renderIprnInventory(el);
+  };
+
+  el.querySelectorAll('.iprn-inv-status').forEach((sel) => {
+    sel.onchange = async () => {
+      const id = sel.dataset.id;
+      const r = await API.putIprnInventoryRangeStatus(id, sel.value);
+      if (r && r.error) {
+        toast(String(r.error), 'error');
+        return;
+      }
+      toast('Status updated');
+    };
+  });
+}
+
 // ---- IVR AUDIO ----
 async function renderIvrMenus(el) {
   const ivrMenus = await API.getIvrMenus();
@@ -2754,6 +2883,8 @@ document.querySelectorAll('.nav-item').forEach(btn => {
       if (me.tenantPortalEnabled) {
         const ic = document.getElementById('nav-iprn-clients');
         if (ic) ic.style.display = '';
+        const inv = document.getElementById('nav-iprn-inventory');
+        if (inv) inv.style.display = '';
       }
       navigateTo('dashboard');
     }

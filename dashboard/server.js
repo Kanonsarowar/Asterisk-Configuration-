@@ -32,6 +32,7 @@ import {
 } from './lib/mysql.js';
 import { validateAndNormalizeCallLog } from './lib/call-log-ingest.js';
 import * as numbersService from './lib/numbers-service.js';
+import * as iprnInv from './lib/iprn-inventory-mysql.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -545,6 +546,36 @@ async function handleApi(req, res) {
     if (path.startsWith('/api/suppliers/') && method === 'DELETE') {
       const id = path.split('/').pop();
       return store.deleteSupplier(id) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
+    }
+
+    // IPRN range inventory (MySQL iprn_inv_* — Phase 1; does not replace DID numbers API)
+    if (path.startsWith('/api/iprn-inventory')) {
+      if (!getMysqlPool()) {
+        return sendJson(res, 503, { error: 'MySQL required', enabled: false, rows: [] });
+      }
+      if (path === '/api/iprn-inventory/suppliers' && method === 'GET') {
+        return sendJson(res, 200, { enabled: true, rows: await iprnInv.listIprnSuppliers() });
+      }
+      if (path === '/api/iprn-inventory/suppliers' && method === 'POST') {
+        const body = await parseBody(req);
+        const r = await iprnInv.insertIprnSupplier(body);
+        return sendJson(res, 201, r);
+      }
+      if (path === '/api/iprn-inventory/ranges' && method === 'GET') {
+        return sendJson(res, 200, { enabled: true, rows: await iprnInv.listIprnRangeNumbers() });
+      }
+      if (path === '/api/iprn-inventory/ranges' && method === 'POST') {
+        const body = await parseBody(req);
+        const r = await iprnInv.insertIprnRange(body);
+        return sendJson(res, 201, r);
+      }
+      const statusMatch = path.match(/^\/api\/iprn-inventory\/ranges\/(\d+)\/status$/);
+      if (statusMatch && method === 'PUT') {
+        const body = await parseBody(req);
+        const r = await iprnInv.updateIprnRangeStatus(statusMatch[1], body.status);
+        return sendJson(res, 200, r);
+      }
+      return sendJson(res, 404, { error: 'Not found' });
     }
 
     // Panel admins (db.json); DASH_USER / DASH_PASS always valid via env
