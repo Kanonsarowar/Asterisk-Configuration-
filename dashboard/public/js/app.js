@@ -397,6 +397,23 @@ function formatPrefixTariff(pg) {
   return `${sym}${rateStr}/min <span style="color:var(--text-muted);font-size:10px;text-transform:capitalize">${termStr}</span>`;
 }
 
+/** Single DID — IVR tariff for table column (matches Purple-style display). */
+function formatDidIvrTariff(n) {
+  if (!n) return '—';
+  const cur = String(n.rateCurrency || 'usd').toLowerCase() === 'eur' ? 'eur' : 'usd';
+  const sym = cur === 'eur' ? '€' : '$';
+  return `${sym}${escHtml(String(n.rate ?? ''))}/min`;
+}
+
+/** Payment terms shorthand for inventory table. */
+function formatDidPaymentTerms(n) {
+  const t = String(n?.paymentTerm || 'weekly').toLowerCase();
+  if (t === 'weekly') return '7/1';
+  if (t === 'monthly') return '30/1';
+  if (t === 'daily') return '1/1';
+  return escHtml(t);
+}
+
 function formatBillMinutes(billsec) {
   const m = (Number(billsec) || 0) / 60;
   return m.toFixed(2) + ' min';
@@ -2121,7 +2138,7 @@ async function renderNumbers(el) {
       <div class="card-header"><h3>Prefix inventory</h3></div>
       <div class="card-body padded">
         <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px;line-height:1.45">
-          One row per routing prefix (country code + prefix). Expand a prefix in <strong>DID Inventory</strong> to edit individual DIDs, rates, and allocation.
+          One summary row per <strong>CC + prefix</strong>. Full DID lists and per-number edits are in <strong>DID Inventory</strong> below (grouped by country, same layout as wholesale number panels).
         </p>
         ${prefixInventoryTable}
       </div>
@@ -2136,116 +2153,139 @@ async function renderNumbers(el) {
       </div>
       <div class="card-body padded" id="numbers-list">
         ${flatPrefixes.length ? `
-        <table>
-          <thead>
-            <tr>
-              <th style="width:38%">Numbers</th>
-              <th style="width:20%">IVR</th>
-              <th style="width:12%">Tariff</th>
-              <th style="width:18%">Bulk</th>
-              <th style="width:10%">Del</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${detectedCountryOrder.map(countryLabel => {
+        <div class="did-inventory-wrap">
+            ${detectedCountryOrder.map((countryLabel) => {
               const entries = groupedByDetectedCountry[countryLabel];
               return `
-              <tr>
-                <td colspan="5" style="font-weight:600;color:var(--text-muted);padding-top:14px">${escHtml(countryLabel)} <span style="font-weight:400">(${entries.length} prefix${entries.length !== 1 ? 'es' : ''})</span></td>
-              </tr>
-              ${entries.map((entry, idx) => {
+              <section class="did-country-block">
+                <h4 class="did-country-title">${escHtml(countryLabel)} <span class="did-country-meta">(${entries.length} prefix${entries.length !== 1 ? 'es' : ''})</span></h4>
+                ${entries.map((entry, idx) => {
                 const { country, pg, detectedCountry } = entry;
                 const groupId = `prefix-group-${countryLabel.replace(/\W+/g, '-')}-${idx}`;
+                const fullPrefixDigits = `${pg.countryCode || ''}${pg.prefix || ''}`;
                 return `
-                <tr>
-                  <td>
-                    <button class="btn-icon did-prefix-toggle" data-target="${groupId}" style="margin-right:6px">+</button>
-                    <strong style="font-family:monospace">${pg.countryCode}${pg.prefix}</strong>
-                    <span style="color:var(--text-muted);font-size:12px">(${pg.numbers.length} number${pg.numbers.length !== 1 ? 's' : ''})</span>
-                  </td>
-                  <td>
-                    <select class="form-control prefix-ivr-sel" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" style="width:auto;padding:4px 8px;font-size:12px">
-                      ${ivrMenus.map(ivr => `<option value="${ivr.id}" ${pg.numbers[0]?.destinationId === ivr.id ? 'selected' : ''}>${ivr.name}</option>`).join('')}
-                    </select>
-                  </td>
-                  <td style="font-size:12px">${formatPrefixTariff(pg)}</td>
-                  <td>
-                    <select class="form-control prefix-bulk-ivr" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" style="width:auto;padding:4px 8px;font-size:12px;display:inline-block">
-                      ${ivrMenus.map(ivr => `<option value="${ivr.id}">${ivr.name}</option>`).join('')}
-                    </select>
-                    <button class="btn btn-outline btn-sm apply-prefix-bulk-ivr" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}">Set</button>
-                  </td>
-                  <td><button class="btn-icon del-prefix" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}">&#128465;</button></td>
-                </tr>
-                <tr id="${groupId}" style="display:none">
-                  <td colspan="5">
-                    <table style="margin:8px 0 2px 0">
-                      <thead><tr><th><input type="checkbox" class="prefix-select-all" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}"></th><th>Full Number</th><th>Extension</th><th>Supplier</th><th>Route</th><th>PJSIP</th><th>Backup</th><th>Cost/m</th><th>Pri</th><th>Last used</th><th>Billing Σ</th><th>SIP</th><th>Per DID IVR</th><th>Rate</th><th>Allocation</th></tr></thead>
+                <div class="did-prefix-card">
+                  <div class="did-prefix-card-toolbar">
+                    <div class="did-prefix-line">
+                      <span class="did-prefix-key">${escHtml(fullPrefixDigits)}</span>
+                      <span class="did-prefix-count">(${pg.numbers.length} number${pg.numbers.length !== 1 ? 's' : ''})</span>
+                    </div>
+                    <div class="did-prefix-bulk">
+                      <span class="text-muted" style="font-size:12px">Default IVR</span>
+                      <select class="form-control prefix-ivr-sel" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" style="width:auto;min-width:140px;padding:4px 8px;font-size:12px">
+                        ${ivrMenus.map(ivr => `<option value="${ivr.id}" ${pg.numbers[0]?.destinationId === ivr.id ? 'selected' : ''}>${ivr.name}</option>`).join('')}
+                      </select>
+                      <span class="did-prefix-tariff-inline">${formatPrefixTariff(pg)}</span>
+                      <select class="form-control prefix-bulk-ivr" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" style="width:auto;min-width:120px;padding:4px 8px;font-size:12px;display:inline-block">
+                        ${ivrMenus.map(ivr => `<option value="${ivr.id}">${ivr.name}</option>`).join('')}
+                      </select>
+                      <button type="button" class="btn btn-outline btn-sm apply-prefix-bulk-ivr" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}">Set</button>
+                      <button type="button" class="btn-icon del-prefix" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" title="Delete entire prefix">&#128465;</button>
+                    </div>
+                  </div>
+                  <div id="${groupId}" class="did-prefix-body">
+                    <table class="did-simple-table">
+                      <thead>
+                        <tr>
+                          <th class="did-col-chk"><input type="checkbox" class="prefix-select-all" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" title="Select all"></th>
+                          <th>Numbers</th>
+                          <th>Country</th>
+                          <th>IVR</th>
+                          <th>IVR tariff</th>
+                          <th>Terms</th>
+                          <th>Allocation</th>
+                          <th>Del</th>
+                        </tr>
+                      </thead>
                       <tbody>
-                        ${pg.numbers.map(n => {
-                          const sup = suppliers.find(s => s.id === n.supplierId);
+                        ${pg.numbers.map((n) => {
+                          const sup = suppliers.find((s) => s.id === n.supplierId);
                           const isAlloc = String(n.status || '').toLowerCase() === 'allocated';
                           const allocDateShort = n.allocationDate ? String(n.allocationDate).slice(0, 10) : '';
                           const fullDig = `${n.countryCode}${n.prefix}${n.extension}`;
+                          const routeSel = n.iprnRouteStatus === 'blocked' ? 'blocked' : 'active';
+                          const sipLbl = sipStateForEndpoint(contacts, n.routingPjsipEndpoint || '');
                           const br = billByNum[fullDig];
                           const billTxt = br
                             ? `${br.call_count}× ${Math.round((br.duration_seconds || 0) / 60)}m / ${Number(br.total_profit || 0).toFixed(2)}`
                             : '—';
                           const lastU = n.lastUsedInventory ? String(n.lastUsedInventory).replace('T', ' ').slice(0, 19) : '—';
-                          const routeSel = n.iprnRouteStatus === 'blocked' ? 'blocked' : 'active';
-                          const sipLbl = sipStateForEndpoint(contacts, n.routingPjsipEndpoint || '');
                           return `<tr>
                             <td><input type="checkbox" class="prefix-number-chk" data-country="${country}" data-cc="${n.countryCode}" data-prefix="${n.prefix}" data-id="${n.id}"></td>
-                            <td style="font-family:monospace">${fullDig}</td>
-                            <td style="font-family:monospace">${n.extension}</td>
-                            <td>${sup ? `<span class="badge badge-direct">${escHtml(sup.name)}</span>` : '-'}</td>
-                            <td><select class="form-control iprn-route-st" data-id="${n.id}" style="width:auto;padding:2px 6px;font-size:11px">
-                              <option value="active" ${routeSel === 'active' ? 'selected' : ''}>active</option>
-                              <option value="blocked" ${routeSel === 'blocked' ? 'selected' : ''}>blocked</option>
-                            </select></td>
-                            <td><input type="text" class="form-control iprn-pjsip" data-id="${n.id}" value="${escHtml(String(n.routingPjsipEndpoint || ''))}" placeholder="endpoint" style="width:100px;font-size:11px;padding:2px 6px" /></td>
-                            <td><input type="text" class="form-control iprn-backup" data-id="${n.id}" value="${escHtml(String(n.backupPjsipEndpoint || ''))}" style="width:88px;font-size:11px;padding:2px 6px" /></td>
-                            <td><input type="text" class="form-control iprn-cost" data-id="${n.id}" value="${escHtml(String(n.costPerMin != null ? n.costPerMin : ''))}" style="width:52px;font-size:11px;padding:2px 6px" /></td>
-                            <td><input type="text" class="form-control iprn-pri" data-id="${n.id}" value="${escHtml(String(n.iprnPriority != null ? n.iprnPriority : 0))}" style="width:36px;font-size:11px;padding:2px 6px" /></td>
-                            <td style="font-size:11px;color:var(--text-muted)">${escHtml(lastU)}</td>
-                            <td style="font-size:11px" title="calls × approx minutes / profit sum">${escHtml(billTxt)}</td>
-                            <td style="font-size:11px">${escHtml(sipLbl)}</td>
+                            <td style="font-family:monospace;font-weight:500">${fullDig}</td>
+                            <td>${escHtml(String(detectedCountry))}</td>
                             <td>
-                              <select class="form-control number-ivr-sel" data-id="${n.id}" style="width:auto;padding:4px 8px;font-size:12px">
+                              <select class="form-control number-ivr-sel" data-id="${n.id}" style="width:auto;min-width:130px;padding:4px 8px;font-size:12px">
                                 ${ivrMenus.map(ivr => `<option value="${ivr.id}" ${n.destinationId === ivr.id ? 'selected' : ''}>${ivr.name}</option>`).join('')}
                               </select>
                             </td>
-                            <td>
-                              <button class="btn btn-outline btn-sm edit-prefix-rate" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" data-rate="${escHtml(String(pg.rate))}" data-currency="${escHtml(String(pg.numbers[0]?.rateCurrency || 'usd'))}" data-term="${escHtml(String(pg.numbers[0]?.paymentTerm || 'weekly'))}">Rate</button>
-                            </td>
+                            <td style="font-size:13px">${formatDidIvrTariff(n)}</td>
+                            <td style="font-size:12px">${formatDidPaymentTerms(n)}</td>
                             <td style="font-size:12px;vertical-align:middle">
                               ${isAlloc
-                                ? `<div><span class="badge badge-ring">allocated</span></div>
-                                   <div style="margin-top:4px">${escHtml(n.clientName || '—')}</div>
+                                ? `<span class="badge badge-ring">allocated</span><div style="margin-top:4px">${escHtml(n.clientName || '—')}</div>
                                    ${allocDateShort ? `<div style="color:var(--text-muted);font-size:11px">${escHtml(allocDateShort)}</div>` : ''}
                                    <button type="button" class="btn btn-outline btn-sm btn-release-did" data-id="${n.id}" style="margin-top:6px">Release</button>`
-                                : `<div><span class="badge badge-direct">pool</span></div>
+                                : `<span class="badge badge-direct">pool</span>
                                    <button type="button" class="btn btn-outline btn-sm btn-assign-did" data-id="${n.id}" style="margin-top:6px">Assign</button>`}
+                            </td>
+                            <td>
+                              <button type="button" class="btn-icon del-single-did" data-id="${n.id}" title="Delete this DID">&#128465;</button>
+                            </td>
+                          </tr>
+                          <tr class="did-advanced-row">
+                            <td colspan="8" style="padding:0;border:none">
+                              <details class="did-advanced-details">
+                                <summary>Advanced — supplier, ODBC route, billing</summary>
+                                <div style="overflow:auto;padding:10px 0 4px">
+                                  <table class="did-advanced-table">
+                                    <thead>
+                                      <tr>
+                                        <th>Ext</th><th>Supplier</th><th>Route</th><th>PJSIP</th><th>Backup</th><th>Cost/m</th><th>Pri</th><th>Last used</th><th>Billing Σ</th><th>SIP</th><th>Rate</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      <tr>
+                                        <td style="font-family:monospace">${escHtml(String(n.extension))}</td>
+                                        <td>${sup ? `<span class="badge badge-direct">${escHtml(sup.name)}</span>` : '—'}</td>
+                                        <td><select class="form-control iprn-route-st" data-id="${n.id}" style="width:auto;padding:2px 6px;font-size:11px">
+                                          <option value="active" ${routeSel === 'active' ? 'selected' : ''}>active</option>
+                                          <option value="blocked" ${routeSel === 'blocked' ? 'selected' : ''}>blocked</option>
+                                        </select></td>
+                                        <td><input type="text" class="form-control iprn-pjsip" data-id="${n.id}" value="${escHtml(String(n.routingPjsipEndpoint || ''))}" placeholder="endpoint" style="width:100px;font-size:11px;padding:2px 6px" /></td>
+                                        <td><input type="text" class="form-control iprn-backup" data-id="${n.id}" value="${escHtml(String(n.backupPjsipEndpoint || ''))}" style="width:88px;font-size:11px;padding:2px 6px" /></td>
+                                        <td><input type="text" class="form-control iprn-cost" data-id="${n.id}" value="${escHtml(String(n.costPerMin != null ? n.costPerMin : ''))}" style="width:52px;font-size:11px;padding:2px 6px" /></td>
+                                        <td><input type="text" class="form-control iprn-pri" data-id="${n.id}" value="${escHtml(String(n.iprnPriority != null ? n.iprnPriority : 0))}" style="width:36px;font-size:11px;padding:2px 6px" /></td>
+                                        <td style="font-size:11px;color:var(--text-muted)">${escHtml(lastU)}</td>
+                                        <td style="font-size:11px" title="calls × approx minutes / profit sum">${escHtml(billTxt)}</td>
+                                        <td style="font-size:11px">${escHtml(sipLbl)}</td>
+                                        <td><button type="button" class="btn btn-outline btn-sm edit-prefix-rate" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" data-rate="${escHtml(String(pg.rate))}" data-currency="${escHtml(String(pg.numbers[0]?.rateCurrency || 'usd'))}" data-term="${escHtml(String(pg.numbers[0]?.paymentTerm || 'weekly'))}">Edit rate</button></td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </details>
                             </td>
                           </tr>`;
                         }).join('')}
                       </tbody>
                     </table>
-                  </td>
-                </tr>`;
+                  </div>
+                </div>`;
               }).join('')}
-              `;
+              </section>`;
             }).join('')}
-          </tbody>
-        </table>` : '<div class="empty-state">No numbers in inventory yet. Click &quot;+ Add DID&quot; to get started.</div>'}
+        </div>` : '<div class="empty-state">No numbers in inventory yet. Click &quot;+ Add DID&quot; to get started.</div>'}
       </div>
     </div>`;
-  el.querySelectorAll('.did-prefix-toggle').forEach(btn => {
-    btn.onclick = () => {
-      const target = document.getElementById(btn.dataset.target);
-      const isHidden = target.style.display === 'none';
-      target.style.display = isHidden ? '' : 'none';
-      btn.textContent = isHidden ? '−' : '+';
+  el.querySelectorAll('.del-single-did').forEach((btn) => {
+    btn.onclick = async () => {
+      const id = btn.dataset.id;
+      if (!id || !confirm('Delete this DID from inventory?')) return;
+      await API.deleteNumber(id);
+      markChanged();
+      toast('DID removed');
+      renderNumbers(el);
     };
   });
 
