@@ -143,7 +143,7 @@ export async function mysqlListNumbers() {
   const [rows] = await p.query(
     `SELECT n.*, i.last_used AS inv_last_used
      FROM \`numbers\` n
-     LEFT JOIN \`number_inventory\` i ON i.\`number\` = n.\`number\`
+     LEFT JOIN \`number_inventory\` i ON BINARY i.\`number\` = BINARY n.\`number\`
      ORDER BY n.\`country\` ASC, n.\`country_code\` ASC, n.\`prefix\` ASC, n.\`extension\` ASC, n.\`id\` ASC`
   );
   return (rows || []).map(rowToApp);
@@ -155,7 +155,7 @@ export async function mysqlGetById(id) {
   const [rows] = await p.query(
     `SELECT n.*, i.last_used AS inv_last_used
      FROM \`numbers\` n
-     LEFT JOIN \`number_inventory\` i ON i.\`number\` = n.\`number\`
+     LEFT JOIN \`number_inventory\` i ON BINARY i.\`number\` = BINARY n.\`number\`
      WHERE n.\`id\` = ? LIMIT 1`,
     [parseInt(id, 10)]
   );
@@ -193,7 +193,7 @@ export async function mysqlUpsertDashboardNumber(n) {
   const [rows] = await p.query(
     `SELECT n.*, i.last_used AS inv_last_used
      FROM \`numbers\` n
-     LEFT JOIN \`number_inventory\` i ON i.\`number\` = n.\`number\`
+     LEFT JOIN \`number_inventory\` i ON BINARY i.\`number\` = BINARY n.\`number\`
      WHERE n.\`number\` = ? LIMIT 1`,
     [row.number]
   );
@@ -264,7 +264,7 @@ export async function mysqlBulkUpsert(nums) {
       const [rows] = await conn.query(
         `SELECT n.*, i.last_used AS inv_last_used
          FROM \`numbers\` n
-         LEFT JOIN \`number_inventory\` i ON i.\`number\` = n.\`number\`
+         LEFT JOIN \`number_inventory\` i ON BINARY i.\`number\` = BINARY n.\`number\`
          WHERE n.\`number\` = ? LIMIT 1`,
         [row.number]
       );
