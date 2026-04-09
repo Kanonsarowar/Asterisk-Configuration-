@@ -1,8 +1,16 @@
-async function fetchJsonWithTimeout(url, ms = 15000) {
+async function fetchJsonWithTimeout(url, ms = 15000, method, body) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
   try {
-    const res = await fetch(url, { signal: ctrl.signal, credentials: 'same-origin' });
+    const opts = { signal: ctrl.signal, credentials: 'same-origin' };
+    if (method) {
+      opts.method = method;
+      if (method !== 'GET' && method !== 'HEAD') {
+        opts.headers = { 'Content-Type': 'application/json' };
+        opts.body = JSON.stringify(body !== undefined ? body : {});
+      }
+    }
+    const res = await fetch(url, opts);
     if (!res.ok) {
       try {
         return await res.json();
@@ -201,6 +209,26 @@ const API = {
   },
   putIprnInventoryRangeStatus(id, status) {
     return this.put(`/api/iprn-inventory/ranges/${encodeURIComponent(id)}/status`, { status });
+  },
+
+  /** Prefix staging catalog (MySQL): template → promote test DID or bulk extensions */
+  getPrefixCatalog() {
+    return fetchJsonWithTimeout('/api/prefix-catalog', 25000);
+  },
+  postPrefixCatalog(body) {
+    return this.post('/api/prefix-catalog', body);
+  },
+  putPrefixCatalog(id, body) {
+    return this.put(`/api/prefix-catalog/${encodeURIComponent(id)}`, body);
+  },
+  deletePrefixCatalog(id) {
+    return this.del(`/api/prefix-catalog/${encodeURIComponent(id)}`);
+  },
+  postPrefixCatalogPromoteTest(id) {
+    return fetchJsonWithTimeout(`/api/prefix-catalog/${encodeURIComponent(id)}/promote-test`, 60000, 'POST', {});
+  },
+  postPrefixCatalogPromoteExtensions(id, body) {
+    return fetchJsonWithTimeout(`/api/prefix-catalog/${encodeURIComponent(id)}/promote-extensions`, 120000, 'POST', body || {});
   },
 
   getTenantDashboard() {

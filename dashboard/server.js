@@ -41,6 +41,7 @@ import {
 } from './lib/call-stats-mysql.js';
 import { syncCdrToCallLogs } from './lib/cdr-sync.js';
 import { findSupplierById, findSupplierBySourceIp } from './lib/supplier-resolve.js';
+import * as prefixCatalog from './lib/prefix-catalog-mysql.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -673,6 +674,69 @@ async function handleApi(req, res) {
         return sendJson(res, 200, r);
       }
       return sendJson(res, 404, { error: 'Not found' });
+    }
+
+    // Prefix staging catalog (MySQL — template + test number → promote to DIDs)
+    if (path === '/api/prefix-catalog' && method === 'GET') {
+      if (!isMysqlNumbersReady()) {
+        return sendJson(res, 503, { error: 'MySQL required', enabled: false, rows: [] });
+      }
+      try {
+        return sendJson(res, 200, { enabled: true, rows: await prefixCatalog.mysqlListPrefixCatalog() });
+      } catch (e) {
+        return sendJson(res, 500, { error: String(e?.message || e) });
+      }
+    }
+    if (path === '/api/prefix-catalog' && method === 'POST') {
+      if (!isMysqlNumbersReady()) return sendJson(res, 503, { error: 'MySQL required' });
+      try {
+        const body = await parseBody(req);
+        const row = await prefixCatalog.mysqlCreatePrefixCatalog(body);
+        return sendJson(res, 201, row);
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e?.message || e) });
+      }
+    }
+    const pcIdMatch = path.match(/^\/api\/prefix-catalog\/([^/]+)$/);
+    if (pcIdMatch && method === 'PUT') {
+      if (!isMysqlNumbersReady()) return sendJson(res, 503, { error: 'MySQL required' });
+      try {
+        const body = await parseBody(req);
+        const row = await prefixCatalog.mysqlUpdatePrefixCatalog(pcIdMatch[1], body);
+        return row ? sendJson(res, 200, row) : sendJson(res, 404, { error: 'Not found' });
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e?.message || e) });
+      }
+    }
+    if (pcIdMatch && method === 'DELETE') {
+      if (!isMysqlNumbersReady()) return sendJson(res, 503, { error: 'MySQL required' });
+      try {
+        const ok = await prefixCatalog.mysqlDeletePrefixCatalog(pcIdMatch[1]);
+        return ok ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e?.message || e) });
+      }
+    }
+    const pcPromoteTest = path.match(/^\/api\/prefix-catalog\/([^/]+)\/promote-test$/);
+    if (pcPromoteTest && method === 'POST') {
+      if (!isMysqlNumbersReady()) return sendJson(res, 503, { error: 'MySQL required' });
+      try {
+        const num = await prefixCatalog.mysqlPromoteCatalogTestNumber(pcPromoteTest[1]);
+        return sendJson(res, 201, { ok: true, number: num });
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e?.message || e) });
+      }
+    }
+    const pcPromoteBulk = path.match(/^\/api\/prefix-catalog\/([^/]+)\/promote-extensions$/);
+    if (pcPromoteBulk && method === 'POST') {
+      if (!isMysqlNumbersReady()) return sendJson(res, 503, { error: 'MySQL required' });
+      try {
+        const body = await parseBody(req);
+        const nums = await prefixCatalog.mysqlPromoteCatalogExtensions(pcPromoteBulk[1], body);
+        return sendJson(res, 201, { ok: true, count: nums.length });
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e?.message || e) });
+      }
     }
 
     // Panel admins (db.json); DASH_USER / DASH_PASS always valid via env

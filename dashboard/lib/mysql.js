@@ -271,6 +271,27 @@ async function migrateCallLogsDedupHash(p) {
   }
 }
 
+/** Staging prefix templates (price + test number + routes); promote → numbers. */
+const DDL_PREFIX_CATALOG = `
+CREATE TABLE IF NOT EXISTS \`prefix_catalog\` (
+  \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  \`country\` VARCHAR(8) NOT NULL DEFAULT 'XX',
+  \`country_code\` VARCHAR(32) NOT NULL DEFAULT '',
+  \`prefix\` VARCHAR(64) NOT NULL DEFAULT '',
+  \`rate\` VARCHAR(32) NOT NULL DEFAULT '0.01',
+  \`rate_currency\` VARCHAR(8) NOT NULL DEFAULT 'usd',
+  \`payment_term\` VARCHAR(16) NOT NULL DEFAULT 'weekly',
+  \`supplier_id\` VARCHAR(32) NOT NULL DEFAULT '',
+  \`destination_id\` VARCHAR(16) NOT NULL DEFAULT '1',
+  \`test_number\` VARCHAR(64) NOT NULL DEFAULT '',
+  \`routes_notes\` TEXT NULL,
+  \`status\` VARCHAR(16) NOT NULL DEFAULT 'staging',
+  \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (\`id\`),
+  UNIQUE KEY \`uk_prefix_catalog_cc_pfx\` (\`country_code\`(16), \`prefix\`(32))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+`;
+
 /** IPRN range inventory tables — /sql/iprn_inventory.sql (CREATE IF NOT EXISTS). */
 async function ensureIprnInventorySchema(p) {
   const sqlPath = join(__dirnameMysql, '..', '..', 'sql', 'iprn_inventory.sql');
@@ -306,6 +327,7 @@ export async function ensureMysqlSchema() {
   await p.execute(DDL_USER_NUMBERS);
   await p.execute(DDL_IPRN_INVOICES);
   await ensureIprnInventorySchema(p);
+  await p.execute(DDL_PREFIX_CATALOG);
   return { ok: true };
 }
 
