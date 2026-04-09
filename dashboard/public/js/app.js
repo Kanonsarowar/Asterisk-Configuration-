@@ -651,19 +651,126 @@ async function refreshDashboard() {
 }
 
 // ---- CALL STATS ----
-async function renderCallStats(el) {
-  const [stats, suppliers] = await Promise.all([API.getCallStats(24), API.getSuppliers()]);
+function buildCallStatsProAlerts(summary) {
+  if (!summary || typeof summary !== 'object') return '';
+  const tc = Number(summary.total_calls) || 0;
+  const asr = parseFloat(summary.asr);
+  const acd = parseFloat(summary.acd);
+  const drop = summary.asr_drop != null ? parseFloat(summary.asr_drop) : null;
+  const flags = [];
+  if (tc > 0 && tc < 20) {
+    flags.push({ level: 'warn', text: 'LOW SAMPLE SIZE — MySQL call_logs stats may not be reliable' });
+  }
+  if (tc > 0 && !isNaN(asr) && asr < 30) {
+    flags.push({ level: 'bad', text: 'BAD ROUTE — ASR below 30%' });
+  }
+  if (tc > 0 && !isNaN(acd) && acd < 10) {
+    flags.push({ level: 'bad', text: 'SUSPICIOUS TRAFFIC — ACD below 10s (answered)' });
+  }
+  if (tc > 100 && drop != null && !isNaN(drop) && drop >= 10) {
+    flags.push({ level: 'bad', text: 'SUPPLIER ISSUE — ASR dropped vs prior window (compare previous period)' });
+  }
+  if (!flags.length) return '';
+  const color = (level) => (level === 'warn' ? 'var(--warning)' : 'var(--danger)');
+  return `<div class="card" style="margin-bottom:16px;border-color:${color('bad')}">
+    <div class="card-body padded" style="padding:12px 16px">
+      <strong style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em">Alerts</strong>
+      <ul style="margin:8px 0 0 18px;padding:0;font-size:13px;line-height:1.5">
+        ${flags.map((f) => `<li style="color:${color(f.level)}">${escHtml(f.text)}</li>`).join('')}
+      </ul>
+    </div>
+  </div>`;
+}
 
-  // Map supplier IPs to names
+async function renderCallStats(el, hours = 24) {
+  const h = Math.min(168, Math.max(1, parseInt(String(hours), 10) || 24));
+  const [statsRes, suppliersRes, proRes] = await Promise.allSettled([
+    API.getCallStats(h),
+    API.getSuppliers(),
+    API.getCallStatsPro(h),
+  ]);
+  const stats = statsRes.status === 'fulfilled' && statsRes.value && !statsRes.value.error
+    ? statsRes.value
+    : { totalCalls: 0, answeredCalls: 0, failedCalls: 0, totalDuration: 0, callsPerMinute: 0, asr: 0, acd: 0, recentCalls: [] };
+  const suppliers = suppliersRes.status === 'fulfilled' && Array.isArray(suppliersRes.value) ? suppliersRes.value : [];
+
   const ipToSupplier = {};
   for (const s of suppliers) {
     for (const ip of s.ips) ipToSupplier[ip] = s.name;
   }
 
+  let pro = null;
+  let proErr = null;
+  if (proRes.status === 'fulfilled' && proRes.value && typeof proRes.value === 'object') {
+    if (proRes.value.ok === false) proErr = proRes.value.error || proRes.value.code || 'Unavailable';
+    else if (proRes.value.summary) pro = proRes.value;
+  } else if (proRes.status === 'rejected') {
+    proErr = 'Request failed';
+  }
+
+  const proBanner = proErr
+    ? `<div class="card" style="margin-bottom:16px;opacity:0.95"><div class="card-body padded"><p style="margin:0;font-size:13px;color:var(--text-muted)">
+      <strong>Call logs analytics</strong> requires MySQL and rows in <code>call_logs</code>. ${escHtml(String(proErr))}
+    </p></div></div>`
+    : '';
+
+  const sum = pro?.summary;
+  const proGrid = pro && sum
+    ? `<div class="stats-grid" style="margin-bottom:16px">
+      <div class="stat-card"><div class="label">MySQL window</div><div class="value">${escHtml(String(sum.hours || h))}h</div><div class="sub">call_logs + DID match</div></div>
+      <div class="stat-card"><div class="label">Est. revenue (${sum.hours || h}h)</div><div class="value green">${escHtml(String(sum.revenue))}</div><div class="sub">duration × DID rate</div></div>
+      <div class="stat-card"><div class="label">ASR (logs)</div><div class="value blue">${escHtml(String(sum.asr))}%</div><div class="sub">vs prior: ${sum.previous_asr != null ? escHtml(String(sum.previous_asr)) + '%' : '—'}</div></div>
+      <div class="stat-card"><div class="label">ACD (logs)</div><div class="value amber">${escHtml(String(sum.acd))}s</div><div class="sub">answered only</div></div>
+    </div>
+    ${buildCallStatsProAlerts(sum)}
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h3>Prefix performance</h3></div>
+      <div class="card-body" style="overflow:auto">
+        ${pro.prefix && pro.prefix.length ? `<table><thead><tr><th>Prefix</th><th>Calls</th><th>ASR</th><th>ACD</th><th>Revenue</th></tr></thead><tbody>
+          ${pro.prefix.map((p) => `<tr>
+            <td style="font-family:monospace">${escHtml(String(p.prefix))}</td>
+            <td>${p.calls}</td>
+            <td>${escHtml(String(p.asr))}%</td>
+            <td>${escHtml(String(p.acd))}s</td>
+            <td>${escHtml(String(p.revenue))}</td>
+          </tr>`).join('')}
+        </tbody></table>` : '<p class="empty-state" style="padding:12px">No prefix match (check destinations vs DIDs)</p>'}
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h3>Supplier performance</h3></div>
+      <div class="card-body" style="overflow:auto">
+        ${pro.supplier && pro.supplier.length ? `<table><thead><tr><th>Supplier</th><th>Calls</th><th>ASR</th><th>ACD</th></tr></thead><tbody>
+          ${pro.supplier.map((s) => `<tr>
+            <td>${escHtml(String(s.name))}</td>
+            <td>${s.calls}</td>
+            <td>${escHtml(String(s.asr))}%</td>
+            <td>${escHtml(String(s.acd))}s</td>
+          </tr>`).join('')}
+        </tbody></table>` : '<p class="empty-state" style="padding:12px">No supplier link (assign supplier on DIDs)</p>'}
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px" class="call-stats-pro-split">
+      <div class="card"><div class="card-header"><h3>Failure reasons</h3></div><div class="card-body padded">
+        ${pro.failures && pro.failures.length
+          ? `<ul style="margin:0;padding-left:18px;font-size:13px">${pro.failures.map((f) => `<li><strong>${escHtml(String(f.status))}</strong>: ${f.count}</li>`).join('')}</ul>`
+          : '<p class="empty-state" style="margin:0">No data</p>'}
+      </div></div>
+      <div class="card"><div class="card-header"><h3>CLI analysis</h3></div><div class="card-body padded">
+        ${pro.cli && pro.cli.length
+          ? `<ul style="margin:0;padding-left:18px;font-size:13px">${pro.cli.map((c) => `<li>${escHtml(String(c.cli_type))}: ${c.calls} calls, ASR ${escHtml(String(c.asr))}%</li>`).join('')}</ul>`
+          : '<p class="empty-state" style="margin:0">No data</p>'}
+      </div></div>
+    </div>`
+    : '';
+
   el.innerHTML = `
+    ${proBanner}
+    ${proGrid}
+    <p style="font-size:12px;color:var(--text-muted);margin:0 0 12px 0"><strong>CDR (Master.csv)</strong> — unchanged; ${h}h window for buttons below.</p>
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="label">Total Calls (24h)</div>
+        <div class="label">Total Calls (${h}h)</div>
         <div class="value blue">${stats.totalCalls}</div>
         <div class="sub">${stats.callsPerMinute} calls/min avg</div>
       </div>
@@ -721,9 +828,8 @@ async function renderCallStats(el) {
 }
 // expose for inline onclick handlers
 window.renderCallStatsForHours = async (h) => {
-  const stats = await API.getCallStats(h);
   const el = document.getElementById('content');
-  renderCallStats(el);
+  await renderCallStats(el, h);
 };
 
 // ---- CDR HISTORY ----

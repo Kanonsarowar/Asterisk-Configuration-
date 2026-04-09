@@ -347,6 +347,7 @@ select.form-control { cursor: pointer; }
   .form-row { grid-template-columns: 1fr; }
   .form-row-3 { grid-template-columns: 1fr; }
   .stats-grid { grid-template-columns: 1fr 1fr; }
+  .call-stats-pro-split { grid-template-columns: 1fr !important; }
   .topbar { gap: 8px; }
   .topbar h2 { font-size: 16px; }
 }

@@ -34,6 +34,7 @@ import {
 import { validateAndNormalizeCallLog } from './lib/call-log-ingest.js';
 import * as numbersService from './lib/numbers-service.js';
 import * as iprnInv from './lib/iprn-inventory-mysql.js';
+import { fetchCallLogsInHours, aggregateCallLogsPro } from './lib/call-stats-mysql.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -70,6 +71,22 @@ const execAsync = promisify(exec);
 const PUBLIC_DIR = join(__dirname, 'public');
 const PORT = process.env.PORT || 3000;
 const store = new Store();
+
+async function buildCallStatsProFromDb(hoursParam) {
+  const pool = getMysqlPool();
+  if (!pool) {
+    return {
+      ok: false,
+      code: 'MYSQL_UNAVAILABLE',
+      error: 'MySQL required for call_logs stats (MYSQL_ENABLED=1 and a working connection)',
+    };
+  }
+  const hours = Math.min(168, Math.max(1, parseInt(String(hoursParam), 10) || 24));
+  const { rows, hoursWindow } = await fetchCallLogsInHours(pool, hours);
+  const numbers = await numbersService.getNumbers(store);
+  const suppliers = store.getSuppliers();
+  return { ok: true, ...aggregateCallLogsPro(rows, numbers, suppliers, hoursWindow) };
+}
 
 const MIME_TYPES = {
   '.html': 'text/html',
@@ -482,6 +499,44 @@ async function handleApi(req, res) {
     if (path === '/api/dashboard-metrics' && method === 'GET') {
       const numbers = await numbersService.getNumbers(store);
       return sendJson(res, 200, computeDashboardMetrics(numbers));
+    }
+
+    // Call Statistics Pro — MySQL `call_logs` + DID match (no extra columns)
+    if (path === '/api/stats/pro' && method === 'GET') {
+      const hours = url.searchParams.get('hours');
+      const data = await buildCallStatsProFromDb(hours);
+      if (!data.ok) return sendJson(res, 503, data);
+      return sendJson(res, 200, data);
+    }
+    if (path === '/api/stats/summary' && method === 'GET') {
+      const hours = url.searchParams.get('hours');
+      const data = await buildCallStatsProFromDb(hours);
+      if (!data.ok) return sendJson(res, 503, data);
+      return sendJson(res, 200, data.summary);
+    }
+    if (path === '/api/stats/prefix' && method === 'GET') {
+      const hours = url.searchParams.get('hours');
+      const data = await buildCallStatsProFromDb(hours);
+      if (!data.ok) return sendJson(res, 503, data);
+      return sendJson(res, 200, data.prefix);
+    }
+    if (path === '/api/stats/supplier' && method === 'GET') {
+      const hours = url.searchParams.get('hours');
+      const data = await buildCallStatsProFromDb(hours);
+      if (!data.ok) return sendJson(res, 503, data);
+      return sendJson(res, 200, data.supplier);
+    }
+    if (path === '/api/stats/failures' && method === 'GET') {
+      const hours = url.searchParams.get('hours');
+      const data = await buildCallStatsProFromDb(hours);
+      if (!data.ok) return sendJson(res, 503, data);
+      return sendJson(res, 200, data.failures);
+    }
+    if (path === '/api/stats/cli' && method === 'GET') {
+      const hours = url.searchParams.get('hours');
+      const data = await buildCallStatsProFromDb(hours);
+      if (!data.ok) return sendJson(res, 503, data);
+      return sendJson(res, 200, data.cli);
     }
     if (path === '/api/cdr-history' && method === 'GET') {
       const hours = parseInt(url.searchParams.get('hours'), 10) || 168;

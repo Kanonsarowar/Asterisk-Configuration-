@@ -49,6 +49,10 @@ const API = {
 
   // Call Stats
   getCallStats(hours = 24) { return this.get(`/api/call-stats?hours=${hours}`); },
+  /** MySQL call_logs + DID match: summary, prefix, supplier, failures, cli */
+  getCallStatsPro(hours = 24) {
+    return fetchJsonWithTimeout(`/api/stats/pro?hours=${encodeURIComponent(hours)}`, 45000);
+  },
   /** CDR + DID rates: revenue, ASR/ACD MTD, top country, worst context, live CPS */
   getDashboardMetrics() { return fetchJsonWithTimeout('/api/dashboard-metrics', 35000); },
   getCdrHistory(opts = {}) {
