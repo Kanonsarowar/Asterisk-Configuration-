@@ -1,5 +1,5 @@
 /**
- * Parse Gulf Telecom allocation export (tab-separated: Country, Range, Rate USD).
+ * Parse Gulf Telecom allocation TSV (Country, Range, Rate_USD) or pypdf blob.
  * - Trailing `x` = wildcard; test DID uses `0` for each x.
  * - Ranges: "A to B" (full E.164 digits, inclusive).
  * - Splits full number into countryCode + prefix + extension (last 4 national digits = extension).
@@ -170,8 +170,12 @@ export function parseAllocationsText(raw) {
     if (/^--\s*\d+\s+of\s+\d+\s*--$/.test(t)) continue;
     if (/^country\s+range\s+rate/i.test(t)) continue;
 
-    const parts = t.split(/\t/).map((x) => x.trim());
+    let parts = t.includes('\t')
+      ? t.split(/\t/).map((x) => x.trim())
+      : t.split(/\s{2,}/).map((x) => x.trim()).filter(Boolean);
     if (parts.length < 3) continue;
+    if (/^country$/i.test(parts[0]) && /^range$/i.test(parts[1])) continue;
+    if (/^rate\s+in\s+usd$/i.test(parts[2] || '')) continue;
     const countryName = parts[0];
     const rangeField = parts[1];
     const rateStr = parts[parts.length - 1];

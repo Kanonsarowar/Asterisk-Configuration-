@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Extract text from AllocationsGulfTelecom.pdf into dashboard/data/gulf-telecom-allocations.txt"""
+"""Extract PDF text to dashboard/data/gulf-telecom-allocations-raw.txt — then run:
+   node dashboard/jobs/buildGulfAllocationsTsv.js
+"""
 import sys
 from pathlib import Path
 
@@ -20,7 +22,7 @@ def main():
         if pdf is None:
             print("Usage: extract-gulf-allocations-pdf.py <AllocationsGulfTelecom.pdf>", file=sys.stderr)
             sys.exit(1)
-    out = Path(__file__).resolve().parents[1] / "dashboard" / "data" / "gulf-telecom-allocations.txt"
+    out = Path(__file__).resolve().parents[1] / "dashboard" / "data" / "gulf-telecom-allocations-raw.txt"
     if not pdf.is_file():
         print(f"PDF not found: {pdf}", file=sys.stderr)
         sys.exit(1)
@@ -29,6 +31,7 @@ def main():
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text, encoding="utf-8")
     print(f"Wrote {len(text)} chars to {out}")
+    print("Next: node dashboard/jobs/buildGulfAllocationsTsv.js")
 
 if __name__ == "__main__":
     main()

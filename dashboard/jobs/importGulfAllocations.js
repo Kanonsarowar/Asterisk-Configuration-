@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
  * Import Gulf Telecom allocation list into DID inventory (numbers table).
- * Source: dashboard/data/gulf-telecom-allocations.txt (PDF text extract; see scripts/extract-gulf-allocations-pdf.py).
+ * Source: dashboard/data/gulf-telecom-allocations.tsv (Country, Range, Rate_USD).
  *
  *   node dashboard/jobs/importGulfAllocations.js
- *   ALLOCATION_FILE=/path/to.txt IVR_DEST_ID=1 node dashboard/jobs/importGulfAllocations.js
+ *   ALLOCATION_FILE=/path/to/file.tsv IVR_DEST_ID=1 node dashboard/jobs/importGulfAllocations.js
  *
  * Env: MYSQL_* (same as dashboard). Optional: IVR_DEST_ID (default 1), ALLOCATION_FILE.
  */
@@ -38,7 +38,7 @@ const BATCH = 250;
 
 async function main() {
   const filePath =
-    String(process.env.ALLOCATION_FILE || '').trim() || join(root, 'data', 'gulf-telecom-allocations.txt');
+    String(process.env.ALLOCATION_FILE || '').trim() || join(root, 'data', 'gulf-telecom-allocations.tsv');
   if (!existsSync(filePath)) {
     console.error('Missing file:', filePath);
     process.exit(1);
