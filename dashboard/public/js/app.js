@@ -444,13 +444,14 @@ async function renderDashboard(el) {
 
 async function refreshDashboard() {
   try {
-    const [statusRes, modulesRes, numbersRes, ivrRes, suppliersRes, iprnPanelRes] = await Promise.allSettled([
+    const [statusRes, modulesRes, numbersRes, ivrRes, suppliersRes, iprnPanelRes, metricsRes] = await Promise.allSettled([
       API.getStatus(),
       API.getModules(),
       API.getNumbers(),
       API.getIvrMenus(),
       API.getSuppliers(),
       API.getIprnPanelStatus(),
+      API.getDashboardMetrics(),
     ]);
     const rawStatus = statusRes.status === 'fulfilled' ? statusRes.value : {
       running: false, uptime: 'Unavailable', activeCalls: 0, activeChannels: 0, freeRamMB: 0, totalRamMB: 0
@@ -473,6 +474,13 @@ async function refreshDashboard() {
       iprn = { skipped: true };
     }
     const iprnBanner = buildIprnLiveBanner(iprn);
+
+    let m = null;
+    if (metricsRes.status === 'fulfilled' && metricsRes.value && typeof metricsRes.value === 'object' && !metricsRes.value.error) {
+      m = metricsRes.value;
+    }
+    const worst = m && m.worstRoute ? m.worstRoute : { context: '—', asr: 0, calls: 0 };
+    const top = m && m.topCountry ? m.topCountry : { code: '—', revenue: 0 };
 
     document.getElementById('stats-grid').innerHTML = `
       <div class="stat-card">
@@ -514,6 +522,36 @@ async function refreshDashboard() {
         <div class="label">ODBC routing</div>
         <div class="value">${iprn.odbcRoutingEnabled ? 'ON' : 'off'}</div>
         <div class="sub">DSN iprn_db + Apply</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Revenue (today / month)</div>
+        <div class="value green">${m ? escHtml(String(m.revenueToday)) : '—'}</div>
+        <div class="sub">Month: ${m ? escHtml(String(m.revenueMonth)) : '—'} <span style="opacity:0.75">(est. from CDR × DID rate)</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="label">ASR (global)</div>
+        <div class="value blue">${m ? escHtml(String(m.asrGlobal)) : '—'}%</div>
+        <div class="sub">Month-to-date, all CDR</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">ACD (global)</div>
+        <div class="value amber">${m ? escHtml(String(m.acdGlobal)) : '—'}s</div>
+        <div class="sub">Avg billsec (answered), MTD</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Top country (revenue)</div>
+        <div class="value">${escHtml(String(top.code))}</div>
+        <div class="sub">${escHtml(String(top.revenue))} today (matched DIDs)</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Worst route</div>
+        <div class="value" style="color:var(--danger)">${escHtml(String(worst.context))}</div>
+        <div class="sub">ASR ${escHtml(String(worst.asr))}% · ${escHtml(String(worst.calls))} calls <span style="opacity:0.75">(dialplan context)</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Live CPS</div>
+        <div class="value">${m ? escHtml(String(m.liveCps)) : '—'}</div>
+        <div class="sub">Calls in last 60s ÷ 60</div>
       </div>
     `;
 

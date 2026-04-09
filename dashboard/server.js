@@ -18,6 +18,7 @@ import {
 } from './lib/auth.js';
 import * as tenant from './lib/iprn-tenant.js';
 import { getCdrStats, getCdrHistory } from './lib/cdr.js';
+import { computeDashboardMetrics } from './lib/dashboard-metrics.js';
 import { getRecentInvites } from './lib/sip-log.js';
 import { buildBalanceReport } from './lib/balance.js';
 import {
@@ -477,6 +478,10 @@ async function handleApi(req, res) {
     if (path === '/api/call-stats' && method === 'GET') {
       const hours = parseInt(url.searchParams.get('hours')) || 24;
       return sendJson(res, 200, getCdrStats(hours));
+    }
+    if (path === '/api/dashboard-metrics' && method === 'GET') {
+      const numbers = await numbersService.getNumbers(store);
+      return sendJson(res, 200, computeDashboardMetrics(numbers));
     }
     if (path === '/api/cdr-history' && method === 'GET') {
       const hours = parseInt(url.searchParams.get('hours'), 10) || 168;

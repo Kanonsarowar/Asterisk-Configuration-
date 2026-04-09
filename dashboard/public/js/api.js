@@ -49,6 +49,8 @@ const API = {
 
   // Call Stats
   getCallStats(hours = 24) { return this.get(`/api/call-stats?hours=${hours}`); },
+  /** CDR + DID rates: revenue, ASR/ACD MTD, top country, worst context, live CPS */
+  getDashboardMetrics() { return fetchJsonWithTimeout('/api/dashboard-metrics', 35000); },
   getCdrHistory(opts = {}) {
     const hours = opts.hours != null ? opts.hours : 168;
     const limit = opts.limit != null ? opts.limit : 2000;
