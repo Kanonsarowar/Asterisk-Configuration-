@@ -40,6 +40,7 @@ import {
   fetchCallLogsRecentForUi,
 } from './lib/call-stats-mysql.js';
 import { syncCdrToCallLogs } from './lib/cdr-sync.js';
+import { findSupplierById, findSupplierBySourceIp } from './lib/supplier-resolve.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -737,8 +738,8 @@ async function handleApi(req, res) {
 
       const routeIvrId = matched?.destinationId || fallbackIvr.id;
       const routeIvr = ivrMenus.find(i => i.id === routeIvrId) || fallbackIvr;
-      const routeSupplier = matched?.supplierId ? (suppliers.find(s => s.id === matched.supplierId) || null) : null;
-      const sourceSupplier = sourceIp ? (suppliers.find(s => (s.ips || []).includes(sourceIp)) || null) : null;
+      const routeSupplier = matched?.supplierId ? findSupplierById(suppliers, matched.supplierId) : null;
+      const sourceSupplier = sourceIp ? findSupplierBySourceIp(suppliers, sourceIp) : null;
 
       return sendJson(res, 200, {
         ok: true,
@@ -760,7 +761,9 @@ async function handleApi(req, res) {
         },
         supplier: {
           routeSupplier: routeSupplier ? routeSupplier.name : null,
-          sourceSupplier: sourceSupplier ? sourceSupplier.name : null
+          sourceSupplier: sourceSupplier ? sourceSupplier.name : null,
+          routeSupplierId: routeSupplier ? String(routeSupplier.id) : '',
+          sourceSupplierId: sourceSupplier ? String(sourceSupplier.id) : ''
         }
       });
     }

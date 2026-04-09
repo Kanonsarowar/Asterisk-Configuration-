@@ -334,10 +334,21 @@ function matchNumberForDst(dst, numbers) {
   return best;
 }
 
+function normalizeCallSourceIp(ip) {
+  const s = String(ip || '').trim();
+  const m = s.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i);
+  return m ? m[1] : s;
+}
+
 function supplierIdForCall(sourceIp, matchedNumber, suppliers) {
   if (matchedNumber && matchedNumber.supplierId) return String(matchedNumber.supplierId);
+  const want = normalizeCallSourceIp(sourceIp);
+  if (!want) return '';
   for (const s of suppliers || []) {
-    if (s.ips && s.ips.includes(sourceIp)) return String(s.id);
+    const ips = s.ips || [];
+    for (const ip of ips) {
+      if (normalizeCallSourceIp(ip) === want) return String(s.id);
+    }
   }
   return '';
 }
@@ -3155,8 +3166,8 @@ async function renderDidTest(el) {
             <tr><th>EXTENSION</th><td style="font-family:monospace">${escHtml(result.matchedNumber?.extension || '-')}</td></tr>
             <tr><th>ROUTED IVR</th><td>${escHtml(result.route?.ivrName || '-')} (ID: ${escHtml(result.route?.ivrId || '-')})</td></tr>
             <tr><th>FALLBACK USED</th><td>${result.route?.isFallback ? 'YES' : 'NO'}</td></tr>
-            <tr><th>SUPPLIER (ROUTE)</th><td>${escHtml(result.supplier?.routeSupplier || '-')}</td></tr>
-            <tr><th>SUPPLIER (SOURCE IP)</th><td>${escHtml(result.supplier?.sourceSupplier || '-')}</td></tr>
+            <tr><th>SUPPLIER (ROUTE)</th><td>${escHtml(result.supplier?.routeSupplier || '-')} ${result.supplier?.routeSupplierId ? `<span style="color:var(--text-muted);font-size:12px">(ID ${escHtml(String(result.supplier.routeSupplierId))})</span>` : ''}</td></tr>
+            <tr><th>SUPPLIER (SOURCE IP)</th><td>${escHtml(result.supplier?.sourceSupplier || '-')} ${result.supplier?.sourceSupplierId ? `<span style="color:var(--text-muted);font-size:12px">(ID ${escHtml(String(result.supplier.sourceSupplierId))})</span>` : ''}</td></tr>
           </tbody>
         </table>`;
     } catch (err) {

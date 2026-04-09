@@ -3,6 +3,7 @@
  * Joins are done in JS: `call_logs` has caller/destination, not number_id/supplier_id/revenue columns.
  */
 import { fullNumberDigits, rowToApp } from './numbers-mysql.js';
+import { supplierDisplayName } from './supplier-resolve.js';
 
 function digitsOnly(s) {
   return String(s || '').replace(/\D/g, '');
@@ -90,11 +91,6 @@ export function aggregateCallLogsPro(rows, numbers, suppliers, hoursWindow) {
   const prevStart = now - 2 * h * 3600000;
   const prevEnd = currStart;
 
-  const supplierNameById = new Map();
-  for (const s of suppliers || []) {
-    if (s && s.id != null) supplierNameById.set(Number(s.id), String(s.name || `Supplier ${s.id}`));
-  }
-
   const appNums = Array.isArray(numbers) ? numbers.map(toAppNumberShape).filter(Boolean) : [];
 
   let totalCurr = 0;
@@ -123,10 +119,7 @@ export function aggregateCallLogsPro(rows, numbers, suppliers, hoursWindow) {
     const matched = matchNumberForDestination(dest, appNums);
     const prefix = matched ? routingPrefixDigits(matched) || '—' : '—';
     const supIdRaw = matched?.supplierId ?? matched?.supplier_id;
-    const supId = supIdRaw !== undefined && supIdRaw !== '' ? Number(supIdRaw) : NaN;
-    const supName = !isNaN(supId) && supplierNameById.has(supId)
-      ? supplierNameById.get(supId)
-      : (!isNaN(supId) ? `ID ${supId}` : '—');
+    const supName = supplierDisplayName(suppliers, supIdRaw);
 
     const dur = row.duration != null ? parseInt(String(row.duration), 10) : 0;
     const sec = Math.max(0, isFinite(dur) ? dur : 0);
@@ -251,10 +244,6 @@ export function aggregateCallLogsPro(rows, numbers, suppliers, hoursWindow) {
 export async function fetchCallLogsRecentForUi(pool, numbers, suppliers, hours, limit) {
   const h = Math.min(168, Math.max(1, parseInt(String(hours), 10) || 24));
   const lim = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 50));
-  const supplierNameById = new Map();
-  for (const s of suppliers || []) {
-    if (s && s.id != null) supplierNameById.set(Number(s.id), String(s.name || `Supplier ${s.id}`));
-  }
   const appNums = Array.isArray(numbers) ? numbers.map(toAppNumberShape).filter(Boolean) : [];
 
   const [rows] = await pool.query(
@@ -273,10 +262,7 @@ export async function fetchCallLogsRecentForUi(pool, numbers, suppliers, hours, 
     const matched = matchNumberForDestination(dst, appNums);
     const prefixDisplay = matched ? routingPrefixDigits(matched) || '—' : '—';
     const supIdRaw = matched?.supplierId ?? matched?.supplier_id;
-    const supId = supIdRaw !== undefined && supIdRaw !== '' ? Number(supIdRaw) : NaN;
-    let supplierName = '—';
-    if (!isNaN(supId) && supplierNameById.has(supId)) supplierName = supplierNameById.get(supId);
-    else if (!isNaN(supId)) supplierName = `ID ${supId}`;
+    const supplierName = supplierDisplayName(suppliers, supIdRaw);
 
     const dstr = String(dst || '');
 
