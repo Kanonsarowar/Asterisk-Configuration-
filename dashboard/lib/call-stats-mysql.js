@@ -14,6 +14,13 @@ function toAppNumberShape(n) {
   return rowToApp(n);
 }
 
+/** Digits-only routing key: ITU country code + national prefix (matches Prefix inventory column). */
+export function routingPrefixDigits(n) {
+  const n2 = toAppNumberShape(n);
+  if (!n2) return '';
+  return digitsOnly(n2.countryCode) + digitsOnly(n2.prefix);
+}
+
 export function matchNumberForDestination(dst, numbers) {
   const d = digitsOnly(dst);
   if (!d || !Array.isArray(numbers)) return null;
@@ -114,7 +121,7 @@ export function aggregateCallLogsPro(rows, numbers, suppliers, hoursWindow) {
 
     const dest = row.destination;
     const matched = matchNumberForDestination(dest, appNums);
-    const prefix = matched?.prefix ? String(matched.prefix) : '—';
+    const prefix = matched ? routingPrefixDigits(matched) || '—' : '—';
     const supIdRaw = matched?.supplierId ?? matched?.supplier_id;
     const supId = supIdRaw !== undefined && supIdRaw !== '' ? Number(supIdRaw) : NaN;
     const supName = !isNaN(supId) && supplierNameById.has(supId)
@@ -264,6 +271,7 @@ export async function fetchCallLogsRecentForUi(pool, numbers, suppliers, hours, 
   return list.map((r) => {
     const dst = r.destination;
     const matched = matchNumberForDestination(dst, appNums);
+    const prefixDisplay = matched ? routingPrefixDigits(matched) || '—' : '—';
     const supIdRaw = matched?.supplierId ?? matched?.supplier_id;
     const supId = supIdRaw !== undefined && supIdRaw !== '' ? Number(supIdRaw) : NaN;
     let supplierName = '—';
@@ -271,9 +279,6 @@ export async function fetchCallLogsRecentForUi(pool, numbers, suppliers, hours, 
     else if (!isNaN(supId)) supplierName = `ID ${supId}`;
 
     const dstr = String(dst || '');
-    const prefix = matched?.prefix
-      ? String(matched.prefix)
-      : (dstr.length > 4 ? dstr.substring(0, dstr.length - 4) : dstr);
 
     const disp = String(r.status || '').toUpperCase() === 'ANSWERED' ? 'ANSWERED' : String(r.status || 'UNKNOWN');
     return {
@@ -281,7 +286,7 @@ export async function fetchCallLogsRecentForUi(pool, numbers, suppliers, hours, 
       dst: dstr,
       billsec: Math.max(0, parseInt(String(r.duration), 10) || 0),
       disposition: disp,
-      prefix,
+      prefix: prefixDisplay,
       supplierName,
       source: 'mysql',
     };

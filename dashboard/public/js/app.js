@@ -899,7 +899,7 @@ async function renderCallStats(el, hours = 24) {
     <div class="card" style="margin-bottom:16px">
       <div class="card-header"><h3>Prefix performance</h3></div>
       <div class="card-body" style="overflow:auto">
-        ${pro.prefix && pro.prefix.length ? `<table><thead><tr><th>Prefix</th><th>Calls</th><th>ASR</th><th>ACD</th><th>Revenue</th></tr></thead><tbody>
+        ${pro.prefix && pro.prefix.length ? `<table><thead><tr><th>CC + prefix</th><th>Calls</th><th>ASR</th><th>ACD</th><th>Revenue</th></tr></thead><tbody>
           ${pro.prefix.map((p) => `<tr>
             <td style="font-family:monospace">${escHtml(String(p.prefix))}</td>
             <td>${p.calls}</td>
@@ -1022,7 +1022,7 @@ async function renderCallStats(el, hours = 24) {
       <div class="card-body">
         ${recentDb.length ? `
         <table>
-          <thead><tr><th>SL</th><th>Prefix</th><th>Caller</th><th>Destination</th><th>Duration</th><th>Supplier</th><th>Status</th></tr></thead>
+          <thead><tr><th>SL</th><th>CC + prefix</th><th>Caller</th><th>Destination</th><th>Duration</th><th>Supplier</th><th>Status</th></tr></thead>
           <tbody>${recentDb.map((c, i) => {
             const statusClass = c.disposition === 'ANSWERED' ? 'badge-ring' : 'badge-direct';
             return `<tr>
@@ -1037,7 +1037,7 @@ async function renderCallStats(el, hours = 24) {
           }).join('')}</tbody>
         </table>` : (stats.recentCalls.length ? `
         <table>
-          <thead><tr><th>SL</th><th>Prefix</th><th>Caller Number</th><th>Calling Number</th><th>Duration</th><th>Supplier</th><th>Status</th></tr></thead>
+          <thead><tr><th>SL</th><th>CC + prefix</th><th>Caller Number</th><th>Calling Number</th><th>Duration</th><th>Supplier</th><th>Status</th></tr></thead>
           <tbody>${stats.recentCalls.map((c, i) => {
             const statusClass = c.disposition === 'ANSWERED' ? 'badge-ring' : 'badge-direct';
             const prefix = c.dst.length > 4 ? c.dst.substring(0, c.dst.length - 4) : c.dst;
@@ -2055,7 +2055,7 @@ async function renderNumbers(el) {
         <thead>
           <tr>
             <th>Country</th>
-            <th>Prefix</th>
+            <th>CC + prefix</th>
             <th>DIDs</th>
             <th>Default IVR</th>
             <th>Tariff</th>
