@@ -198,6 +198,7 @@ let currentPage = 'dashboard';
 let hasUnsavedChanges = false;
 let statusInterval = null;
 let tenantLiveInterval = null;
+let callStatsInterval = null;
 
 // Toast notifications
 function toast(msg, type = 'success') {
@@ -397,6 +398,7 @@ async function renderPage(page) {
   const content = document.getElementById('content');
   if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
   if (tenantLiveInterval) { clearInterval(tenantLiveInterval); tenantLiveInterval = null; }
+  if (callStatsInterval) { clearInterval(callStatsInterval); callStatsInterval = null; }
 
   if (REMOVED_PANEL_PAGES.has(page)) return renderDashboard(content);
 
@@ -710,7 +712,7 @@ async function renderCallStats(el, hours = 24) {
 
   const proBanner = proErr
     ? `<div class="card" style="margin-bottom:16px;opacity:0.95"><div class="card-body padded"><p style="margin:0;font-size:13px;color:var(--text-muted)">
-      <strong>Call logs analytics</strong> requires MySQL and rows in <code>call_logs</code>. ${escHtml(String(proErr))}
+      <strong>Call logs analytics</strong> requires MySQL, <code>MYSQL_ENABLED=1</code>, and rows in <code>call_logs</code> (POST <code>/api/call-logs</code> or your ingest). Error: ${escHtml(String(proErr))}
     </p></div></div>`
     : '';
 
@@ -764,10 +766,19 @@ async function renderCallStats(el, hours = 24) {
     </div>`
     : '';
 
+  const updatedAt = new Date().toLocaleString();
+
   el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <span style="font-size:12px;color:var(--text-muted)">Last updated: <strong style="color:var(--text)">${escHtml(updatedAt)}</strong> · ${h}h window</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:11px;color:var(--text-muted)">Auto-refresh 60s</span>
+        <button type="button" class="btn btn-outline btn-sm" id="btn-call-stats-refresh">Refresh now</button>
+      </div>
+    </div>
     ${proBanner}
     ${proGrid}
-    <p style="font-size:12px;color:var(--text-muted);margin:0 0 12px 0"><strong>CDR (Master.csv)</strong> — unchanged; ${h}h window for buttons below.</p>
+    <p style="font-size:12px;color:var(--text-muted);margin:0 0 12px 0"><strong>CDR (Master.csv)</strong> — Asterisk file; ${h}h window for buttons below. If this never changes, check file growth and permissions.</p>
     <div class="stats-grid">
       <div class="stat-card">
         <div class="label">Total Calls (${h}h)</div>
@@ -825,6 +836,18 @@ async function renderCallStats(el, hours = 24) {
         </table>` : '<div class="empty-state">No calls recorded in this period.<br>CDR data is read from /var/log/asterisk/cdr-csv/Master.csv</div>'}
       </div>
     </div>`;
+
+  document.getElementById('btn-call-stats-refresh')?.addEventListener('click', () => {
+    renderCallStats(el, h);
+  });
+
+  if (callStatsInterval) clearInterval(callStatsInterval);
+  window._callStatsHours = h;
+  callStatsInterval = setInterval(() => {
+    if (currentPage !== 'call-stats') return;
+    const box = document.getElementById('content');
+    if (box) renderCallStats(box, window._callStatsHours || 24);
+  }, 60000);
 }
 // expose for inline onclick handlers
 window.renderCallStatsForHours = async (h) => {

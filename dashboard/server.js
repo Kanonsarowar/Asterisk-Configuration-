@@ -171,7 +171,12 @@ function serveStatic(req, res, urlPath) {
 
   const ext = extname(filePath);
   const mime = MIME_TYPES[ext] || 'application/octet-stream';
-  res.writeHead(200, { 'Content-Type': mime });
+  // Avoid stale app.js/css after deploy (browsers cache aggressively otherwise).
+  res.writeHead(200, {
+    'Content-Type': mime,
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    Pragma: 'no-cache',
+  });
   res.end(readFileSync(filePath));
 }
 
