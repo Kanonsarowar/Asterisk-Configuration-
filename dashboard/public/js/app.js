@@ -251,6 +251,15 @@ function initPanelNavigation() {
       if (body) body.style.display = expanded ? 'none' : '';
     });
   });
+  nav.querySelectorAll('[data-subgroup-toggle]').forEach((subHdr) => {
+    subHdr.addEventListener('click', () => {
+      const sid = subHdr.getAttribute('data-subgroup-toggle');
+      const sub = nav.querySelector(`.nav-subgroup[data-subgroup-id="${sid}"]`);
+      const expanded = subHdr.getAttribute('aria-expanded') === 'true';
+      subHdr.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      if (sub) sub.classList.toggle('nav-subgroup--collapsed', expanded);
+    });
+  });
 }
 
 initPanelNavigation();
@@ -268,6 +277,12 @@ function expandNavGroupForPage(page) {
   group.classList.remove('nav-group--collapsed');
   if (hdr) hdr.setAttribute('aria-expanded', 'true');
   if (body) body.style.display = '';
+  const sub = btn?.closest?.('.nav-subgroup');
+  if (sub) {
+    sub.classList.remove('nav-subgroup--collapsed');
+    const sh = sub.querySelector('.nav-subgroup-header');
+    if (sh) sh.setAttribute('aria-expanded', 'true');
+  }
 }
 
 function navigateTo(page) {
@@ -418,9 +433,9 @@ const pageTitles = {
   'live-calls': 'Live Calls',
   'call-stats': 'Call Statistics',
   'cdr-history': 'CDR',
-  suppliers: 'Suppliers',
-  numbers: 'Number inventory',
-  'iprn-inventory': 'IPRN range inventory',
+  suppliers: 'Termination Providers',
+  numbers: 'DID Inventory',
+  'iprn-inventory': 'Prefix Routing Map',
   'ivr-menus': 'IVR Audio',
   trunk: 'Trunk Configuration',
   config: 'Config Preview',
@@ -433,7 +448,11 @@ const pageTitles = {
   'tenant-subusers': 'Subusers',
   'tenant-numbers': 'Number allocation',
   'tenant-call-generator': 'Call generator',
-  'routing-rules': 'Routing rules',
+  'routing-rules': 'Traffic Policy Engine',
+  'routing-fraud': 'Fraud-aware routing',
+  'routing-lcr': 'Least-cost routing (LCR)',
+  'routing-geo': 'Geo-routing',
+  'routing-quality': 'Quality-based routing',
   billing: 'Billing',
   'profit-reports': 'Profit reports',
 };
@@ -459,6 +478,30 @@ async function renderPage(page) {
     case 'trunk': return renderTrunk(content);
     case 'config': return renderConfig(content);
     case 'routing-rules': return renderRoutingRules(content);
+    case 'routing-fraud':
+      return renderPlaceholderPage(
+        content,
+        'Fraud-aware routing',
+        'Policy-driven screening before termination (velocity, CLI anomalies, geo mismatch). Configuration UI will attach to the same control plane as Traffic Policy Engine — no dial-plan logic changes until enabled.'
+      );
+    case 'routing-lcr':
+      return renderPlaceholderPage(
+        content,
+        'Least-cost routing (LCR)',
+        'Rank termination providers by rate, quality, and capacity. Will integrate with Termination Providers and live stats — backend selection engine to follow.'
+      );
+    case 'routing-geo':
+      return renderPlaceholderPage(
+        content,
+        'Geo-routing',
+        'Route by caller or trunk geography, regulatory zones, and number class. Pairs with Prefix Routing Map and policy rules.'
+      );
+    case 'routing-quality':
+      return renderPlaceholderPage(
+        content,
+        'Quality-based routing',
+        'ASR/ACD/post-dial delay driven provider preference and automatic deprioritization. Uses the same metrics surface as Operations analytics.'
+      );
     case 'billing': return renderPlaceholderPage(content, 'Billing', 'Invoicing, balances, and payment tracking will appear here.');
     case 'profit-reports': return renderPlaceholderPage(content, 'Profit reports', 'Margin and profitability analytics will appear here.');
     case 'iprn-clients': return renderIprnClients(content);
@@ -524,10 +567,10 @@ async function renderRoutingRules(el) {
   if (!Array.isArray(ivrMenus)) ivrMenus = [];
   el.innerHTML = `
     <div class="card">
-      <div class="card-header"><h3>Routing rules</h3></div>
+      <div class="card-header"><h3>Traffic Policy Engine</h3></div>
       <div class="card-body padded">
         <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">
-          Defaults for inbound DID handling: fallback IVR and optional ODBC-based supplier routing (same as Number inventory → IPRN routing defaults).
+          Switch-level defaults for inbound DID handling: fallback IVR and optional ODBC-based termination selection (<code>number_inventory</code> + DSN <code>iprn_db</code>). Same settings as DID Inventory → IPRN routing defaults.
         </p>
         <div class="form-group">
           <label>Fallback IVR (unmatched / ODBC empty)</label>
@@ -1849,7 +1892,7 @@ async function renderSuppliers(el) {
   el.innerHTML = `
     <div class="card">
       <div class="card-header">
-        <h3>Suppliers (${suppliers.length})</h3>
+        <h3>Termination Providers (${suppliers.length})</h3>
         <button class="btn btn-primary" id="btn-add-sup">+ Add Supplier</button>
       </div>
       <div class="card-body">
@@ -2078,14 +2121,14 @@ async function renderNumbers(el) {
       <div class="card-header"><h3>Prefix inventory</h3></div>
       <div class="card-body padded">
         <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px;line-height:1.45">
-          One row per routing prefix (country code + prefix). Expand a prefix in <strong>Number inventory</strong> to edit individual DIDs, rates, and allocation.
+          One row per routing prefix (country code + prefix). Expand a prefix in <strong>DID Inventory</strong> to edit individual DIDs, rates, and allocation.
         </p>
         ${prefixInventoryTable}
       </div>
     </div>
     <div class="card">
       <div class="card-header">
-        <h3>Number inventory</h3>
+        <h3>DID Inventory</h3>
         <div style="display:flex;gap:8px">
           <button class="btn btn-outline" id="btn-upload-file">Upload File</button>
           <button class="btn btn-primary" id="btn-add-number">+ Add DID</button>
@@ -2680,7 +2723,7 @@ async function renderIprnInventory(el) {
     <div class="card" style="margin-bottom:20px">
       <div class="card-header"><h3>Add IPRN range</h3></div>
       <div class="card-body padded">
-        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Range-based rows in <code>iprn_inv_numbers</code>. Separate from per-DID <strong>Number inventory</strong>.</p>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Range-based rows in <code>iprn_inv_numbers</code>. Separate from per-DID <strong>DID Inventory</strong>.</p>
         <div class="form-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
           <div class="form-group"><label>Country</label><input class="form-control" id="iprn-add-country" placeholder="e.g. DE"></div>
           <div class="form-group"><label>Prefix</label><input class="form-control" id="iprn-add-prefix" placeholder="e.g. 49"></div>
@@ -2871,8 +2914,8 @@ async function renderTrunk(el) {
     <div class="card">
       <div class="card-header"><h3>SIP Listening (Trunk Config)</h3></div>
       <div class="card-body padded">
-        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Supplier authentication is managed in <a href="#" onclick="event.preventDefault();navigateTo('suppliers')" style="color:var(--primary)">Suppliers</a>. Save here, then use Apply & Reload Asterisk to activate.</p>
-        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Inbound route is fixed as <code>from-supplier-ip → did-routing → ivr-*</code>. DIDs and destinations are managed in <a href="#" onclick="event.preventDefault();navigateTo('numbers')" style="color:var(--primary)">Number inventory</a>.</p>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Supplier authentication is managed under <a href="#" onclick="event.preventDefault();navigateTo('suppliers')" style="color:var(--primary)">Termination Providers</a>. Save here, then use Apply & Reload Asterisk to activate.</p>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Inbound route is fixed as <code>from-supplier-ip → did-routing → ivr-*</code>. DIDs and destinations are managed in <a href="#" onclick="event.preventDefault();navigateTo('numbers')" style="color:var(--primary)">DID Inventory</a>.</p>
         <div class="form-row">
           <div class="form-group">
             <label>Your Public IP (this VPS)</label>
@@ -3074,7 +3117,7 @@ async function renderConfig(el) {
       <div class="card-body padded"><div class="config-preview">${escHtml(pj || '(empty)')}</div></div>
     </div>
     ${acl ? `<div class="card">
-      <div class="card-header"><h3>acl.conf</h3><span style="font-size:12px;color:var(--text-muted);font-weight:400">Supplier IP allow list (from Suppliers)</span></div>
+      <div class="card-header"><h3>acl.conf</h3><span style="font-size:12px;color:var(--text-muted);font-weight:400">Supplier IP allow list (from Termination Providers)</span></div>
       <div class="card-body padded"><div class="config-preview">${escHtml(acl)}</div></div>
     </div>` : ''}
     ${rtp ? `<div class="card">

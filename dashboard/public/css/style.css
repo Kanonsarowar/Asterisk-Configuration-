@@ -92,6 +92,75 @@ body {
   padding-bottom: 8px;
 }
 
+.nav-group--routing .nav-group-body {
+  padding-top: 4px;
+}
+
+.nav-group--routing-control .nav-group-body {
+  background: rgba(15, 23, 42, 0.45);
+  border-radius: var(--radius);
+  margin: 0 4px 8px;
+  padding: 8px 6px 10px;
+  border: 1px solid rgba(51, 65, 85, 0.9);
+}
+
+.nav-subgroup {
+  margin-bottom: 12px;
+}
+
+.nav-subgroup:last-child {
+  margin-bottom: 4px;
+}
+
+.nav-subgroup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 4px 8px;
+  margin: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+}
+
+.nav-subgroup-header:hover {
+  color: var(--text);
+}
+
+.nav-subgroup-chevron {
+  flex-shrink: 0;
+  opacity: 0.55;
+  transition: transform 0.2s ease;
+}
+
+.nav-subgroup--collapsed .nav-subgroup-chevron {
+  transform: rotate(-90deg);
+}
+
+.nav-subgroup--collapsed .nav-subgroup-items {
+  display: none;
+}
+
+.nav-subgroup-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 2px;
+  border-left: 2px solid rgba(148, 163, 184, 0.25);
+  margin-left: 6px;
+}
+
+.nav-item--routing {
+  font-size: 13px;
+}
+
 .nav-item {
   display: flex;
   align-items: center;
