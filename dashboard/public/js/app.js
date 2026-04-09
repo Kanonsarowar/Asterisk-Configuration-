@@ -2563,22 +2563,46 @@ async function renderNumbers(el) {
 
 function showAddNumberModal(suppliers, ivrMenus) {
   showModal('Add DID', `
-    <div class="form-row-3">
+    <div class="form-row">
       <div class="form-group">
         <label>Country Code (optional)</label>
-        <input class="form-control" id="num-country-code" placeholder="e.g. 39 (optional)" style="font-family:monospace">
+        <input class="form-control" id="num-country-code" placeholder="e.g. 39" style="font-family:monospace">
       </div>
       <div class="form-group">
         <label>DID Prefix</label>
-        <input class="form-control" id="num-prefix" placeholder="e.g. 393199050">
-        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Routing block (country code + prefix). Extensions are added below.</div>
+        <input class="form-control" id="num-prefix" placeholder="e.g. 393199050 (no spaces)">
       </div>
+    </div>
+    <div class="form-group" style="margin-top:-4px">
+      <label>Extension(s) — appended to the prefix above</label>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin:8px 0;font-size:13px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="num-ext-mode" id="num-ext-mode-list" value="list" checked> List (one extension per line)
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="num-ext-mode" id="num-ext-mode-range" value="range"> Range (from → to)
+        </label>
+      </div>
+      <div id="num-ext-manual">
+        <textarea class="form-control" id="num-extensions" rows="5" style="font-family:monospace" placeholder="646&#10;642&#10;645"></textarea>
+      </div>
+      <div id="num-ext-range" style="display:none">
+        <div class="form-row">
+          <div class="form-group" style="margin-bottom:0">
+            <input class="form-control" id="num-range-from" aria-label="Extension range from" placeholder="From" style="font-family:monospace">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <input class="form-control" id="num-range-to" aria-label="Extension range to" placeholder="To" style="font-family:monospace">
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:6px" id="num-range-count"></div>
+      </div>
+    </div>
+    <div class="form-row-3">
       <div class="form-group">
         <label>Rate / min</label>
         <input class="form-control" id="num-rate" type="number" step="0.001" value="0.01" placeholder="0.01">
       </div>
-    </div>
-    <div class="form-row-3">
       <div class="form-group">
         <label>Rate currency</label>
         <select class="form-control" id="num-rate-currency">
@@ -2594,13 +2618,13 @@ function showAddNumberModal(suppliers, ivrMenus) {
           <option value="monthly">Monthly → monthly wallet</option>
         </select>
       </div>
-      <div class="form-group">
-        <label>Supplier</label>
-        <select class="form-control" id="num-supplier">
-          <option value="">— No Supplier —</option>
-          ${suppliers.map(s => `<option value="${s.id}">${escHtml(s.name)}</option>`).join('')}
-        </select>
-      </div>
+    </div>
+    <div class="form-group">
+      <label>Supplier</label>
+      <select class="form-control" id="num-supplier">
+        <option value="">— No Supplier —</option>
+        ${suppliers.map(s => `<option value="${s.id}">${escHtml(s.name)}</option>`).join('')}
+      </select>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -2608,29 +2632,6 @@ function showAddNumberModal(suppliers, ivrMenus) {
         <select class="form-control" id="num-dest-id">
           ${(ivrMenus || []).map(m => `<option value="${m.id}">${m.name}</option>`).join('')}
         </select>
-      </div>
-    </div>
-    <div class="form-group">
-      <label style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        Extensions (after prefix)
-        <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--primary)">
-          <input type="checkbox" id="num-range-mode"> Range mode (from → to, zero-padded)
-        </label>
-      </label>
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Single: one extension per line. Range: numeric from/to (e.g. 0–9999 for 4-digit extensions). Full DID = country code + prefix + extension.</div>
-      <div id="num-ext-manual">
-        <textarea class="form-control" id="num-extensions" rows="5" style="font-family:monospace" placeholder="One extension per line (e.g. fixed width):&#10;646&#10;642&#10;645"></textarea>
-      </div>
-      <div id="num-ext-range" style="display:none">
-        <div class="form-row">
-          <div class="form-group" style="margin-bottom:0">
-            <input class="form-control" id="num-range-from" aria-label="Extension range from" placeholder="From (e.g. 0 or 0000)" style="font-family:monospace">
-          </div>
-          <div class="form-group" style="margin-bottom:0">
-            <input class="form-control" id="num-range-to" aria-label="Extension range to" placeholder="To (e.g. 9999)" style="font-family:monospace">
-          </div>
-        </div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:6px" id="num-range-count"></div>
       </div>
     </div>
     <div class="form-group">
@@ -2653,7 +2654,7 @@ function showAddNumberModal(suppliers, ivrMenus) {
     const paymentTerm = document.getElementById('num-payment-term').value || 'weekly';
     const supplierId = document.getElementById('num-supplier').value;
     let extensions;
-    const isRange = document.getElementById('num-range-mode').checked;
+    const isRange = document.getElementById('num-ext-mode-range').checked;
     if (isRange) {
       const from = parseInt(document.getElementById('num-range-from').value);
       const to = parseInt(document.getElementById('num-range-to').value);
@@ -2685,7 +2686,7 @@ function showAddNumberModal(suppliers, ivrMenus) {
     const cc = document.getElementById('num-country-code').value.trim().replace(/\D/g, '') || '?';
     const prefix = document.getElementById('num-prefix').value.trim() || '???';
     const preview = document.getElementById('num-preview');
-    const isRange = document.getElementById('num-range-mode')?.checked;
+    const isRange = document.getElementById('num-ext-mode-range')?.checked;
 
     if (isRange) {
       const from = document.getElementById('num-range-from').value || '0000';
@@ -2703,11 +2704,14 @@ function showAddNumberModal(suppliers, ivrMenus) {
   document.getElementById('num-country-code').oninput = updatePreview;
   document.getElementById('num-prefix').oninput = updatePreview;
   document.getElementById('num-extensions').oninput = updatePreview;
-  document.getElementById('num-range-mode').onchange = (e) => {
-    document.getElementById('num-ext-manual').style.display = e.target.checked ? 'none' : '';
-    document.getElementById('num-ext-range').style.display = e.target.checked ? '' : 'none';
+  function syncExtModeUi() {
+    const range = document.getElementById('num-ext-mode-range').checked;
+    document.getElementById('num-ext-manual').style.display = range ? 'none' : '';
+    document.getElementById('num-ext-range').style.display = range ? '' : 'none';
     updatePreview();
-  };
+  }
+  document.getElementById('num-ext-mode-list').onchange = syncExtModeUi;
+  document.getElementById('num-ext-mode-range').onchange = syncExtModeUi;
   document.getElementById('num-range-from').oninput = () => {
     const from = parseInt(document.getElementById('num-range-from').value);
     const to = parseInt(document.getElementById('num-range-to').value);
@@ -2748,7 +2752,7 @@ function showAddNumberModal(suppliers, ivrMenus) {
 
     document.getElementById('num-prefix').value = prefix;
     document.getElementById('num-extensions').value = exts.join('\n');
-    document.getElementById('num-range-mode').checked = false;
+    document.getElementById('num-ext-mode-list').checked = true;
     document.getElementById('num-ext-manual').style.display = '';
     document.getElementById('num-ext-range').style.display = 'none';
     updatePreview();
