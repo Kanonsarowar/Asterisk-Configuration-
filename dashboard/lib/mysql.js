@@ -259,6 +259,20 @@ async function migrateNumberInventoryColumns(p) {
 }
 
 /** CDR → call_logs deduplication (sync job inserts with stable hash per Master.csv row). */
+async function migratePrefixCatalogColumns(p) {
+  const cols = [
+    ['country_name', "VARCHAR(128) NOT NULL DEFAULT ''"],
+    ['access_text', "VARCHAR(255) NOT NULL DEFAULT ''"],
+  ];
+  for (const [col, def] of cols) {
+    try {
+      await p.execute(`ALTER TABLE \`prefix_catalog\` ADD COLUMN \`${col}\` ${def}`);
+    } catch (e) {
+      if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+    }
+  }
+}
+
 async function migrateCallLogsDedupHash(p) {
   try {
     await p.execute(
@@ -295,6 +309,8 @@ CREATE TABLE IF NOT EXISTS \`prefix_catalog\` (
   \`destination_id\` VARCHAR(16) NOT NULL DEFAULT '1',
   \`test_number\` VARCHAR(64) NOT NULL DEFAULT '',
   \`routes_notes\` TEXT NULL,
+  \`country_name\` VARCHAR(128) NOT NULL DEFAULT '',
+  \`access_text\` VARCHAR(255) NOT NULL DEFAULT '',
   \`status\` VARCHAR(16) NOT NULL DEFAULT 'staging',
   \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (\`id\`),
@@ -357,6 +373,7 @@ export async function ensureMysqlSchema() {
   await ensureIprnInventorySchema(p);
   await ensureCarrierInventorySchema(p);
   await p.execute(DDL_PREFIX_CATALOG);
+  await migratePrefixCatalogColumns(p);
   await p.execute(DDL_DASHBOARD_APP_STATE);
   return { ok: true };
 }

@@ -463,7 +463,7 @@ const pageTitles = {
   'cdr-history': 'CDR',
   suppliers: 'Termination Providers',
   numbers: 'DID Inventory',
-  'prefix-staging': 'Prefix staging',
+  'prefix-staging': 'Prefix inventory',
   'iprn-inventory': 'Prefix Routing Map',
   'ivr-menus': 'IVR Audio',
   trunk: 'Trunk Configuration',
@@ -2011,6 +2011,7 @@ async function renderNumbers(el) {
     API.getGlobals(),
     API.getIprnBillingSummary(800).catch(() => ({ rows: [] })),
     API.getPjsipContacts().catch(() => ({ contacts: [] })),
+    API.getPrefixCatalog().catch(() => ({ rows: [] })),
   ]);
   const numRes = settled[0];
   let numbers = numRes.status === 'fulfilled' && Array.isArray(numRes.value) ? numRes.value : [];
@@ -2028,6 +2029,9 @@ async function renderNumbers(el) {
     : {};
   const billingRes = settled[4].status === 'fulfilled' ? settled[4].value : { rows: [] };
   const sipRes = settled[5].status === 'fulfilled' ? settled[5].value : { contacts: [] };
+  const prefixCatPayload = settled[6].status === 'fulfilled' ? settled[6].value : null;
+  const prefixCatalogRows =
+    prefixCatPayload && !prefixCatPayload.error && Array.isArray(prefixCatPayload.rows) ? prefixCatPayload.rows : [];
   const billRows = billingRes && Array.isArray(billingRes.rows) ? billingRes.rows : [];
   const billByNum = Object.fromEntries(billRows.map((r) => [String(r.number), r]));
   const contacts = sipRes && Array.isArray(sipRes.contacts) ? sipRes.contacts : [];
@@ -2360,7 +2364,7 @@ async function renderNumbers(el) {
     toast(`Routing defaults saved (fallback IVR ${fallbackIvrId}${iprnOdbcRouting ? ', ODBC routing on' : ''})`);
   };
 
-  document.getElementById('btn-add-number').onclick = () => showAddNumberModal(suppliers, ivrMenus);
+  document.getElementById('btn-add-number').onclick = () => showAddNumberModal(suppliers, ivrMenus, prefixCatalogRows);
 
   const btnRebuildDid = document.getElementById('btn-rebuild-did-inv');
   if (btnRebuildDid) {
@@ -2602,8 +2606,23 @@ async function renderNumbers(el) {
   }
 }
 
-function showAddNumberModal(suppliers, ivrMenus) {
+function showAddNumberModal(suppliers, ivrMenus, prefixCatalogRows = []) {
+  const pcOptions = (prefixCatalogRows || [])
+    .map((r) => {
+      const label = `+${String(r.countryCode || '')}${String(r.prefix || '')} (${r.countryName || r.country || '—'})`;
+      return `<option value="${escHtml(String(r.id))}">${escHtml(label)}</option>`;
+    })
+    .join('');
+  const hasPc = pcOptions.length > 0;
   showModal('Add DID', `
+    ${hasPc ? `<div class="form-group">
+      <label>Apply from prefix inventory</label>
+      <select class="form-control" id="num-from-prefix">
+        <option value="">— Manual entry —</option>
+        ${pcOptions}
+      </select>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Loads country code, prefix, price, term, supplier, and IVR from <strong>Routing → Prefix inventory</strong>.</div>
+    </div>` : ''}
     <div class="form-row">
       <div class="form-group">
         <label>Country Code (optional)</label>
@@ -2764,6 +2783,23 @@ function showAddNumberModal(suppliers, ivrMenus) {
   };
   document.getElementById('num-range-to').oninput = document.getElementById('num-range-from').oninput;
 
+  function applyFromPrefixCatalog(id) {
+    if (!id) return;
+    const row = prefixCatalogRows.find((x) => String(x.id) === String(id));
+    if (!row) return;
+    document.getElementById('num-country-code').value = row.countryCode || '';
+    document.getElementById('num-prefix').value = row.prefix || '';
+    document.getElementById('num-rate').value = row.rate || '0.01';
+    document.getElementById('num-rate-currency').value = row.rateCurrency || 'usd';
+    document.getElementById('num-payment-term').value = row.paymentTerm || 'weekly';
+    document.getElementById('num-supplier').value = row.supplierId || '';
+    document.getElementById('num-dest-id').value = row.destinationId || '1';
+    updatePreview();
+    toast('Loaded from prefix inventory');
+  }
+  const selPref = document.getElementById('num-from-prefix');
+  if (selPref) selPref.onchange = () => applyFromPrefixCatalog(selPref.value);
+
   document.getElementById('btn-auto-split-dids').onclick = () => {
     const raw = document.getElementById('num-full-dids').value;
     const dids = raw
@@ -2804,15 +2840,17 @@ function showAddNumberModal(suppliers, ivrMenus) {
 
 // ---- PREFIX STAGING (MySQL prefix_catalog — template before DIDs) ----
 async function renderPrefixStaging(el) {
-  el.innerHTML = '<div class="card"><div class="card-body padded"><p class="empty-state">Loading prefix staging catalog…</p></div></div>';
+  el.innerHTML = '<div class="card"><div class="card-body padded"><p class="empty-state">Loading prefix inventory…</p></div></div>';
   const settled = await Promise.allSettled([
     API.getPrefixCatalog(),
     API.getSuppliers(),
     API.getIvrMenus(),
+    API.getNumbers().catch(() => []),
   ]);
   const catRes = settled[0];
   const supRes = settled[1];
   const ivrRes = settled[2];
+  const numsRes = settled[3];
 
   const catPayload = catRes.status === 'fulfilled' ? catRes.value : null;
   const mysqlOff = !catPayload || catPayload.error === 'MySQL required' || catPayload.enabled === false;
@@ -2831,6 +2869,15 @@ async function renderPrefixStaging(el) {
   const catalog = Array.isArray(catPayload?.rows) ? catPayload.rows : [];
   const suppliers = supRes.status === 'fulfilled' && Array.isArray(supRes.value) ? supRes.value : [];
   const ivrMenus = ivrRes.status === 'fulfilled' && Array.isArray(ivrRes.value) ? ivrRes.value : [];
+  const allNumbers = numsRes.status === 'fulfilled' && Array.isArray(numsRes.value) ? numsRes.value : [];
+  const didsForCatalogRow = (row) => {
+    const head = `${String(row.countryCode || '').replace(/\D/g, '')}${String(row.prefix || '').replace(/\D/g, '')}`;
+    if (!head) return [];
+    return allNumbers.filter((n) => {
+      const d = `${String(n.countryCode || '').replace(/\D/g, '')}${String(n.prefix || '').replace(/\D/g, '')}${String(n.extension || '').replace(/\D/g, '')}`;
+      return d.startsWith(head);
+    });
+  };
 
   const supName = (id) => {
     const s = suppliers.find((x) => String(x.id) === String(id));
@@ -2856,11 +2903,12 @@ async function renderPrefixStaging(el) {
 
   el.innerHTML = `
     <div class="card" style="margin-bottom:20px">
-      <div class="card-header"><h3>Add staging prefix</h3></div>
+      <div class="card-header"><h3>Add prefix</h3></div>
       <div class="card-body padded">
-        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Define a <strong>country code + prefix</strong>, commercial fields, and one <strong>full test number</strong> (digits only). After traffic tests, promote the test DID or bulk-create extensions into <strong>DID Inventory</strong>.</p>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px"><strong>Prefix inventory</strong> — country, prefix, price, term, IVR, access, supplier, test number. Then add DIDs under <strong>Number inventory</strong> (single or range) or use <strong>Promote</strong> / <strong>Bulk DIDs</strong>.</p>
         <div class="form-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
           <div class="form-group"><label>Country (ISO)</label><input class="form-control" id="pc-add-country" placeholder="e.g. BH" maxlength="8" value="XX"></div>
+          <div class="form-group"><label>Country name</label><input class="form-control" id="pc-add-cname" placeholder="e.g. Bahrain"></div>
           <div class="form-group"><label>Country code (digits)</label><input class="form-control" id="pc-add-cc" placeholder="e.g. 973"></div>
           <div class="form-group"><label>Prefix (digits)</label><input class="form-control" id="pc-add-pfx" placeholder="national prefix after CC"></div>
           <div class="form-group"><label>Test number (full E.164 digits)</label><input class="form-control" id="pc-add-test" placeholder="must start with CC + prefix"></div>
@@ -2874,9 +2922,10 @@ async function renderPrefixStaging(el) {
           <div class="form-group"><label>Termination provider</label>
             <select class="form-control" id="pc-add-sup">${supOpts}</select>
           </div>
-          <div class="form-group"><label>IVR destination</label>
+          <div class="form-group"><label>IVR</label>
             <select class="form-control" id="pc-add-ivr">${ivrOpts || '<option value="1">IVR 1</option>'}</select>
           </div>
+          <div class="form-group"><label>Access</label><input class="form-control" id="pc-add-access" placeholder="e.g. IP-auth trunk, ODBC"></div>
           <div class="form-group"><label>Status</label>
             <select class="form-control" id="pc-add-st"><option value="staging">staging</option><option value="validated">validated</option></select>
           </div>
@@ -2885,17 +2934,17 @@ async function renderPrefixStaging(el) {
           <label>Routes / notes</label>
           <textarea class="form-control" id="pc-add-notes" rows="2" placeholder="Optional failover, supplier notes, test results…"></textarea>
         </div>
-        <button type="button" class="btn btn-primary" id="pc-add-btn">Add to staging</button>
+        <button type="button" class="btn btn-primary" id="pc-add-btn">Add prefix</button>
       </div>
     </div>
     <div class="card">
       <div class="card-header">
-        <h3>Staging catalog</h3>
+        <h3>All prefixes</h3>
         <button type="button" class="btn btn-outline btn-sm" id="pc-refresh-btn">Refresh</button>
       </div>
       <div class="card-body padded">
         <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Unique key: <code>country_code + prefix</code>. Promoting writes rows into <code>numbers</code> / <code>number_inventory</code> — use <strong>Apply &amp; Reload Asterisk</strong> to activate dialplan.</p>
-        ${catalog.length ? `<div class="did-inventory-wrap">
+        ${catalog.length ? `<div class="did-inventory-wrap" id="prefix-inv-wrap">
           ${countryOrder.map((cLabel) => {
             const list = byCountry[cLabel];
             return `
@@ -2905,12 +2954,17 @@ async function renderPrefixStaging(el) {
                 const fullP = `${row.countryCode || ''}${row.prefix || ''}`;
                 const st = String(row.status || 'staging');
                 const badge = st === 'validated' ? 'validated' : 'staging';
+                const matchedDids = didsForCatalogRow(row);
+                const expandId = `pc-exp-${String(row.id)}`;
                 return `
                 <div class="did-prefix-card" data-pc-id="${escHtml(String(row.id))}">
-                  <div class="did-prefix-card-toolbar">
-                    <div class="did-prefix-line">
+                  <div class="did-prefix-card-toolbar" style="cursor:pointer" title="Click to show DIDs for this prefix">
+                    <div class="did-prefix-line" onclick="document.getElementById('${expandId}').classList.toggle('hidden');">
                       <span class="did-prefix-key">+${escHtml(fullP)}</span>
-                      <span class="did-prefix-count"><span class="badge ${badge === 'validated' ? 'badge-ring' : 'badge-ivr'}">${escHtml(badge)}</span></span>
+                      <span class="did-prefix-count">
+                        <span class="badge ${badge === 'validated' ? 'badge-ring' : 'badge-ivr'}">${escHtml(badge)}</span>
+                        <span style="font-size:12px;color:var(--text-muted);margin-left:8px">${matchedDids.length} DID(s)</span>
+                      </span>
                     </div>
                     <div class="did-prefix-meta-inline" style="font-size:12px;color:var(--text-muted)">ID ${escHtml(String(row.id))}</div>
                   </div>
@@ -2918,24 +2972,37 @@ async function renderPrefixStaging(el) {
                     <table class="did-simple-table">
                       <thead>
                         <tr>
-                          <th>Test number</th>
-                          <th>Rate</th>
+                          <th>Country</th>
+                          <th>Prefix</th>
+                          <th>Price</th>
                           <th>Term</th>
-                          <th>Provider</th>
                           <th>IVR</th>
+                          <th>Access</th>
+                          <th>Supplier</th>
+                          <th>Test #</th>
                         </tr>
                       </thead>
                       <tbody>
                         <tr>
-                          <td style="font-family:monospace;font-size:13px">${escHtml(row.testNumber || '—')}</td>
+                          <td>${escHtml(row.countryName || row.country || '—')}</td>
+                          <td style="font-family:monospace;font-size:13px">+${escHtml(fullP)}</td>
                           <td>${escHtml(String(row.rate || ''))} ${escHtml(String(row.rateCurrency || 'usd').toUpperCase())}</td>
                           <td>${escHtml(String(row.paymentTerm || '—'))}</td>
-                          <td>${escHtml(supName(row.supplierId))} <span style="color:var(--text-muted);font-size:11px">(${escHtml(String(row.supplierId || '—'))})</span></td>
                           <td>${escHtml(ivrLabel(row.destinationId))}</td>
+                          <td style="font-size:12px;max-width:140px">${escHtml(row.accessText || '—')}</td>
+                          <td>${escHtml(supName(row.supplierId))}</td>
+                          <td style="font-family:monospace;font-size:12px">${escHtml(row.testNumber || '—')}</td>
                         </tr>
                       </tbody>
                     </table>
                     ${row.routesNotes ? `<p style="font-size:12px;color:var(--text-muted);margin:8px 0 0;font-style:italic">${escHtml(row.routesNotes)}</p>` : ''}
+                    <div id="${expandId}" class="hidden" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+                      <div style="font-size:12px;font-weight:600;margin-bottom:6px">DIDs for this prefix (${matchedDids.length})</div>
+                      ${matchedDids.length ? `<div style="font-family:monospace;font-size:12px;max-height:160px;overflow:auto;line-height:1.6">${matchedDids.map((n) => {
+                        const full = `${n.countryCode || ''}${n.prefix || ''}${n.extension || ''}`;
+                        return escHtml(full);
+                      }).join('<br>')}</div>` : '<p style="font-size:12px;color:var(--text-muted)">No DIDs in inventory yet — use Number inventory → Add DID or Bulk DIDs.</p>'}
+                    </div>
                     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
                       <button type="button" class="btn btn-outline btn-sm pc-edit" data-id="${escHtml(String(row.id))}">Edit</button>
                       <button type="button" class="btn btn-outline btn-sm pc-del" data-id="${escHtml(String(row.id))}">Delete</button>
@@ -2947,13 +3014,14 @@ async function renderPrefixStaging(el) {
               }).join('')}
             </section>`;
           }).join('')}
-        </div>` : '<p class="empty-state">No staging prefixes yet.</p>'}
+        </div>` : '<p class="empty-state">No prefixes yet — use <strong>Add prefix</strong> above.</p>'}
       </div>
     </div>`;
 
   document.getElementById('pc-add-btn').onclick = async () => {
     const body = {
       country: document.getElementById('pc-add-country').value.trim() || 'XX',
+      countryName: document.getElementById('pc-add-cname').value.trim(),
       countryCode: document.getElementById('pc-add-cc').value.trim(),
       prefix: document.getElementById('pc-add-pfx').value.trim(),
       testNumber: document.getElementById('pc-add-test').value.trim(),
@@ -2962,6 +3030,7 @@ async function renderPrefixStaging(el) {
       paymentTerm: document.getElementById('pc-add-pt').value,
       supplierId: document.getElementById('pc-add-sup').value || '',
       destinationId: document.getElementById('pc-add-ivr').value || '1',
+      accessText: document.getElementById('pc-add-access').value.trim(),
       routesNotes: document.getElementById('pc-add-notes').value.trim(),
       status: document.getElementById('pc-add-st').value,
     };
@@ -2970,7 +3039,7 @@ async function renderPrefixStaging(el) {
       toast(String(r.error), 'error');
       return;
     }
-    toast('Staging prefix added');
+    toast('Prefix added');
     renderPrefixStaging(el);
   };
 
@@ -2981,8 +3050,9 @@ async function renderPrefixStaging(el) {
       const id = btn.dataset.id;
       const row = catalog.find((x) => String(x.id) === String(id));
       if (!row) return;
-      showModal('Edit staging prefix', `
+      showModal('Edit prefix', `
         <div class="form-group"><label>Country (ISO)</label><input class="form-control" id="pc-e-country" value="${escHtml(row.country)}"></div>
+        <div class="form-group"><label>Country name</label><input class="form-control" id="pc-e-cname" value="${escHtml(row.countryName || '')}"></div>
         <div class="form-group"><label>Country code</label><input class="form-control" id="pc-e-cc" value="${escHtml(row.countryCode)}"></div>
         <div class="form-group"><label>Prefix</label><input class="form-control" id="pc-e-pfx" value="${escHtml(row.prefix)}"></div>
         <div class="form-group"><label>Test number (full digits)</label><input class="form-control" id="pc-e-test" value="${escHtml(row.testNumber)}"></div>
@@ -3000,9 +3070,10 @@ async function renderPrefixStaging(el) {
         <div class="form-group"><label>Termination provider</label>
           <select class="form-control" id="pc-e-sup">${suppliers.map((s) => `<option value="${escHtml(String(s.id))}" ${String(s.id) === String(row.supplierId) ? 'selected' : ''}>${escHtml(s.name)}</option>`).join('')}</select>
         </div>
-        <div class="form-group"><label>IVR destination</label>
+        <div class="form-group"><label>IVR</label>
           <select class="form-control" id="pc-e-ivr">${ivrMenus.map((i) => `<option value="${escHtml(String(i.id))}" ${String(i.id) === String(row.destinationId) ? 'selected' : ''}>${escHtml(i.name)}</option>`).join('')}</select>
         </div>
+        <div class="form-group"><label>Access</label><input class="form-control" id="pc-e-access" value="${escHtml(row.accessText || '')}"></div>
         <div class="form-group"><label>Status</label>
           <select class="form-control" id="pc-e-st">
             <option value="staging" ${row.status === 'staging' ? 'selected' : ''}>staging</option>
@@ -3013,6 +3084,7 @@ async function renderPrefixStaging(el) {
       `, async () => {
         const body = {
           country: document.getElementById('pc-e-country').value.trim(),
+          countryName: document.getElementById('pc-e-cname').value.trim(),
           countryCode: document.getElementById('pc-e-cc').value.trim(),
           prefix: document.getElementById('pc-e-pfx').value.trim(),
           testNumber: document.getElementById('pc-e-test').value.trim(),
@@ -3021,6 +3093,7 @@ async function renderPrefixStaging(el) {
           paymentTerm: document.getElementById('pc-e-pt').value,
           supplierId: document.getElementById('pc-e-sup').value,
           destinationId: document.getElementById('pc-e-ivr').value,
+          accessText: document.getElementById('pc-e-access').value.trim(),
           status: document.getElementById('pc-e-st').value,
           routesNotes: document.getElementById('pc-e-notes').value,
         };
@@ -3030,7 +3103,7 @@ async function renderPrefixStaging(el) {
           return;
         }
         closeModal();
-        toast('Staging prefix updated');
+        toast('Prefix updated');
         renderPrefixStaging(el);
       });
     };

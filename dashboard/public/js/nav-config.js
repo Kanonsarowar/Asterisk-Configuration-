@@ -33,7 +33,7 @@ export const PANEL_NAV_GROUPS = [
         defaultOpen: true,
         items: [
           { page: 'numbers', label: 'DID Inventory', icon: 'hash' },
-          { page: 'prefix-staging', label: 'Prefix staging', icon: 'layers', navId: 'nav-prefix-staging', hiddenUntilMysql: true },
+          { page: 'prefix-staging', label: 'Prefix inventory', icon: 'layers', navId: 'nav-prefix-staging', hiddenUntilMysql: true },
           { page: 'iprn-inventory', label: 'Prefix Routing Map', icon: 'map-route', navId: 'nav-iprn-inventory', hiddenUntilMysql: true },
         ],
       },

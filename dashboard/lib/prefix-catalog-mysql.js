@@ -37,6 +37,8 @@ function rowToApp(r) {
     destinationId: String(r.destination_id ?? '1'),
     testNumber: String(r.test_number ?? '').replace(/\D/g, ''),
     routesNotes: r.routes_notes != null ? String(r.routes_notes) : '',
+    countryName: r.country_name != null ? String(r.country_name) : '',
+    accessText: r.access_text != null ? String(r.access_text) : '',
     status: String(r.status || 'staging'),
     createdAt: r.created_at != null ? (r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at)) : null,
   };
@@ -67,14 +69,16 @@ export async function mysqlCreatePrefixCatalog(body) {
   const supplierId = body?.supplierId != null ? String(body.supplierId) : '';
   const destinationId = String(body?.destinationId ?? '1');
   const routesNotes = body?.routesNotes != null ? String(body.routesNotes) : '';
+  const countryName = body?.countryName != null ? String(body.countryName).slice(0, 128) : '';
+  const accessText = body?.accessText != null ? String(body.accessText).slice(0, 255) : '';
   const status = String(body?.status ?? 'staging').toLowerCase() === 'validated' ? 'validated' : 'staging';
 
   const [r] = await p.execute(
     `INSERT INTO \`prefix_catalog\` (
       country, country_code, prefix, rate, rate_currency, payment_term,
-      supplier_id, destination_id, test_number, routes_notes, status
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    [country, countryCode, prefix, rate, rateCurrency, paymentTerm, supplierId, destinationId, testNumber, routesNotes, status]
+      supplier_id, destination_id, test_number, routes_notes, country_name, access_text, status
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [country, countryCode, prefix, rate, rateCurrency, paymentTerm, supplierId, destinationId, testNumber, routesNotes, countryName, accessText, status]
   );
   const [rows] = await p.query('SELECT * FROM `prefix_catalog` WHERE `id` = ? LIMIT 1', [r.insertId]);
   return rowToApp(rows[0]);
@@ -101,6 +105,8 @@ export async function mysqlUpdatePrefixCatalog(id, body) {
     destinationId: body.destinationId != null ? String(body.destinationId) : cur.destinationId,
     testNumber: body.testNumber != null ? String(body.testNumber).replace(/\D/g, '') : cur.testNumber,
     routesNotes: body.routesNotes !== undefined ? String(body.routesNotes ?? '') : cur.routesNotes,
+    countryName: body.countryName !== undefined ? String(body.countryName ?? '').slice(0, 128) : cur.countryName,
+    accessText: body.accessText !== undefined ? String(body.accessText ?? '').slice(0, 255) : cur.accessText,
     status: body.status != null ? String(body.status).toLowerCase() : cur.status,
   };
   let pt = merged.paymentTerm;
@@ -110,7 +116,7 @@ export async function mysqlUpdatePrefixCatalog(id, body) {
   await p.execute(
     `UPDATE \`prefix_catalog\` SET
       country=?, country_code=?, prefix=?, rate=?, rate_currency=?, payment_term=?,
-      supplier_id=?, destination_id=?, test_number=?, routes_notes=?, status=?
+      supplier_id=?, destination_id=?, test_number=?, routes_notes=?, country_name=?, access_text=?, status=?
      WHERE id=?`,
     [
       merged.country,
@@ -123,6 +129,8 @@ export async function mysqlUpdatePrefixCatalog(id, body) {
       merged.destinationId,
       merged.testNumber,
       merged.routesNotes,
+      merged.countryName ?? '',
+      merged.accessText ?? '',
       st,
       parseInt(id, 10),
     ]
