@@ -43,6 +43,7 @@ import {
 import { syncCdrToCallLogs } from './lib/cdr-sync.js';
 import { findSupplierById, findSupplierBySourceIp } from './lib/supplier-resolve.js';
 import * as prefixCatalog from './lib/prefix-catalog-mysql.js';
+import { rebuildDidInventoryFromNumbers } from './lib/did-inventory-sync.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -946,6 +947,35 @@ async function handleApi(req, res) {
       const id = path.split('/').pop();
       return (await numbersService.deleteNumber(store, id)) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
     }
+    if (path === '/api/numbers/rebuild-did-inventory' && method === 'POST') {
+      if (!isMysqlNumbersReady()) {
+        return sendJson(res, 503, { ok: false, error: 'MySQL required' });
+      }
+      const r = await rebuildDidInventoryFromNumbers();
+      return r.ok
+        ? sendJson(res, 200, { ok: true, count: r.count, skipped: r.skipped || false })
+        : sendJson(res, 500, { ok: false, error: r.error });
+    }
+    if (path === '/api/numbers/wipe-all' && method === 'POST') {
+      if (!isMysqlNumbersReady()) {
+        return sendJson(res, 503, { ok: false, error: 'MySQL required' });
+      }
+      const body = await parseBody(req);
+      if (String(body?.confirm) !== 'DELETE_ALL_DIDS') {
+        return sendJson(res, 400, { ok: false, error: 'Send JSON { "confirm": "DELETE_ALL_DIDS" }' });
+      }
+      const pool = getMysqlPool();
+      if (!pool) return sendJson(res, 503, { ok: false, error: 'MySQL pool unavailable' });
+      try {
+        await pool.execute('DELETE FROM `number_inventory`');
+        await pool.execute('DELETE FROM `numbers`');
+        await pool.execute('DELETE FROM `did_inventory`').catch(() => {});
+        await rebuildDidInventoryFromNumbers();
+        return sendJson(res, 200, { ok: true, message: 'All DIDs cleared from numbers and number_inventory' });
+      } catch (e) {
+        return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
+      }
+    }
 
     // Audio file upload & list
     const SOUNDS_DIR = '/var/lib/asterisk/sounds/custom';
@@ -1217,6 +1247,14 @@ const server = createServer(async (req, res) => {
       }
     } catch (e) {
       console.error('[mysql] app settings load:', e?.message || e);
+    }
+    try {
+      const dr = await rebuildDidInventoryFromNumbers();
+      if (dr.ok && !dr.skipped && dr.count != null) {
+        console.log(`[mysql] did_inventory synced: ${dr.count} row(s)`);
+      }
+    } catch (e) {
+      console.error('[mysql] did_inventory sync:', e?.message || e);
     }
   }
   server.listen(PORT, '0.0.0.0', () => {

@@ -113,6 +113,13 @@ const API = {
   releaseNumber(id) { return this.post(`/api/numbers/${encodeURIComponent(id)}/release`, {}); },
   deleteNumber(id) { return this.del(`/api/numbers/${id}`); },
   deletePrefix(country, countryCode, prefix) { return this.post('/api/numbers/delete-prefix', { country, countryCode, prefix }); },
+  /** Danger: removes every row from `numbers` + `number_inventory` (MySQL). */
+  wipeAllNumbers() {
+    return fetchJsonWithTimeout('/api/numbers/wipe-all', 120000, 'POST', { confirm: 'DELETE_ALL_DIDS' });
+  },
+  rebuildDidInventory() {
+    return fetchJsonWithTimeout('/api/numbers/rebuild-did-inventory', 60000, 'POST', {});
+  },
   testDidRoute(did, sourceIp = '') {
     const qs = `did=${encodeURIComponent(did)}&sourceIp=${encodeURIComponent(sourceIp)}`;
     return this.get(`/api/numbers/test-route?${qs}`);

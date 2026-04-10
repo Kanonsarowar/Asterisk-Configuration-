@@ -321,6 +321,24 @@ async function ensureIprnInventorySchema(p) {
   }
 }
 
+async function ensureCarrierInventorySchema(p) {
+  const sqlPath = join(__dirnameMysql, '..', '..', 'sql', 'carrier_inventory.sql');
+  if (!existsSync(sqlPath)) return;
+  try {
+    let raw = readFileSync(sqlPath, 'utf8');
+    raw = raw.replace(/^\s*SET\s+[^;]+;/gim, '');
+    const parts = raw
+      .split(';')
+      .map((s) => s.replace(/--[^\n]*/g, '').trim())
+      .filter((s) => s.length > 0);
+    for (const st of parts) {
+      await p.query(st);
+    }
+  } catch (e) {
+    console.error('[mysql] carrier_inventory.sql:', e?.message || e);
+  }
+}
+
 export async function ensureMysqlSchema() {
   const p = getMysqlPool();
   if (!p) return { ok: false, skipped: true };
@@ -337,6 +355,7 @@ export async function ensureMysqlSchema() {
   await p.execute(DDL_USER_NUMBERS);
   await p.execute(DDL_IPRN_INVOICES);
   await ensureIprnInventorySchema(p);
+  await ensureCarrierInventorySchema(p);
   await p.execute(DDL_PREFIX_CATALOG);
   await p.execute(DDL_DASHBOARD_APP_STATE);
   return { ok: true };

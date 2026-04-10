@@ -2173,9 +2173,11 @@ async function renderNumbers(el) {
     <div class="card">
       <div class="card-header">
         <h3>DID Inventory</h3>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <button class="btn btn-outline" id="btn-upload-file">Upload File</button>
           <button class="btn btn-primary" id="btn-add-number">+ Add DID</button>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-rebuild-did-inv" title="Rebuild carrier did_inventory from MySQL numbers">Sync did_inventory</button>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-wipe-all-dids" style="border-color:var(--danger);color:var(--danger)" title="Deletes every DID from MySQL">Wipe all DIDs</button>
         </div>
       </div>
       <div class="card-body padded" id="numbers-list">
@@ -2359,6 +2361,32 @@ async function renderNumbers(el) {
   };
 
   document.getElementById('btn-add-number').onclick = () => showAddNumberModal(suppliers, ivrMenus);
+
+  const btnRebuildDid = document.getElementById('btn-rebuild-did-inv');
+  if (btnRebuildDid) {
+    btnRebuildDid.onclick = async () => {
+      const r = await API.rebuildDidInventory();
+      if (r.error) {
+        toast(String(r.error), 'error');
+        return;
+      }
+      toast(r.skipped ? 'did_inventory table not present (run schema deploy)' : `did_inventory rebuilt (${r.count ?? 0} rows)`);
+    };
+  }
+  const btnWipeAll = document.getElementById('btn-wipe-all-dids');
+  if (btnWipeAll) {
+    btnWipeAll.onclick = async () => {
+      if (!confirm('Delete EVERY DID from MySQL (numbers + number_inventory)? This cannot be undone.')) return;
+      const r = await API.wipeAllNumbers();
+      if (r.error) {
+        toast(String(r.error), 'error');
+        return;
+      }
+      markChanged();
+      toast('All DIDs removed');
+      renderNumbers(el);
+    };
+  }
 
   el.querySelectorAll('.del-prefix').forEach(b => b.onclick = async () => {
     const prefix = b.dataset.prefix;
