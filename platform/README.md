@@ -60,3 +60,17 @@ sudo -u www-data bash -lc 'cd /opt/carrier-api && npm ci && npm run build'
 ```
 
 Always **build as the same user** that runs `node dist/server.js` (see `User=` in the systemd unit). Avoid `sudo npm run build` unless you immediately `chown` the tree again.
+
+### Browser shows endless “loading” on `http://YOUR_IP:3010`
+
+The API listens on **`0.0.0.0`** by default (`CARRIER_HOST`). If the page never finishes loading, **inbound TCP 3010 is usually blocked** (UFW, `iptables`, or your cloud provider’s **firewall / security group**). Allow port **3010** there, or put **Nginx** on 80/443 and proxy to `127.0.0.1:3010`.
+
+On the droplet:
+
+```bash
+sudo ufw status
+sudo ufw allow 3010/tcp comment 'carrier-api'
+sudo ufw reload
+```
+
+Also open **3010** in DigitalOcean **Networking → Firewalls** (or equivalent) for your droplet.

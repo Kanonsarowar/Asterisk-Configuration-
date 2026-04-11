@@ -4,6 +4,7 @@ import { loadEnvFromFile } from './lib/env.js';
 import { initDb, getPool } from './db.js';
 import { liveRoutes } from './routes/live.js';
 import { routeResolverRoutes } from './routes/route.js';
+import { sendOk } from './lib/api-envelope.js';
 
 loadEnvFromFile();
 
@@ -22,6 +23,14 @@ if (!db.ok) {
 }
 app.decorate('mysqlPool', getPool());
 app.decorate('dbInitError', db.ok ? null : db.error ?? 'unknown');
+
+/** Browsers hitting `http://host:3010/` otherwise see 404; document real paths. */
+app.get('/', async (_req, reply) =>
+  sendOk(reply, {
+    service: 'carrier-iprn-api',
+    endpoints: ['/health', '/ready', '/api/live', '/api/route/:prefix'],
+  })
+);
 
 /** Phase 1: minimal liveness — no DB coupling (load balancers / systemd). */
 app.get('/health', async () => ({ status: 'ok' }));
