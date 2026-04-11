@@ -9,6 +9,7 @@
     "dev": "tsx watch src/server.ts"
   },
   "dependencies": {
+    "asterisk-ami-client": "^1.1.5",
     "fastify": "^5.2.1",
     "mysql2": "^3.14.0"
   },

@@ -1,6 +1,12 @@
-# Carrier IPRN API — Phase 1 (Fastify + TypeScript)
+# Carrier IPRN API — Fastify + TypeScript (`/platform`)
 
 Separate from `dashboard/server.js`. Listens on **`CARRIER_PORT`** (default **3010**).
+
+## Phase 2 — Asterisk AMI
+
+On startup, the service connects to AMI (`AMI_HOST` / `AMI_PORT`, default `127.0.0.1:5038`) as `AMI_USERNAME` / `AMI_PASSWORD` and listens for **Dial** (Begin) and **Hangup**. Rows are written/updated in MySQL `call_logs` using AMI **Linkedid** / **Uniqueid** (see `src/ami.ts`). Set **`AMI_ENABLED=0`** to disable.
+
+**Asterisk** (`/etc/asterisk/manager.conf`): enable the manager, add a user matching `AMI_USERNAME` / `AMI_PASSWORD`, with **read** (and **write** if you originate from AMI) classes as needed, then `asterisk -rx "manager reload"`.
 
 ## Responses
 

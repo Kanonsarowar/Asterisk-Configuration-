@@ -1,4 +1,5 @@
 import mysql from 'mysql2/promise';
+import type { RowDataPacket } from 'mysql2';
 
 let pool: mysql.Pool | null = null;
 
@@ -30,6 +31,75 @@ CREATE TABLE IF NOT EXISTS \`routes\` (
   UNIQUE KEY \`uk_routes_prefix\` (\`prefix\`(32)),
   KEY \`idx_routes_vendor\` (\`vendor_id\`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`;
+
+async function columnExists(
+  p: mysql.Pool,
+  table: string,
+  column: string
+): Promise<boolean> {
+  const [rows] = await p.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS c FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+    [table, column]
+  );
+  return rows?.[0] ? Number(rows[0].c) > 0 : false;
+}
+
+async function indexExists(p: mysql.Pool, table: string, index: string): Promise<boolean> {
+  const [rows] = await p.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS c FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+    [table, index]
+  );
+  return rows?.[0] ? Number(rows[0].c) > 0 : false;
+}
+
+/** Phase 2: AMI live events — columns + indexes on existing `call_logs`. */
+export async function migrateCallLogsForAmi(p: mysql.Pool): Promise<void> {
+  const [tbl] = await p.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS c FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'call_logs'`
+  );
+  if (!tbl?.[0] || Number(tbl[0].c) < 1) {
+    console.warn('[carrier-api] call_logs table missing; skip AMI column migration');
+    return;
+  }
+
+  const cols: [string, string][] = [
+    ['uniqueid', '`uniqueid` VARCHAR(50) NULL'],
+    ['linkedid', '`linkedid` VARCHAR(64) NULL'],
+    ['vendor_id', '`vendor_id` INT UNSIGNED NULL'],
+    ['start_time', '`start_time` DATETIME NULL'],
+    ['prefix', '`prefix` VARCHAR(32) NULL'],
+  ];
+  for (const [name, ddl] of cols) {
+    if (await columnExists(p, 'call_logs', name)) continue;
+    try {
+      await p.execute(`ALTER TABLE \`call_logs\` ADD COLUMN ${ddl}`);
+    } catch (e) {
+      const msg = String((e as Error)?.message || e);
+      if (!msg.includes('Duplicate column')) throw e;
+    }
+  }
+  if (!(await indexExists(p, 'call_logs', 'uk_call_logs_uniqueid'))) {
+    try {
+      await p.execute(
+        'CREATE UNIQUE INDEX `uk_call_logs_uniqueid` ON `call_logs` (`uniqueid`)'
+      );
+    } catch (e) {
+      const msg = String((e as Error)?.message || e);
+      if (!msg.includes('Duplicate') && !msg.includes('already exists')) throw e;
+    }
+  }
+  if (!(await indexExists(p, 'call_logs', 'idx_call_logs_linkedid'))) {
+    try {
+      await p.execute('CREATE INDEX `idx_call_logs_linkedid` ON `call_logs` (`linkedid`)');
+    } catch (e) {
+      const msg = String((e as Error)?.message || e);
+      if (!msg.includes('Duplicate') && !msg.includes('already exists')) throw e;
+    }
+  }
+}
 
 async function migrateRoutesVendorFk(p: mysql.Pool): Promise<void> {
   try {
@@ -100,6 +170,11 @@ export async function initDb(): Promise<{ ok: boolean; error?: string }> {
     await pool.execute(
       "INSERT IGNORE INTO `routes` (`id`, `prefix`, `vendor_id`, `priority`, `status`) VALUES (1, '971', 1, 1, 'active')"
     );
+    try {
+      await migrateCallLogsForAmi(pool);
+    } catch (e) {
+      console.error('[carrier-api] call_logs AMI migration failed:', (e as Error)?.message || e);
+    }
     return { ok: true };
   } catch (e) {
     pool = null;

@@ -5,6 +5,7 @@ import { initDb, getPool } from './db.js';
 import { liveRoutes } from './routes/live.js';
 import { routeResolverRoutes } from './routes/route.js';
 import { sendOk } from './lib/api-envelope.js';
+import { startAMI } from './ami.js';
 
 loadEnvFromFile();
 
@@ -52,6 +53,8 @@ app.get('/ready', async () => {
 
 await app.register(liveRoutes);
 await app.register(routeResolverRoutes);
+
+startAMI(getPool());
 
 const port = parseInt(process.env.CARRIER_PORT || process.env.PORT || '3010', 10) || 3010;
 const host = (process.env.CARRIER_HOST || '0.0.0.0').trim();
