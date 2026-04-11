@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type { RowDataPacket } from 'mysql2';
+import { sendOk, sendErr } from '../lib/api-envelope.js';
 
 function validatePrefixParam(raw: string): string | null {
   const p = raw.replace(/\D/g, '').slice(0, 32);
@@ -13,11 +14,15 @@ export const routeResolverRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Params: { prefix: string } }>('/api/route/:prefix', async (req, reply) => {
     const pool = app.mysqlPool;
     if (!pool) {
-      return reply.code(503).send({ error: 'Database unavailable' });
+      return sendErr(reply, 503, 'DB_UNAVAILABLE', 'Database unavailable', {
+        hint: app.dbInitError ?? 'check MYSQL_* in .env',
+      });
     }
     const key = validatePrefixParam(req.params.prefix);
     if (!key) {
-      return reply.code(400).send({ error: 'Invalid prefix' });
+      return sendErr(reply, 400, 'INVALID_PREFIX', 'Prefix must contain at least one digit', {
+        param: req.params.prefix,
+      });
     }
     try {
       const [rows] = await pool.query<RowDataPacket[]>(
@@ -38,9 +43,11 @@ export const routeResolverRoutes: FastifyPluginAsync = async (app) => {
         }
       }
       if (!best) {
-        return reply.code(404).send({ error: 'No route for prefix', prefix: key });
+        return sendErr(reply, 404, 'ROUTE_NOT_FOUND', 'No active route for this prefix', {
+          prefix: key,
+        });
       }
-      return {
+      return sendOk(reply, {
         prefix: key,
         matchedPrefix: String(best.prefix),
         routeId: best.id,
@@ -48,10 +55,10 @@ export const routeResolverRoutes: FastifyPluginAsync = async (app) => {
         vendorName: best.vendor_name ?? null,
         priority: best.priority,
         meta: best.meta ?? null,
-      };
+      });
     } catch (e) {
       app.log.error(e);
-      return reply.code(503).send({ error: String((e as Error)?.message || e) });
+      return sendErr(reply, 503, 'QUERY_FAILED', String((e as Error)?.message || e));
     }
   });
 };

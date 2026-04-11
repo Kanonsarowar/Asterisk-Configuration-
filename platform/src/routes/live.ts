@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type { RowDataPacket } from 'mysql2';
+import { sendOk, sendErr } from '../lib/api-envelope.js';
 
 function prefixGroupLen(): number {
   const n = parseInt(process.env.PREFIX_GROUP_LEN || '3', 10);
@@ -23,11 +24,24 @@ export const liveRoutes: FastifyPluginAsync = async (app) => {
   app.get('/api/live', async (_req, reply) => {
     const pool = app.mysqlPool;
     if (!pool) {
-      return reply.code(503).send({ error: 'Database unavailable' });
+      return sendErr(reply, 503, 'DB_UNAVAILABLE', 'Database unavailable', {
+        hint: app.dbInitError ?? 'check MYSQL_* in .env',
+      });
     }
     const len = prefixGroupLen();
     const maxRows = Math.min(100000, Math.max(1000, parseInt(process.env.LIVE_SAMPLE_ROWS || '50000', 10) || 50000));
     try {
+      const [tables] = await pool.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS c FROM information_schema.tables
+         WHERE table_schema = DATABASE() AND table_name = 'call_logs'`
+      );
+      if (!tables?.[0] || Number(tables[0].c) < 1) {
+        return sendOk(reply, {
+          rows: [],
+          meta: { prefixGroupLen: len, sampleLimit: maxRows, note: 'call_logs table missing' },
+        });
+      }
+
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT \`destination\`, \`duration\`, \`status\` FROM \`call_logs\` ORDER BY \`id\` DESC LIMIT ?`,
         [maxRows]
@@ -50,7 +64,7 @@ export const liveRoutes: FastifyPluginAsync = async (app) => {
           g.durCount += 1;
         }
       }
-      const out = [...agg.entries()]
+      const rowsOut = [...agg.entries()]
         .map(([prefix, g]) => {
           const asr = g.calls > 0 ? Math.round((g.answered / g.calls) * 1000) / 10 : 0;
           const acd = g.durCount > 0 ? Math.round((g.durSum / g.durCount) * 10) / 10 : 0;
@@ -58,10 +72,17 @@ export const liveRoutes: FastifyPluginAsync = async (app) => {
         })
         .sort((a, b) => b.calls - a.calls)
         .slice(0, 200);
-      return out;
+      return sendOk(reply, {
+        rows: rowsOut,
+        meta: {
+          prefixGroupLen: len,
+          sampleLimit: maxRows,
+          bucketsReturned: rowsOut.length,
+        },
+      });
     } catch (e) {
       app.log.error(e);
-      return reply.code(503).send({ error: String((e as Error)?.message || e) });
+      return sendErr(reply, 503, 'QUERY_FAILED', String((e as Error)?.message || e));
     }
   });
 };

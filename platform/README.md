@@ -1,19 +1,28 @@
 # Carrier IPRN API — Phase 1 (Fastify + TypeScript)
 
-Separate from `dashboard/server.js`. Listens on **`CARRIER_PORT`** (default **3010**) so the existing dashboard can stay on **3000**.
+Separate from `dashboard/server.js`. Listens on **`CARRIER_PORT`** (default **3010**).
+
+## Responses
+
+All JSON APIs use a single envelope:
+
+- **Success:** `{ "success": true, "data": ... }`
+- **Error:** `{ "success": false, "error": { "code": "...", "message": "...", "details": {} } }`
+
+`GET /health` returns `success` + `data.status`, `data.database` (`connected` | `disconnected`), and `databaseError` when DB is down.
 
 ## Setup
 
 ```bash
 cd platform
 cp .env.example .env
-# Edit .env — same MySQL credentials as dashboard (iprn_system)
+# MYSQL_* required — password must be non-empty
 npm install
 npm run build
 npm start
 ```
 
-## Verify (Phase 1)
+## Verify
 
 ```bash
 curl -s http://127.0.0.1:3010/health
@@ -21,20 +30,14 @@ curl -s http://127.0.0.1:3010/api/live
 curl -s http://127.0.0.1:3010/api/route/971
 ```
 
-On first start, missing tables **`routes`** and **`vendors`** are created and a sample row for prefix `971` is inserted if empty.
+`.env` is loaded after process start and **overrides empty** `MYSQL_*` from systemd so passwords are not lost.
 
-## Dev (watch)
+On first connect, **`routes` → `vendors` foreign key** is applied when possible; orphan `routes.vendor_id` rows are removed first.
+
+## Dev
 
 ```bash
 npm run dev
 ```
 
-Requires **Node 20+**.
-
-## Endpoints
-
-| Method | Path | Notes |
-|--------|------|--------|
-| GET | `/health` | `{ "status": "ok" }` |
-| GET | `/api/live` | Prefix stats from `call_logs` (last N rows, in-memory aggregate) |
-| GET | `/api/route/:prefix` | Longest-prefix match on `routes` + `vendors` |
+Node **20+**.

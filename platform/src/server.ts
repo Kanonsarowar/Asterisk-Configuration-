@@ -1,36 +1,18 @@
-import { readFileSync, existsSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
 import Fastify from 'fastify';
 import type { Pool } from 'mysql2/promise';
+import { loadEnvFromFile } from './lib/env.js';
 import { initDb, getPool } from './db.js';
 import { liveRoutes } from './routes/live.js';
 import { routeResolverRoutes } from './routes/route.js';
 
+loadEnvFromFile();
+
 declare module 'fastify' {
   interface FastifyInstance {
     mysqlPool: Pool | null;
+    dbInitError: string | null;
   }
 }
-
-function loadDotEnv() {
-  const __d = dirname(fileURLToPath(import.meta.url));
-  const envPath = join(__d, '..', '.env');
-  if (!existsSync(envPath)) return;
-  const text = readFileSync(envPath, 'utf8');
-  for (const line of text.split(/\r?\n/)) {
-    const t = line.trim();
-    if (!t || t.startsWith('#')) continue;
-    const eq = t.indexOf('=');
-    if (eq < 1) continue;
-    const k = t.slice(0, eq).trim();
-    let v = t.slice(eq + 1).trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
-    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(k) && process.env[k] === undefined) process.env[k] = v;
-  }
-}
-
-loadDotEnv();
 
 const app = Fastify({ logger: true });
 
@@ -39,8 +21,19 @@ if (!db.ok) {
   console.error('[carrier-api] DB init failed:', db.error);
 }
 app.decorate('mysqlPool', getPool());
+app.decorate('dbInitError', db.ok ? null : db.error ?? 'unknown');
 
-app.get('/health', async () => ({ status: 'ok' }));
+app.get('/health', async () => {
+  const pool = app.mysqlPool;
+  return {
+    success: true,
+    data: {
+      status: 'ok',
+      database: pool ? 'connected' : 'disconnected',
+      ...(pool ? {} : { databaseError: app.dbInitError ?? 'not configured' }),
+    },
+  };
+});
 
 await app.register(liveRoutes);
 await app.register(routeResolverRoutes);
