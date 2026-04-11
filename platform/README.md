@@ -44,3 +44,19 @@ npm run dev
 ```
 
 Node **20+**.
+
+## Troubleshooting
+
+### `tsc` / `EACCES: permission denied` writing `dist/`
+
+The service user (often `www-data`) must own the project tree, or builds run as `root` leave `dist/` owned by root so later `npm run build` as another user fails.
+
+**Fix (typical):**
+
+```bash
+sudo chown -R www-data:www-data /opt/carrier-api
+sudo rm -rf /opt/carrier-api/dist
+sudo -u www-data bash -lc 'cd /opt/carrier-api && npm ci && npm run build'
+```
+
+Always **build as the same user** that runs `node dist/server.js` (see `User=` in the systemd unit). Avoid `sudo npm run build` unless you immediately `chown` the tree again.
