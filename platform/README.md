@@ -9,7 +9,9 @@ All JSON APIs use a single envelope:
 - **Success:** `{ "success": true, "data": ... }`
 - **Error:** `{ "success": false, "error": { "code": "...", "message": "...", "details": {} } }`
 
-`GET /health` returns `success` + `data.status`, `data.database` (`connected` | `disconnected`), and `databaseError` when DB is down.
+- **`GET /health`** — Phase 1 minimal response: `{ "status": "ok" }` (no envelope; suitable for dumb health checks).
+- **`GET /ready`** — `{ "success": true, "data": { "status": "ok", "database": "connected"|"disconnected", "databaseError"? } }` when DB is down.
+- **`GET /api/live`** — `{ "success": true, "data": [ { "prefix", "calls", "asr", "acd" }, ... ] }` (empty array if `call_logs` is missing or empty).
 
 ## Setup
 
@@ -26,6 +28,7 @@ npm start
 
 ```bash
 curl -s http://127.0.0.1:3010/health
+curl -s http://127.0.0.1:3010/ready
 curl -s http://127.0.0.1:3010/api/live
 curl -s http://127.0.0.1:3010/api/route/971
 ```

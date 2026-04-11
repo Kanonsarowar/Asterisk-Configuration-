@@ -23,7 +23,13 @@ if (!db.ok) {
 app.decorate('mysqlPool', getPool());
 app.decorate('dbInitError', db.ok ? null : db.error ?? 'unknown');
 
-app.get('/health', async () => {
+/** Phase 1: minimal liveness — no DB coupling (load balancers / systemd). */
+app.get('/health', async () => ({ status: 'ok' }));
+
+/**
+ * Readiness + DB diagnostics. Use this for ops; `/health` stays spec-minimal.
+ */
+app.get('/ready', async () => {
   const pool = app.mysqlPool;
   return {
     success: true,

@@ -36,10 +36,7 @@ export const liveRoutes: FastifyPluginAsync = async (app) => {
          WHERE table_schema = DATABASE() AND table_name = 'call_logs'`
       );
       if (!tables?.[0] || Number(tables[0].c) < 1) {
-        return sendOk(reply, {
-          rows: [],
-          meta: { prefixGroupLen: len, sampleLimit: maxRows, note: 'call_logs table missing' },
-        });
+        return sendOk(reply, []);
       }
 
       const [rows] = await pool.query<RowDataPacket[]>(
@@ -72,14 +69,8 @@ export const liveRoutes: FastifyPluginAsync = async (app) => {
         })
         .sort((a, b) => b.calls - a.calls)
         .slice(0, 200);
-      return sendOk(reply, {
-        rows: rowsOut,
-        meta: {
-          prefixGroupLen: len,
-          sampleLimit: maxRows,
-          bucketsReturned: rowsOut.length,
-        },
-      });
+      /** Phase 1: `data` is the array of `{ prefix, calls, asr, acd }` (envelope wraps it). */
+      return sendOk(reply, rowsOut);
     } catch (e) {
       app.log.error(e);
       return sendErr(reply, 503, 'QUERY_FAILED', String((e as Error)?.message || e));
