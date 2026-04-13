@@ -25,6 +25,9 @@ if (!db.ok) {
 app.decorate('mysqlPool', getPool());
 app.decorate('dbInitError', db.ok ? null : db.error ?? 'unknown');
 
+/** Phase 2 AMI — run as soon as DB pool exists (before HTTP listen). */
+startAMI();
+
 /** Browsers hitting `http://host:3010/` otherwise see 404; document real paths. */
 app.get('/', async (_req, reply) =>
   sendOk(reply, {
@@ -53,8 +56,6 @@ app.get('/ready', async () => {
 
 await app.register(liveRoutes);
 await app.register(routeResolverRoutes);
-
-startAMI();
 
 const port = parseInt(process.env.CARRIER_PORT || process.env.PORT || '3010', 10) || 3010;
 const host = (process.env.CARRIER_HOST || '0.0.0.0').trim();

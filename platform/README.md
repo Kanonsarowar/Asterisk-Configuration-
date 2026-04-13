@@ -4,12 +4,9 @@ Separate from `dashboard/server.js`. Listens on **`CARRIER_PORT`** (default **30
 
 ## Phase 2 — Asterisk AMI
 
-The carrier API connects to AMI (`AMI_HOST` / `AMI_PORT`, default `127.0.0.1:5038`), logs **`AMI Connected`**, and writes **`call_logs`** keyed by AMI **`Uniqueid`**:
+Phase 2 AMI: on startup **`startAMI()`** runs right after DB init (see `server.ts`). Logs **`AMI INIT STARTING...`** then **`AMI Connected`** (or **`AMI CONNECTION FAILED:`**). **`Dial`** (Begin) inserts **`call_logs`** using **`event.Destination`** and **`Uniqueid`**; **`Hangup`** updates **`duration`**, **`disposition`**, and **`status`** by **`uniqueid`** only (no `ORDER BY` / `LIMIT`). Set **`AMI_ENABLED=0`** to disable.
 
-- **Inbound DID → IVR** (this repo’s dialplan: `Answer` in `[ivr-*]`, often **no `Dial`**): **`Newexten`** when `Context` matches `ivr-*` and `Application` is **`Answer`** opens the row; **`Hangup`** on the same channel `Uniqueid` closes it.
-- **Dial-based flows**: **`Dial`** (Begin) opens the row; **`Hangup`** updates it.
-
-Set **`AMI_IVR_ANSWER_INSERT=0`** to disable IVR `Newexten` inserts. Set **`AMI_ENABLED=0`** to disable AMI entirely.
+**Note:** Inbound DID → IVR with **only** `Answer`/`Wait` may produce **no `Dial`** AMI event; in that case no row is created until a **`Dial`** appears on that leg. Use a call path that emits Dial, or extend events separately.
 
 **Asterisk manager** sample is in **two places** (same content):
 
