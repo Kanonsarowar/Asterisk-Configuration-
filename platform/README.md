@@ -4,7 +4,12 @@ Separate from `dashboard/server.js`. Listens on **`CARRIER_PORT`** (default **30
 
 ## Phase 2 — Asterisk AMI
 
-The carrier API connects to AMI (`AMI_HOST` / `AMI_PORT`, default `127.0.0.1:5038`), logs **`AMI Connected`**, handles **Dial** (Begin) and **Hangup**, and writes **`call_logs`** rows keyed by AMI **`Uniqueid`**. Set **`AMI_ENABLED=0`** to disable.
+The carrier API connects to AMI (`AMI_HOST` / `AMI_PORT`, default `127.0.0.1:5038`), logs **`AMI Connected`**, and writes **`call_logs`** keyed by AMI **`Uniqueid`**:
+
+- **Inbound DID → IVR** (this repo’s dialplan: `Answer` in `[ivr-*]`, often **no `Dial`**): **`Newexten`** when `Context` matches `ivr-*` and `Application` is **`Answer`** opens the row; **`Hangup`** on the same channel `Uniqueid` closes it.
+- **Dial-based flows**: **`Dial`** (Begin) opens the row; **`Hangup`** updates it.
+
+Set **`AMI_IVR_ANSWER_INSERT=0`** to disable IVR `Newexten` inserts. Set **`AMI_ENABLED=0`** to disable AMI entirely.
 
 **Asterisk manager** sample is in **two places** (same content):
 
