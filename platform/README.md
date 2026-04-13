@@ -6,10 +6,18 @@ Separate from `dashboard/server.js`. Listens on **`CARRIER_PORT`** (default **30
 
 The carrier API connects to AMI (`AMI_HOST` / `AMI_PORT`, default `127.0.0.1:5038`), logs **`AMI Connected`**, handles **Dial** (Begin) and **Hangup**, and writes **`call_logs`** rows keyed by AMI **`Uniqueid`**. Set **`AMI_ENABLED=0`** to disable.
 
-**Asterisk manager:** this repo includes `asterisk/manager.conf` (AMI on port **5038**, user **`carrier`**). Deploy and reload:
+**Asterisk manager** sample is in **two places** (same content):
+
+- **`platform/deploy/manager.conf`** — use this when you only deploy `/opt/carrier-api` (no `asterisk/` folder).
+- **`asterisk/manager.conf`** — use this from a full repo clone.
 
 ```bash
+# carrier-api-only tree on the server:
+sudo cp /opt/carrier-api/deploy/manager.conf /etc/asterisk/manager.conf
+
+# full repo:
 sudo cp /path/to/repo/asterisk/manager.conf /etc/asterisk/manager.conf
+
 sudo asterisk -rx "manager reload"
 # or full restart:
 sudo systemctl restart asterisk

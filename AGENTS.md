@@ -6,7 +6,7 @@ This repository contains **Asterisk PBX configuration files** (not a buildable a
 
 - `asterisk/pjsip.conf` – PJSIP transport & IP-authenticated trunk
 - `asterisk/extensions.conf` – Dialplan with DID routing and IVR audio playback (no ring groups)
-- `asterisk/manager.conf` – AMI (port 5038, user `carrier`) for `/platform` Phase 2; deploy to `/etc/asterisk/manager.conf`, then `asterisk -rx "manager reload"` or `systemctl restart asterisk`
+- `asterisk/manager.conf` – AMI (port 5038, user `carrier`) for `/platform` Phase 2; duplicate at **`platform/deploy/manager.conf`** when only the carrier-api folder exists on the server. Deploy: `sudo cp …/manager.conf /etc/asterisk/manager.conf`, then `asterisk -rx "manager reload"` or `systemctl restart asterisk`
 
 ### Running Asterisk locally
 
