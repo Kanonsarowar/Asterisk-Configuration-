@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
+    "postbuild": "test -f dist/ami.js && test -f dist/server.js || (echo 'ERROR: dist build incomplete (missing dist/ami.js — ensure src/ami.ts exists and tsc succeeded)' >&2; exit 1)",
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts"
   },
