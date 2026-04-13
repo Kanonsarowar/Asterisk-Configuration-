@@ -34,7 +34,7 @@ app.decorate('dbInitError', db.ok ? null : db.error ?? 'unknown');
 
 app.get('/', async (_req, reply) =>
   sendOk(reply, {
-    service: 'platform-api',
+    service: 'Gulf-Premium-Telecom',
     endpoints: [
       '/health',
       '/ready',

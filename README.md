@@ -1,4 +1,4 @@
-# Asterisk IPRN Dashboard
+# Gulf-Premium-Telecom — Asterisk IPRN Dashboard
 
 **IPRN Business Console** — one web panel for multi-supplier Asterisk: **number inventory** (DIDs + routing), IVR audio, trunk, call stats, CDR, optional MySQL billing/inventory sync, and live monitoring.
 
