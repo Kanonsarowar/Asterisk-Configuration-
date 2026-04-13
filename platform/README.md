@@ -4,9 +4,18 @@ Separate from `dashboard/server.js`. Listens on **`CARRIER_PORT`** (default **30
 
 ## Phase 2 — Asterisk AMI
 
-On startup, the service connects to AMI (`AMI_HOST` / `AMI_PORT`, default `127.0.0.1:5038`) as `AMI_USERNAME` / `AMI_PASSWORD` and listens for **Newexten**, **Dial** (Begin), and **Hangup**. With **`AMI_IVR_ONLY=1`** (default), only calls that enter an **`ivr-*`** dialplan context (matches `extensions.conf` `[ivr-1]` … `[ivr-10]`) are written to `call_logs`; **Newexten** creates the ONGOING row (IVR flow often has no **Dial**), **Hangup** finalizes duration/disposition. Override context matching with **`AMI_IVR_CONTEXT_REGEX`**. Set **`AMI_ENABLED=0`** to disable AMI.
+The carrier API connects to AMI (`AMI_HOST` / `AMI_PORT`, default `127.0.0.1:5038`), logs **`AMI Connected`**, handles **Dial** (Begin) and **Hangup**, and writes **`call_logs`** rows keyed by AMI **`Uniqueid`**. Set **`AMI_ENABLED=0`** to disable.
 
-**Asterisk** (`/etc/asterisk/manager.conf`): enable the manager, add a user matching `AMI_USERNAME` / `AMI_PASSWORD`, with **read** (and **write** if you originate from AMI) classes as needed, then `asterisk -rx "manager reload"`.
+**Asterisk manager:** this repo includes `asterisk/manager.conf` (AMI on port **5038**, user **`carrier`**). Deploy and reload:
+
+```bash
+sudo cp /path/to/repo/asterisk/manager.conf /etc/asterisk/manager.conf
+sudo asterisk -rx "manager reload"
+# or full restart:
+sudo systemctl restart asterisk
+```
+
+Verify AMI is listening: `sudo ss -tlnp | grep 5038`
 
 ## Responses
 

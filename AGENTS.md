@@ -2,10 +2,11 @@
 
 ## Cursor Cloud specific instructions
 
-This repository contains **Asterisk PBX configuration files** (not a buildable application). The two config files live under `asterisk/`:
+This repository contains **Asterisk PBX configuration files** (not a buildable application). Config files under `asterisk/`:
 
 - `asterisk/pjsip.conf` – PJSIP transport & IP-authenticated trunk
 - `asterisk/extensions.conf` – Dialplan with DID routing and IVR audio playback (no ring groups)
+- `asterisk/manager.conf` – AMI (port 5038, user `carrier`) for `/platform` Phase 2; deploy to `/etc/asterisk/manager.conf`, then `asterisk -rx "manager reload"` or `systemctl restart asterisk`
 
 ### Running Asterisk locally
 

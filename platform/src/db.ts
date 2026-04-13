@@ -70,7 +70,7 @@ export async function migrateCallLogsForAmi(p: mysql.Pool): Promise<void> {
     ['linkedid', '`linkedid` VARCHAR(64) NULL'],
     ['vendor_id', '`vendor_id` INT UNSIGNED NULL'],
     ['start_time', '`start_time` DATETIME NULL'],
-    ['prefix', '`prefix` VARCHAR(32) NULL'],
+    ['prefix', '`prefix` VARCHAR(10) NULL'],
   ];
   for (const [name, ddl] of cols) {
     if (await columnExists(p, 'call_logs', name)) continue;
