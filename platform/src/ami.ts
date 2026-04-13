@@ -1,6 +1,6 @@
 /**
- * Phase 2: Asterisk AMI — Dial / Hangup → `call_logs` keyed by AMI Uniqueid only.
- * AMI failures are logged; the HTTP process does not exit.
+ * Phase 2: Inbound IPRN — AMI Newchannel + Hangup → `call_logs` (uniqueid only).
+ * Does not use Dial or Destination. Does not exit the process on AMI errors.
  */
 import type { Pool } from 'mysql2/promise';
 import type { ResultSetHeader } from 'mysql2';
@@ -34,10 +34,6 @@ function amiSecret(): string {
   return process.env.AMI_PASSWORD != null ? String(process.env.AMI_PASSWORD) : 'strongpassword';
 }
 
-function digitsOnly(s: unknown): string {
-  return String(s ?? '').replace(/\D/g, '');
-}
-
 function getField(ev: AmiDict, ...keys: string[]): string {
   for (const k of keys) {
     const v = ev[k];
@@ -46,17 +42,12 @@ function getField(ev: AmiDict, ...keys: string[]): string {
   return '';
 }
 
-function isDialBegin(ev: AmiDict): boolean {
-  const sub = getField(ev, 'SubEvent', 'subevent').toLowerCase();
-  if (sub === 'end') return false;
-  if (sub === 'begin') return true;
-  return sub === '';
-}
-
-function prefixFromDestination(destRaw: string): string {
-  const d = digitsOnly(destRaw);
-  if (d.length >= 3) return d.slice(0, 3);
-  return d;
+function shouldIgnoreInboundChannel(channel: string): boolean {
+  const ch = channel.trim();
+  if (!ch) return true;
+  if (ch.startsWith('Local/')) return true;
+  if (ch.toLowerCase().includes('internal')) return true;
+  return false;
 }
 
 /**
@@ -97,8 +88,8 @@ export function startAMI(): void {
     console.error('[ami] socket/client error:', err);
   });
 
-  client.on('Dial', (raw: unknown) => {
-    void handleDial(pool, raw as AmiDict).catch((e) => console.error('[ami] Dial handler:', e));
+  client.on('Newchannel', (raw: unknown) => {
+    void handleNewchannelInbound(pool, raw as AmiDict).catch((e) => console.error('[ami] Newchannel handler:', e));
   });
 
   client.on('Hangup', (raw: unknown) => {
@@ -110,50 +101,55 @@ export function startAMI(): void {
   });
 }
 
-async function handleDial(pool: Pool, ev: AmiDict): Promise<void> {
-  if (!isDialBegin(ev)) return;
-
-  const uniqueid = getField(ev, 'Uniqueid', 'UniqueID', 'uniqueid').trim();
-  if (!uniqueid) {
-    console.warn('[ami] Dial: missing Uniqueid, skip');
+async function handleNewchannelInbound(pool: Pool, ev: AmiDict): Promise<void> {
+  const channel = getField(ev, 'Channel', 'channel');
+  if (shouldIgnoreInboundChannel(channel)) {
     return;
   }
 
-  const destRaw = getField(ev, 'Destination', 'destination');
-  const destination = destRaw.slice(0, 64) || null;
-  const pfx = prefixFromDestination(destRaw) || null;
-  const linkedid = getField(ev, 'Linkedid', 'LinkedID', 'linkedid').trim() || null;
-  const callerRaw = getField(ev, 'CallerIDNum', 'CalleridNum', 'calleridnum', 'CID', 'Source');
+  const uniqueid = getField(ev, 'Uniqueid', 'UniqueID', 'uniqueid').trim();
+  if (!uniqueid) {
+    return;
+  }
+
+  const exten = getField(ev, 'Exten', 'exten', 'Extension', 'extension').trim();
+  if (!exten || exten.length < 5) {
+    return;
+  }
+
+  const did = exten.slice(0, 32);
+  const callerRaw = getField(ev, 'CallerIDNum', 'CalleridNum', 'calleridnum', 'CID');
   const caller = callerRaw.slice(0, 64) || null;
+
+  console.log(`Inbound call received: ${did}`);
 
   try {
     await pool.execute<ResultSetHeader>(
       `INSERT INTO \`call_logs\` (
-        \`uniqueid\`, \`linkedid\`, \`caller\`, \`destination\`, \`prefix\`,
+        \`uniqueid\`, \`caller\`, \`destination\`, \`prefix\`,
         \`vendor_id\`, \`duration\`, \`disposition\`, \`status\`, \`start_time\`, \`created_at\`
-      ) VALUES (?, ?, ?, ?, ?, 1, 0, 'ONGOING', 'ONGOING', NOW(), NOW())
+      ) VALUES (?, ?, NULL, ?, 1, 0, 'ONGOING', 'ONGOING', NOW(), NOW())
       ON DUPLICATE KEY UPDATE
-        \`caller\` = VALUES(\`caller\`),
-        \`destination\` = VALUES(\`destination\`),
-        \`prefix\` = VALUES(\`prefix\`),
-        \`linkedid\` = COALESCE(VALUES(\`linkedid\`), \`linkedid\`),
+        \`caller\` = COALESCE(NULLIF(VALUES(\`caller\`), ''), \`caller\`),
+        \`prefix\` = COALESCE(NULLIF(VALUES(\`prefix\`), ''), \`prefix\`),
         \`duration\` = 0,
         \`disposition\` = 'ONGOING',
         \`status\` = 'ONGOING',
         \`start_time\` = NOW()`,
-      [uniqueid, linkedid, caller, destination, pfx]
+      [uniqueid, caller, did]
     );
   } catch (e) {
-    console.error('[ami] Dial insert failed:', (e as Error)?.message || e);
+    console.error('[ami] Newchannel insert failed:', (e as Error)?.message || e);
   }
 }
 
 async function handleHangup(pool: Pool, ev: AmiDict): Promise<void> {
   const uniqueid = getField(ev, 'Uniqueid', 'UniqueID', 'uniqueid').trim();
   if (!uniqueid) {
-    console.warn('[ami] Hangup: missing Uniqueid, skip');
     return;
   }
+
+  console.log(`Call ended: ${uniqueid}`);
 
   const bill = getField(ev, 'BillableSeconds', 'billableseconds');
   const durRaw = getField(ev, 'Duration', 'duration');
@@ -167,12 +163,11 @@ async function handleHangup(pool: Pool, ev: AmiDict): Promise<void> {
   if (!disposition) disposition = 'HANGUP';
 
   const disp = disposition.slice(0, 64);
-  const status = disp.slice(0, 32);
 
   try {
     const [res] = await pool.execute<ResultSetHeader>(
-      `UPDATE \`call_logs\` SET \`duration\` = ?, \`disposition\` = ?, \`status\` = ? WHERE \`uniqueid\` = ?`,
-      [durationSec, disp, status, uniqueid]
+      `UPDATE \`call_logs\` SET \`duration\` = ?, \`disposition\` = ? WHERE \`uniqueid\` = ?`,
+      [durationSec, disp, uniqueid]
     );
     if ((res.affectedRows ?? 0) === 0) {
       console.warn('[ami] Hangup: no row for uniqueid=', uniqueid);

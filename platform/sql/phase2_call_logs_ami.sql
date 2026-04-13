@@ -8,6 +8,6 @@
 -- ALTER TABLE `call_logs` ADD COLUMN `vendor_id` INT UNSIGNED NULL;
 -- ALTER TABLE `call_logs` ADD COLUMN `start_time` DATETIME NULL;
 -- ALTER TABLE `call_logs` ADD COLUMN `disposition` VARCHAR(64) NULL;
--- ALTER TABLE `call_logs` ADD COLUMN `prefix` VARCHAR(10) NULL;
+-- ALTER TABLE `call_logs` ADD COLUMN `prefix` VARCHAR(32) NULL;
 -- CREATE UNIQUE INDEX `uk_call_logs_uniqueid` ON `call_logs` (`uniqueid`);
 -- CREATE INDEX `idx_call_logs_linkedid` ON `call_logs` (`linkedid`);

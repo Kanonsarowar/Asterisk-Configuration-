@@ -54,6 +54,23 @@ async function indexExists(p: mysql.Pool, table: string, index: string): Promise
   return rows?.[0] ? Number(rows[0].c) > 0 : false;
 }
 
+/** Widen `prefix` when it was VARCHAR(10) — inbound DID stored in prefix. */
+async function widenCallLogsPrefixForDid(p: mysql.Pool): Promise<void> {
+  if (!(await columnExists(p, 'call_logs', 'prefix'))) return;
+  const [rows] = await p.query<RowDataPacket[]>(
+    `SELECT CHARACTER_MAXIMUM_LENGTH AS ml FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'call_logs' AND COLUMN_NAME = 'prefix'`
+  );
+  const ml = rows?.[0] != null ? Number((rows[0] as RowDataPacket).ml) : 0;
+  if (ml > 0 && ml < 32) {
+    try {
+      await p.execute('ALTER TABLE `call_logs` MODIFY COLUMN `prefix` VARCHAR(32) NULL');
+    } catch (e) {
+      console.warn('[carrier-api] widen call_logs.prefix:', (e as Error)?.message || e);
+    }
+  }
+}
+
 /** Phase 2: AMI live events — columns + indexes on existing `call_logs`. */
 export async function migrateCallLogsForAmi(p: mysql.Pool): Promise<void> {
   const [tbl] = await p.query<RowDataPacket[]>(
@@ -70,7 +87,7 @@ export async function migrateCallLogsForAmi(p: mysql.Pool): Promise<void> {
     ['linkedid', '`linkedid` VARCHAR(64) NULL'],
     ['vendor_id', '`vendor_id` INT UNSIGNED NULL'],
     ['start_time', '`start_time` DATETIME NULL'],
-    ['prefix', '`prefix` VARCHAR(10) NULL'],
+    ['prefix', '`prefix` VARCHAR(32) NULL'],
     ['disposition', '`disposition` VARCHAR(64) NULL'],
   ];
   for (const [name, ddl] of cols) {
@@ -82,6 +99,7 @@ export async function migrateCallLogsForAmi(p: mysql.Pool): Promise<void> {
       if (!msg.includes('Duplicate column')) throw e;
     }
   }
+  await widenCallLogsPrefixForDid(p);
   if (!(await indexExists(p, 'call_logs', 'uk_call_logs_uniqueid'))) {
     try {
       await p.execute(
