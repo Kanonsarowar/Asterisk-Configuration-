@@ -15,6 +15,9 @@ declare module 'asterisk-ami-client' {
   export default class AmiClient extends EventEmitter {
     constructor(options?: AmiClientOptions);
     connect(user: string, secret: string, options?: { host?: string; port?: number }): Promise<unknown>;
-    on(event: 'connect' | 'disconnect' | 'event' | 'Dial' | 'Hangup' | string, listener: (...args: unknown[]) => void): this;
+    on(
+      event: 'connect' | 'disconnect' | 'event' | 'Newexten' | 'Dial' | 'Hangup' | string,
+      listener: (...args: unknown[]) => void
+    ): this;
   }
 }

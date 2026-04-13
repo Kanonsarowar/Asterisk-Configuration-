@@ -4,7 +4,7 @@ Separate from `dashboard/server.js`. Listens on **`CARRIER_PORT`** (default **30
 
 ## Phase 2 — Asterisk AMI
 
-On startup, the service connects to AMI (`AMI_HOST` / `AMI_PORT`, default `127.0.0.1:5038`) as `AMI_USERNAME` / `AMI_PASSWORD` and listens for **Dial** (Begin) and **Hangup**. Rows are written/updated in MySQL `call_logs` using AMI **Linkedid** / **Uniqueid** (see `src/ami.ts`). Set **`AMI_ENABLED=0`** to disable.
+On startup, the service connects to AMI (`AMI_HOST` / `AMI_PORT`, default `127.0.0.1:5038`) as `AMI_USERNAME` / `AMI_PASSWORD` and listens for **Newexten**, **Dial** (Begin), and **Hangup**. With **`AMI_IVR_ONLY=1`** (default), only calls that enter an **`ivr-*`** dialplan context (matches `extensions.conf` `[ivr-1]` … `[ivr-10]`) are written to `call_logs`; **Newexten** creates the ONGOING row (IVR flow often has no **Dial**), **Hangup** finalizes duration/disposition. Override context matching with **`AMI_IVR_CONTEXT_REGEX`**. Set **`AMI_ENABLED=0`** to disable AMI.
 
 **Asterisk** (`/etc/asterisk/manager.conf`): enable the manager, add a user matching `AMI_USERNAME` / `AMI_PASSWORD`, with **read** (and **write** if you originate from AMI) classes as needed, then `asterisk -rx "manager reload"`.
 
