@@ -1,25 +1,14 @@
 {
-  "name": "carrier-iprn-api",
+  "name": "platform-meta",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
+  "description": "Compatibility shim — use platform-api, platform-ami, platform-db, platform-dashboard",
   "scripts": {
-    "build": "tsc",
-    "postbuild": "test -f dist/ami.js && test -f dist/server.js || (echo 'ERROR: dist build incomplete (missing dist/ami.js — ensure src/ami.ts exists and tsc succeeded)' >&2; exit 1)",
-    "start": "node dist/server.js",
-    "dev": "tsx watch src/server.ts"
-  },
-  "dependencies": {
-    "asterisk-ami-client": "^1.1.5",
-    "fastify": "^5.2.1",
-    "mysql2": "^3.14.0"
-  },
-  "devDependencies": {
-    "@types/node": "^22.10.0",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
-  },
-  "engines": {
-    "node": ">=20"
+    "install:all": "npm install --prefix ../platform-api && npm install --prefix ../platform-ami",
+    "build": "npm run build --prefix ../platform-api && npm run build --prefix ../platform-ami",
+    "build:api": "npm run build --prefix ../platform-api",
+    "build:ami": "npm run build --prefix ../platform-ami",
+    "start:api": "npm start --prefix ../platform-api",
+    "start:ami": "npm start --prefix ../platform-ami"
   }
 }

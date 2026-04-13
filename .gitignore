@@ -1,1 +1,7 @@
 dashboard/.env
+
+# Carrier TypeScript modules
+platform-api/node_modules/
+platform-api/dist/
+platform-ami/node_modules/
+platform-ami/dist/

@@ -1,11 +1,11 @@
 /**
- * Phase 2: Inbound IPRN — AMI Newchannel + Hangup → `call_logs` (uniqueid only).
- * Does not use Dial or Destination. Does not exit the process on AMI errors.
+ * Inbound IPRN — AMI Newchannel + Hangup → `call_logs` (uniqueid only).
+ * Standalone module: uses pool from `pool.ts`, not platform-api.
  */
 import type { Pool } from 'mysql2/promise';
 import type { ResultSetHeader } from 'mysql2';
 import { createRequire } from 'module';
-import { getPool } from './db.js';
+import { getPool } from './pool.js';
 
 const require = createRequire(import.meta.url);
 const AmiClient = require('asterisk-ami-client') as typeof import('asterisk-ami-client').default;
@@ -50,9 +50,6 @@ function shouldIgnoreInboundChannel(channel: string): boolean {
   return false;
 }
 
-/**
- * Start AMI. Must run after `initDb()` so `getPool()` is set.
- */
 export function startAMI(): void {
   console.log('AMI INIT STARTING...');
 
@@ -63,7 +60,7 @@ export function startAMI(): void {
 
   const pool = getPool();
   if (!pool) {
-    console.error('AMI CONNECTION FAILED:', new Error('database pool unavailable (MYSQL_* / initDb)'));
+    console.error('AMI CONNECTION FAILED:', new Error('database pool unavailable'));
     return;
   }
 

@@ -1,0 +1,23 @@
+{
+  "name": "platform-ami",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/runAmi.js",
+    "dev": "tsx watch src/runAmi.ts"
+  },
+  "dependencies": {
+    "asterisk-ami-client": "^1.1.5",
+    "mysql2": "^3.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,99 +1,31 @@
-# Carrier IPRN API — Fastify + TypeScript (`/platform`)
+# `platform/` (compatibility)
 
-Separate from `dashboard/server.js`. Listens on **`CARRIER_PORT`** (default **3010**).
+Carrier code now lives in **separate modules** at the repo root:
 
-## Phase 2 — Asterisk AMI
+| Module | Role |
+|--------|------|
+| **`platform-api/`** | Fastify HTTP API (port **3010**) |
+| **`platform-ami/`** | Asterisk AMI → `call_logs` (separate process) |
+| **`platform-db/sql/`** | SQL schemas & reference migrations |
+| **`platform-dashboard/public/`** | Static UI (HTML/CSS/JS) |
 
-Phase 2 AMI (inbound IPRN): **`startAMI()`** after DB init. **`Newchannel`**: DID from **`Exten`** (stored in **`prefix`**), **`Uniqueid`**, **`CallerIDNum`** → insert `ONGOING`; skip **`Local/`**, channels with **`internal`**, and **`Exten`** shorter than 5 chars. **`Hangup`**: **`UPDATE ... SET duration, disposition WHERE uniqueid = ?`** (no `ORDER BY` / `LIMIT`). No **`Dial`** / **`Destination`**. Set **`AMI_ENABLED=0`** to disable.
-
-**Asterisk manager** sample is in **two places** (same content):
-
-- **`platform/deploy/manager.conf`** — use this when you only deploy `/opt/carrier-api` (no `asterisk/` folder).
-- **`asterisk/manager.conf`** — use this from a full repo clone.
+## Quick start
 
 ```bash
-# carrier-api-only tree on the server:
-sudo cp /opt/carrier-api/deploy/manager.conf /etc/asterisk/manager.conf
+# API
+cd platform-api && cp .env.example .env && npm ci && npm run build && npm start
 
-# full repo:
-sudo cp /path/to/repo/asterisk/manager.conf /etc/asterisk/manager.conf
-
-sudo asterisk -rx "manager reload"
-# or full restart:
-sudo systemctl restart asterisk
+# AMI (second terminal or systemd)
+cd platform-ami && cp .env.example .env && npm ci && npm run build && npm start
 ```
 
-Verify AMI is listening: `sudo ss -tlnp | grep 5038`
-
-## Responses
-
-All JSON APIs use a single envelope:
-
-- **Success:** `{ "success": true, "data": ... }`
-- **Error:** `{ "success": false, "error": { "code": "...", "message": "...", "details": {} } }`
-
-- **`GET /health`** — Phase 1 minimal response: `{ "status": "ok" }` (no envelope; suitable for dumb health checks).
-- **`GET /ready`** — `{ "success": true, "data": { "status": "ok", "database": "connected"|"disconnected", "databaseError"? } }` when DB is down.
-- **`GET /api/live`** — `{ "success": true, "data": [ { "prefix", "calls", "asr", "acd" }, ... ] }` (empty array if `call_logs` is missing or empty).
-
-## Setup
+From **`platform/`** you can still run:
 
 ```bash
-cd platform
-cp .env.example .env
-# MYSQL_* required — password must be non-empty
-npm install
+npm run install:all
 npm run build
-npm start
 ```
 
-## Verify
+Deploy **`platform-api`** to `/opt/carrier-api` (or keep path and sync `platform-api/` contents). Deploy **`platform-ami`** as a second service (e.g. `/opt/platform-ami`).
 
-```bash
-curl -s http://127.0.0.1:3010/health
-curl -s http://127.0.0.1:3010/ready
-curl -s http://127.0.0.1:3010/api/live
-curl -s http://127.0.0.1:3010/api/route/971
-```
-
-`.env` is loaded after process start and **overrides empty** `MYSQL_*` from systemd so passwords are not lost.
-
-On first connect, **`routes` → `vendors` foreign key** is applied when possible; orphan `routes.vendor_id` rows are removed first.
-
-## Dev
-
-```bash
-npm run dev
-```
-
-Node **20+**.
-
-## Troubleshooting
-
-### `tsc` / `EACCES: permission denied` writing `dist/`
-
-The service user (often `www-data`) must own the project tree, or builds run as `root` leave `dist/` owned by root so later `npm run build` as another user fails.
-
-**Fix (typical):**
-
-```bash
-sudo chown -R www-data:www-data /opt/carrier-api
-sudo rm -rf /opt/carrier-api/dist
-sudo -u www-data bash -lc 'cd /opt/carrier-api && npm ci && npm run build'
-```
-
-Always **build as the same user** that runs `node dist/server.js` (see `User=` in the systemd unit). Avoid `sudo npm run build` unless you immediately `chown` the tree again.
-
-### Browser shows endless “loading” on `http://YOUR_IP:3010`
-
-The API listens on **`0.0.0.0`** by default (`CARRIER_HOST`). If the page never finishes loading, **inbound TCP 3010 is usually blocked** (UFW, `iptables`, or your cloud provider’s **firewall / security group**). Allow port **3010** there, or put **Nginx** on 80/443 and proxy to `127.0.0.1:3010`.
-
-On the droplet:
-
-```bash
-sudo ufw status
-sudo ufw allow 3010/tcp comment 'carrier-api'
-sudo ufw reload
-```
-
-Also open **3010** in DigitalOcean **Networking → Firewalls** (or equivalent) for your droplet.
+AMI manager sample: **`platform-ami/deploy/manager.conf`** or **`asterisk/manager.conf`**.

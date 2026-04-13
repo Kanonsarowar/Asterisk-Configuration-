@@ -16,15 +16,7 @@ declare module 'asterisk-ami-client' {
     constructor(options?: AmiClientOptions);
     connect(user: string, secret: string, options?: { host?: string; port?: number }): Promise<unknown>;
     on(
-      event:
-        | 'connect'
-        | 'disconnect'
-        | 'event'
-        | 'Newchannel'
-        | 'Newexten'
-        | 'Dial'
-        | 'Hangup'
-        | string,
+      event: 'connect' | 'disconnect' | 'event' | 'Newchannel' | 'Hangup' | string,
       listener: (...args: unknown[]) => void
     ): this;
   }
