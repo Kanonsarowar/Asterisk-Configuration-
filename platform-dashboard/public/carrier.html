@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IPRN Platform — Live</title>
+  <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body>
+  <div class="app-shell" style="display:block;padding:16px;">
+    <h1>IPRN Carrier (live DB)</h1>
+    <p class="muted">Reads <code>platform-api</code> (default <code>http://127.0.0.1:3010</code>). Set <code>?api=</code> to override.</p>
+    <nav style="margin:12px 0;">
+      <button type="button" class="btn primary" id="tab-live">Live calls</button>
+      <button type="button" class="btn" id="tab-stats">Stats (ASR/ACD/CPS)</button>
+      <button type="button" class="btn" id="tab-finance">Finance</button>
+      <button type="button" class="btn" id="tab-audio">Audio map lookup</button>
+    </nav>
+    <div id="carrier-content"></div>
+  </div>
+  <script src="/js/carrier.js" type="module"></script>
+</body>
+</html>

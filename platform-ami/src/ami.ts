@@ -123,17 +123,19 @@ async function handleNewchannelInbound(pool: Pool, ev: AmiDict): Promise<void> {
   try {
     await pool.execute<ResultSetHeader>(
       `INSERT INTO \`call_logs\` (
-        \`uniqueid\`, \`caller\`, \`destination\`, \`prefix\`,
+        \`uniqueid\`, \`caller\`, \`callerid\`, \`destination\`, \`prefix\`, \`did\`,
         \`vendor_id\`, \`duration\`, \`disposition\`, \`status\`, \`start_time\`, \`created_at\`
-      ) VALUES (?, ?, NULL, ?, 1, 0, 'ONGOING', 'ONGOING', NOW(), NOW())
+      ) VALUES (?, ?, ?, NULL, ?, ?, 1, 0, 'ONGOING', 'ONGOING', NOW(), NOW())
       ON DUPLICATE KEY UPDATE
         \`caller\` = COALESCE(NULLIF(VALUES(\`caller\`), ''), \`caller\`),
+        \`callerid\` = COALESCE(NULLIF(VALUES(\`callerid\`), ''), \`callerid\`),
         \`prefix\` = COALESCE(NULLIF(VALUES(\`prefix\`), ''), \`prefix\`),
+        \`did\` = COALESCE(NULLIF(VALUES(\`did\`), ''), \`did\`),
         \`duration\` = 0,
         \`disposition\` = 'ONGOING',
         \`status\` = 'ONGOING',
         \`start_time\` = NOW()`,
-      [uniqueid, caller, did]
+      [uniqueid, caller, caller, did, did]
     );
   } catch (e) {
     console.error('[ami] Newchannel insert failed:', (e as Error)?.message || e);
@@ -163,10 +165,30 @@ async function handleHangup(pool: Pool, ev: AmiDict): Promise<void> {
 
   try {
     const [res] = await pool.execute<ResultSetHeader>(
-      `UPDATE \`call_logs\` SET \`duration\` = ?, \`disposition\` = ? WHERE \`uniqueid\` = ?`,
-      [durationSec, disp, uniqueid]
+      `UPDATE \`call_logs\` cl
+       INNER JOIN \`numbers\` n ON n.\`number\` = cl.\`did\`
+       SET cl.\`duration\` = ?,
+           cl.\`disposition\` = ?,
+           cl.\`end_time\` = NOW(),
+           cl.\`currency\` = UPPER(COALESCE(NULLIF(TRIM(n.\`rate_currency\`), ''), 'USD')),
+           cl.\`revenue\` = ROUND((? / 60.0) * CAST(NULLIF(TRIM(n.\`rate\`), '') AS DECIMAL(18,6)), 6),
+           cl.\`carrier_cost\` = ROUND((? / 60.0) * COALESCE(n.\`carrier_cost_per_min\`, 0), 6),
+           cl.\`profit\` = ROUND(
+             (? / 60.0) * (CAST(NULLIF(TRIM(n.\`rate\`), '') AS DECIMAL(18,6)) - COALESCE(n.\`carrier_cost_per_min\`, 0)),
+             6
+           )
+       WHERE cl.\`uniqueid\` = ?`,
+      [durationSec, disp, durationSec, durationSec, durationSec, uniqueid]
     );
-    if ((res.affectedRows ?? 0) === 0) {
+    let n = res.affectedRows ?? 0;
+    if (n === 0) {
+      const [r2] = await pool.execute<ResultSetHeader>(
+        `UPDATE \`call_logs\` SET \`duration\` = ?, \`disposition\` = ?, \`end_time\` = NOW() WHERE \`uniqueid\` = ?`,
+        [durationSec, disp, uniqueid]
+      );
+      n = r2.affectedRows ?? 0;
+    }
+    if (n === 0) {
       console.warn('[ami] Hangup: no row for uniqueid=', uniqueid);
     }
   } catch (e) {

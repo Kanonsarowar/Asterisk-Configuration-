@@ -40,12 +40,14 @@ export const liveRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT \`destination\`, \`duration\`, \`status\` FROM \`call_logs\` ORDER BY \`id\` DESC LIMIT ?`,
+        `SELECT COALESCE(NULLIF(\`destination\`, ''), NULLIF(\`did\`, ''), \`prefix\`) AS dest_key,
+                \`duration\`, \`status\`, \`disposition\`
+         FROM \`call_logs\` ORDER BY \`id\` DESC LIMIT ?`,
         [maxRows]
       );
       const agg = new Map<string, { calls: number; answered: number; durSum: number; durCount: number }>();
       for (const r of rows || []) {
-        const d = digitsOnly(r.destination);
+        const d = digitsOnly((r as RowDataPacket).dest_key ?? r.destination);
         if (d.length < len) continue;
         const pfx = d.slice(0, len);
         let g = agg.get(pfx);
@@ -54,7 +56,7 @@ export const liveRoutes: FastifyPluginAsync = async (app) => {
           agg.set(pfx, g);
         }
         g.calls += 1;
-        if (isAnsweredStatus(r.status)) g.answered += 1;
+        if (isAnsweredStatus(r.status) || isAnsweredStatus((r as RowDataPacket).disposition)) g.answered += 1;
         const dur = r.duration != null ? Number(r.duration) : NaN;
         if (Number.isFinite(dur) && dur > 0) {
           g.durSum += dur;

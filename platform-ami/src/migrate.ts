@@ -10,6 +10,15 @@ async function columnExists(p: Pool, table: string, column: string): Promise<boo
   return rows?.[0] ? Number(rows[0].c) > 0 : false;
 }
 
+async function tableExists(p: Pool, name: string): Promise<boolean> {
+  const [rows] = await p.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS c FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
+    [name]
+  );
+  return rows?.[0] ? Number(rows[0].c) > 0 : false;
+}
+
 async function indexExists(p: Pool, table: string, index: string): Promise<boolean> {
   const [rows] = await p.query<RowDataPacket[]>(
     `SELECT COUNT(*) AS c FROM information_schema.STATISTICS
@@ -51,8 +60,15 @@ export async function migrateCallLogsForAmi(p: Pool): Promise<void> {
     ['linkedid', '`linkedid` VARCHAR(64) NULL'],
     ['vendor_id', '`vendor_id` INT UNSIGNED NULL'],
     ['start_time', '`start_time` DATETIME NULL'],
+    ['end_time', '`end_time` DATETIME NULL'],
     ['prefix', '`prefix` VARCHAR(32) NULL'],
+    ['did', '`did` VARCHAR(64) NULL'],
+    ['callerid', '`callerid` VARCHAR(64) NULL'],
     ['disposition', '`disposition` VARCHAR(64) NULL'],
+    ['revenue', '`revenue` DECIMAL(18,6) NULL'],
+    ['carrier_cost', '`carrier_cost` DECIMAL(18,6) NULL'],
+    ['profit', '`profit` DECIMAL(18,6) NULL'],
+    ['currency', '`currency` VARCHAR(8) NULL'],
   ];
   for (const [name, ddl] of cols) {
     if (await columnExists(p, 'call_logs', name)) continue;
@@ -64,6 +80,16 @@ export async function migrateCallLogsForAmi(p: Pool): Promise<void> {
     }
   }
   await widenCallLogsPrefixForDid(p);
+  if (await tableExists(p, 'numbers') && !(await columnExists(p, 'numbers', 'carrier_cost_per_min'))) {
+    try {
+      await p.execute(
+        'ALTER TABLE `numbers` ADD COLUMN `carrier_cost_per_min` DECIMAL(14,6) NOT NULL DEFAULT 0'
+      );
+    } catch (e) {
+      const msg = String((e as Error)?.message || e);
+      if (!msg.includes('Duplicate column')) console.warn('[platform-ami]', msg);
+    }
+  }
   if (!(await indexExists(p, 'call_logs', 'uk_call_logs_uniqueid'))) {
     try {
       await p.execute('CREATE UNIQUE INDEX `uk_call_logs_uniqueid` ON `call_logs` (`uniqueid`)');

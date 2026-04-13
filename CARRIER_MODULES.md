@@ -5,7 +5,9 @@
 | `platform-api/` | Fastify API — default port **3010** |
 | `platform-ami/` | AMI → `call_logs` — **separate Node process** |
 | `platform-db/sql/` | SQL reference only (no runtime) |
-| `platform-dashboard/public/` | Static HTML/CSS/JS |
+| `platform-dashboard/public/` | Static HTML/CSS/JS (see **`carrier.html`** for live API) |
+
+Full **`/opt/platform`** layout: **`OPT_PLATFORM.md`**.
 
 ## Deploy paths (example)
 

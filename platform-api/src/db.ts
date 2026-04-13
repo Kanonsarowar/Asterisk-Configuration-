@@ -1,5 +1,6 @@
 import mysql from 'mysql2/promise';
 import type { RowDataPacket } from 'mysql2';
+import { migrateIprnAudioSchema } from './lib/migrate-iprn.js';
 
 let pool: mysql.Pool | null = null;
 
@@ -100,6 +101,11 @@ export async function initDb(): Promise<{ ok: boolean; error?: string }> {
     await pool.execute(
       "INSERT IGNORE INTO `routes` (`id`, `prefix`, `vendor_id`, `priority`, `status`) VALUES (1, '971', 1, 1, 'active')"
     );
+    try {
+      await migrateIprnAudioSchema(pool);
+    } catch (e) {
+      console.warn('[platform-api] IPRN schema migrate:', (e as Error)?.message || e);
+    }
     return { ok: true };
   } catch (e) {
     pool = null;
