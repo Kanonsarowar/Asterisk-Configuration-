@@ -1,0 +1,14 @@
+{
+  "name": "platform-meta",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Compatibility shim — use platform-api, platform-ami, platform-db, platform-dashboard",
+  "scripts": {
+    "install:all": "npm install --prefix ../platform-api && npm install --prefix ../platform-ami",
+    "build": "npm run build --prefix ../platform-api && npm run build --prefix ../platform-ami",
+    "build:api": "npm run build --prefix ../platform-api",
+    "build:ami": "npm run build --prefix ../platform-ami",
+    "start:api": "npm start --prefix ../platform-api",
+    "start:ami": "npm start --prefix ../platform-ami"
+  }
+}

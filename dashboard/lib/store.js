@@ -9,10 +9,22 @@ import {
   POOL_STATUS,
 } from './numbers-allocation.js';
 import { hashPassword } from './auth.js';
+import { persistAppStateToMysql, writeDbJsonBackup } from './app-settings-mysql.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, '..', 'data');
 const DB_FILE = join(DATA_DIR, 'db.json');
+
+/** When true, suppliers/IVR/trunk/globals/balance/admins persist to MySQL (dashboard_app_state), not db.json. */
+let persistenceMode = 'json';
+
+export function setStorePersistenceMode(mode) {
+  persistenceMode = mode === 'mysql' ? 'mysql' : 'json';
+}
+
+function envMysqlEnabled() {
+  return /^(1|true|yes|on)$/i.test(String(process.env.MYSQL_ENABLED || ''));
+}
 
 const DEFAULT_DATA = {
   numbers: [],
@@ -23,7 +35,7 @@ const DEFAULT_DATA = {
     { id: '4', name: 'Supplier 4 (Hetzner-2)', ips: ['95.217.90.21'] },
     { id: '5', name: 'Supplier 5 (AWS)', ips: ['52.28.165.40', '52.57.172.184', '35.156.119.128'] },
     { id: '6', name: 'Supplier 6 (Contabo)', ips: ['149.12.160.10'] },
-    { id: '7', name: 'Supplier 7 (myLoc)', ips: ['93.94.120.49'] },
+    { id: '7', name: '24seven.co.uk', ips: ['93.94.120.49'] },
     { id: '8', name: 'Supplier 8 (DataClub)', ips: ['185.209.147.14'] }
   ],
   ivrMenus: [
@@ -68,9 +80,20 @@ const DEFAULT_DATA = {
   adminUsers: []
 };
 
+function persistToDisk(data) {
+  if (persistenceMode === 'mysql') {
+    persistAppStateToMysql(data);
+    writeDbJsonBackup(data);
+    return;
+  }
+  writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
+}
+
 function load() {
   if (!existsSync(DB_FILE)) {
-    save(DEFAULT_DATA);
+    if (!envMysqlEnabled()) {
+      writeFileSync(DB_FILE, JSON.stringify(DEFAULT_DATA, null, 2), 'utf8');
+    }
     return structuredClone(DEFAULT_DATA);
   }
   try {
@@ -103,23 +126,63 @@ function load() {
         if (n.rateCurrency === undefined) { n.rateCurrency = 'usd'; numMig = true; }
         if (n.paymentTerm === undefined) { n.paymentTerm = 'weekly'; numMig = true; }
       }
-      if (numMig) save(data);
+      if (numMig) persistToDisk(data);
     }
     // One-time migration: clear legacy seeded DID data.
     if (!data.globals.didDataResetDone) {
       data.numbers = [];
       data.globals.didDataResetDone = true;
-      save(data);
+      persistToDisk(data);
+    }
+    // Rename supplier 7 (93.94.120.49) to 24seven.co.uk when still default label.
+    if (Array.isArray(data.suppliers)) {
+      const s7 = data.suppliers.find((s) => String(s.id) === '7');
+      if (s7 && (s7.ips || []).includes('93.94.120.49') && /Supplier 7 \(myLoc\)/i.test(String(s7.name || ''))) {
+        s7.name = '24seven.co.uk';
+        persistToDisk(data);
+      }
     }
     return data;
   } catch {
-    save(DEFAULT_DATA);
+    writeFileSync(DB_FILE, JSON.stringify(DEFAULT_DATA, null, 2), 'utf8');
     return structuredClone(DEFAULT_DATA);
   }
 }
 
-function save(data) {
-  writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
+/**
+ * Replace in-memory store after loading dashboard_app_state from MySQL.
+ * @param {Store} store
+ * @param {object} data
+ */
+export function hydrateStoreFromData(store, data) {
+  if (!data || typeof data !== 'object') return;
+  const merged = { ...structuredClone(DEFAULT_DATA), ...data };
+  if (!Array.isArray(merged.suppliers)) merged.suppliers = DEFAULT_DATA.suppliers;
+  if (!Array.isArray(merged.ivrMenus)) merged.ivrMenus = DEFAULT_DATA.ivrMenus;
+  merged.trunkConfig = merged.trunkConfig && typeof merged.trunkConfig === 'object'
+    ? { ...DEFAULT_DATA.trunkConfig, ...merged.trunkConfig }
+    : { ...DEFAULT_DATA.trunkConfig };
+  merged.globals = { ...DEFAULT_DATA.globals, ...(merged.globals || {}) };
+  if (merged.globals.iprnOdbcRouting === undefined) merged.globals.iprnOdbcRouting = false;
+  if (!Array.isArray(merged.adminUsers)) merged.adminUsers = [];
+  if (!merged.balance || typeof merged.balance !== 'object') {
+    merged.balance = structuredClone(DEFAULT_DATA.balance);
+  } else {
+    merged.balance = {
+      eurPerUsd: merged.balance.eurPerUsd ?? DEFAULT_DATA.balance.eurPerUsd,
+      sarPerUsd: merged.balance.sarPerUsd ?? DEFAULT_DATA.balance.sarPerUsd,
+      weeklySnapshots:
+        merged.balance.weeklySnapshots && typeof merged.balance.weeklySnapshots === 'object'
+          ? merged.balance.weeklySnapshots
+          : {},
+      monthlySnapshots:
+        merged.balance.monthlySnapshots && typeof merged.balance.monthlySnapshots === 'object'
+          ? merged.balance.monthlySnapshots
+          : {},
+    };
+  }
+  merged.numbers = [];
+  store.data = merged;
 }
 
 function nextId(collection) {
@@ -179,7 +242,7 @@ export class Store {
     const n = normalizeNumberRecord(num);
     n.id = nextId(this.data.numbers);
     this.data.numbers.push(n);
-    save(this.data);
+    persistToDisk(this.data);
     return n;
   }
   updateNumber(id, updates) {
@@ -187,20 +250,20 @@ export class Store {
     if (idx === -1) return null;
     const merged = normalizeNumberRecord({ ...this.data.numbers[idx], ...updates, id });
     this.data.numbers[idx] = merged;
-    save(this.data);
+    persistToDisk(this.data);
     return merged;
   }
   deleteNumber(id) {
     const idx = this.data.numbers.findIndex(n => n.id === id);
     if (idx === -1) return false;
     this.data.numbers.splice(idx, 1);
-    save(this.data);
+    persistToDisk(this.data);
     return true;
   }
   deleteNumbersByPrefix(country, countryCode, prefix) {
     const before = this.data.numbers.length;
     this.data.numbers = this.data.numbers.filter(n => !(n.country === country && n.countryCode === countryCode && n.prefix === prefix));
-    save(this.data);
+    persistToDisk(this.data);
     return before - this.data.numbers.length;
   }
   addBulkNumbers(nums) {
@@ -211,7 +274,7 @@ export class Store {
       this.data.numbers.push(n);
       out.push(n);
     }
-    save(this.data);
+    persistToDisk(this.data);
     return out;
   }
 
@@ -234,7 +297,7 @@ export class Store {
       allocationDate: new Date().toISOString(),
     });
     this.data.numbers[idx] = { ...merged, id: ex.id };
-    save(this.data);
+    persistToDisk(this.data);
     return { ok: true, number: this.data.numbers[idx] };
   }
 
@@ -255,7 +318,7 @@ export class Store {
       allocationDate: null,
     });
     this.data.numbers[idx] = { ...merged, id: ex.id };
-    save(this.data);
+    persistToDisk(this.data);
     return { ok: true, number: this.data.numbers[idx] };
   }
 
@@ -265,21 +328,21 @@ export class Store {
   addSupplier(supplier) {
     supplier.id = nextId(this.data.suppliers);
     this.data.suppliers.push(supplier);
-    save(this.data);
+    persistToDisk(this.data);
     return supplier;
   }
   updateSupplier(id, updates) {
     const idx = this.data.suppliers.findIndex(s => s.id === id);
     if (idx === -1) return null;
     this.data.suppliers[idx] = { ...this.data.suppliers[idx], ...updates, id };
-    save(this.data);
+    persistToDisk(this.data);
     return this.data.suppliers[idx];
   }
   deleteSupplier(id) {
     const idx = this.data.suppliers.findIndex(s => s.id === id);
     if (idx === -1) return false;
     this.data.suppliers.splice(idx, 1);
-    save(this.data);
+    persistToDisk(this.data);
     return true;
   }
 
@@ -290,7 +353,7 @@ export class Store {
     const idx = this.data.ivrMenus.findIndex(m => m.id === id);
     if (idx === -1) return null;
     this.data.ivrMenus[idx] = { ...this.data.ivrMenus[idx], ...updates, id };
-    save(this.data);
+    persistToDisk(this.data);
     return this.data.ivrMenus[idx];
   }
 
@@ -298,7 +361,7 @@ export class Store {
   getTrunkConfig() { return this.data.trunkConfig; }
   updateTrunkConfig(config) {
     this.data.trunkConfig = { ...this.data.trunkConfig, ...config };
-    save(this.data);
+    persistToDisk(this.data);
     return this.data.trunkConfig;
   }
 
@@ -306,17 +369,17 @@ export class Store {
   getGlobals() { return this.data.globals; }
   updateGlobals(globals) {
     this.data.globals = { ...this.data.globals, ...globals };
-    save(this.data);
+    persistToDisk(this.data);
     return this.data.globals;
   }
 
   getBalanceConfig() {
     if (!this.data.balance) {
       this.data.balance = structuredClone(DEFAULT_DATA.balance);
-      save(this.data);
+      persistToDisk(this.data);
     } else if (!this.data.balance.monthlySnapshots || typeof this.data.balance.monthlySnapshots !== 'object') {
       this.data.balance.monthlySnapshots = {};
-      save(this.data);
+      persistToDisk(this.data);
     }
     return this.data.balance;
   }
@@ -328,7 +391,7 @@ export class Store {
     if (updates.sarPerUsd !== undefined) b.sarPerUsd = parseFloat(updates.sarPerUsd) || 0;
     if (updates.weeklySnapshots !== undefined) b.weeklySnapshots = updates.weeklySnapshots;
     if (updates.monthlySnapshots !== undefined) b.monthlySnapshots = updates.monthlySnapshots;
-    save(this.data);
+    persistToDisk(this.data);
     return {
       eurPerUsd: b.eurPerUsd,
       sarPerUsd: b.sarPerUsd,
@@ -359,7 +422,7 @@ export class Store {
       localSecret: 'ChangeMe7001',
       iprnOdbcRouting: keepOdbc === true,
     };
-    save(this.data);
+    persistToDisk(this.data);
     return {
       trunkConfig: this.data.trunkConfig,
       globals: this.data.globals
@@ -393,7 +456,7 @@ export class Store {
       return { ok: false, error: 'Username already exists' };
     }
     this.data.adminUsers.push({ username: u, passwordHash: hashPassword(password) });
-    save(this.data);
+    persistToDisk(this.data);
     return { ok: true };
   }
 
@@ -403,7 +466,7 @@ export class Store {
     const idx = this.data.adminUsers.findIndex((x) => x && String(x.username) === u);
     if (idx === -1) return { ok: false, error: 'User not found' };
     this.data.adminUsers.splice(idx, 1);
-    save(this.data);
+    persistToDisk(this.data);
     return { ok: true };
   }
 
@@ -415,7 +478,7 @@ export class Store {
     const row = this.getAdminUsers().find((x) => String(x.username) === u);
     if (!row) return { ok: false, error: 'User not found' };
     row.passwordHash = hashPassword(newPassword);
-    save(this.data);
+    persistToDisk(this.data);
     return { ok: true };
   }
 

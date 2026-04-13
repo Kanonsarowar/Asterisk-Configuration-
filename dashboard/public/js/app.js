@@ -1,4 +1,5 @@
 import API from './api.js';
+import { buildPanelNavHtml } from './nav-config.js';
 
 const COUNTRIES = [
   { code: 'AF', name: 'Afghanistan', dial: '93' },
@@ -198,6 +199,8 @@ let currentPage = 'dashboard';
 let hasUnsavedChanges = false;
 let statusInterval = null;
 let tenantLiveInterval = null;
+let callStatsInterval = null;
+let liveCallsInterval = null;
 
 // Toast notifications
 function toast(msg, type = 'success') {
@@ -219,15 +222,71 @@ function markSaved() {
   document.getElementById('apply-banner').classList.remove('visible');
 }
 
-// Navigation
-document.querySelectorAll('.nav-item').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const page = btn.dataset.page;
-    if (page) navigateTo(page);
+/** Panel pages removed from sidebar — old bookmarks redirect to Dashboard. */
+const REMOVED_PANEL_PAGES = new Set(['balance', 'sip-log', 'did-test', 'admin-users']);
+
+function wireNavClicks(root) {
+  if (!root) return;
+  root.querySelectorAll('.nav-item[data-page]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const page = btn.dataset.page;
+      if (page) navigateTo(page);
+    });
   });
-});
+}
+
+function initPanelNavigation() {
+  const nav = document.getElementById('nav-panel');
+  if (!nav || nav.querySelector('.nav-group')) return;
+  nav.innerHTML = buildPanelNavHtml();
+  wireNavClicks(nav);
+  nav.querySelectorAll('[data-nav-toggle]').forEach((hdr) => {
+    hdr.addEventListener('click', () => {
+      const id = hdr.getAttribute('data-nav-toggle');
+      const group = nav.querySelector(`.nav-group[data-group-id="${id}"]`);
+      const body = group?.querySelector('.nav-group-body');
+      const expanded = hdr.getAttribute('aria-expanded') === 'true';
+      hdr.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      if (group) group.classList.toggle('nav-group--collapsed', expanded);
+      if (body) body.style.display = expanded ? 'none' : '';
+    });
+  });
+  nav.querySelectorAll('[data-subgroup-toggle]').forEach((subHdr) => {
+    subHdr.addEventListener('click', () => {
+      const sid = subHdr.getAttribute('data-subgroup-toggle');
+      const sub = nav.querySelector(`.nav-subgroup[data-subgroup-id="${sid}"]`);
+      const expanded = subHdr.getAttribute('aria-expanded') === 'true';
+      subHdr.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      if (sub) sub.classList.toggle('nav-subgroup--collapsed', expanded);
+    });
+  });
+}
+
+initPanelNavigation();
+wireNavClicks(document.getElementById('nav-tenant'));
+
+function expandNavGroupForPage(page) {
+  const nav = document.getElementById('nav-panel');
+  if (!nav) return;
+  const escSel = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(page) : String(page).replace(/"/g, '\\"');
+  const btn = nav.querySelector(`.nav-item[data-page="${escSel}"]`);
+  const group = btn?.closest?.('.nav-group');
+  if (!group) return;
+  const hdr = group.querySelector('.nav-group-header');
+  const body = group.querySelector('.nav-group-body');
+  group.classList.remove('nav-group--collapsed');
+  if (hdr) hdr.setAttribute('aria-expanded', 'true');
+  if (body) body.style.display = '';
+  const sub = btn?.closest?.('.nav-subgroup');
+  if (sub) {
+    sub.classList.remove('nav-subgroup--collapsed');
+    const sh = sub.querySelector('.nav-subgroup-header');
+    if (sh) sh.setAttribute('aria-expanded', 'true');
+  }
+}
 
 function navigateTo(page) {
+  if (REMOVED_PANEL_PAGES.has(page)) page = 'dashboard';
   currentPage = page;
   const navTenant = document.getElementById('nav-tenant');
   const navPanel = document.getElementById('nav-panel');
@@ -238,6 +297,7 @@ function navigateTo(page) {
   } else {
     document.querySelectorAll('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   }
+  if (!tenantVisible) expandNavGroupForPage(page);
   document.getElementById('page-title').textContent = pageTitles[page] || page;
   renderPage(page);
 }
@@ -274,10 +334,21 @@ function matchNumberForDst(dst, numbers) {
   return best;
 }
 
+function normalizeCallSourceIp(ip) {
+  const s = String(ip || '').trim();
+  const m = s.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i);
+  return m ? m[1] : s;
+}
+
 function supplierIdForCall(sourceIp, matchedNumber, suppliers) {
   if (matchedNumber && matchedNumber.supplierId) return String(matchedNumber.supplierId);
+  const want = normalizeCallSourceIp(sourceIp);
+  if (!want) return '';
   for (const s of suppliers || []) {
-    if (s.ips && s.ips.includes(sourceIp)) return String(s.id);
+    const ips = s.ips || [];
+    for (const ip of ips) {
+      if (normalizeCallSourceIp(ip) === want) return String(s.id);
+    }
   }
   return '';
 }
@@ -337,6 +408,23 @@ function formatPrefixTariff(pg) {
   return `${sym}${rateStr}/min <span style="color:var(--text-muted);font-size:10px;text-transform:capitalize">${termStr}</span>`;
 }
 
+/** Single DID — IVR tariff for table column (matches Purple-style display). */
+function formatDidIvrTariff(n) {
+  if (!n) return '—';
+  const cur = String(n.rateCurrency || 'usd').toLowerCase() === 'eur' ? 'eur' : 'usd';
+  const sym = cur === 'eur' ? '€' : '$';
+  return `${sym}${escHtml(String(n.rate ?? ''))}/min`;
+}
+
+/** Payment terms shorthand for inventory table. */
+function formatDidPaymentTerms(n) {
+  const t = String(n?.paymentTerm || 'weekly').toLowerCase();
+  if (t === 'weekly') return '7/1';
+  if (t === 'monthly') return '30/1';
+  if (t === 'daily') return '1/1';
+  return escHtml(t);
+}
+
 function formatBillMinutes(billsec) {
   const m = (Number(billsec) || 0) / 60;
   return m.toFixed(2) + ' min';
@@ -370,17 +458,16 @@ function buildIprnLiveBanner(iprn) {
 
 const pageTitles = {
   dashboard: 'Dashboard',
+  'live-calls': 'Live Calls',
   'call-stats': 'Call Statistics',
   'cdr-history': 'CDR',
-  balance: 'Balance',
-  'sip-log': 'SIP Invite Log',
-  suppliers: 'Suppliers',
-  numbers: 'Number inventory',
+  suppliers: 'Termination Providers',
+  numbers: 'DID Inventory',
+  'prefix-staging': 'Prefix inventory',
+  'iprn-inventory': 'Prefix Routing Map',
   'ivr-menus': 'IVR Audio',
   trunk: 'Trunk Configuration',
-  'did-test': 'DID Test',
   config: 'Config Preview',
-  'admin-users': 'Panel admins',
   'iprn-clients': 'IPRN clients',
   'tenant-dashboard': 'Overview',
   'tenant-live-calls': 'Live calls',
@@ -389,27 +476,64 @@ const pageTitles = {
   'tenant-invoices': 'Invoices',
   'tenant-subusers': 'Subusers',
   'tenant-numbers': 'Number allocation',
-  'tenant-call-generator': 'Call generator'
+  'tenant-call-generator': 'Call generator',
+  'routing-rules': 'Traffic Policy Engine',
+  'routing-fraud': 'Fraud-aware routing',
+  'routing-lcr': 'Least-cost routing (LCR)',
+  'routing-geo': 'Geo-routing',
+  'routing-quality': 'Quality-based routing',
+  billing: 'Billing',
+  'profit-reports': 'Profit reports',
 };
 
 async function renderPage(page) {
   const content = document.getElementById('content');
   if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
   if (tenantLiveInterval) { clearInterval(tenantLiveInterval); tenantLiveInterval = null; }
+  if (callStatsInterval) { clearInterval(callStatsInterval); callStatsInterval = null; }
+  if (liveCallsInterval) { clearInterval(liveCallsInterval); liveCallsInterval = null; }
+
+  if (REMOVED_PANEL_PAGES.has(page)) return renderDashboard(content);
 
   switch (page) {
     case 'dashboard': return renderDashboard(content);
+    case 'live-calls': return renderLiveCalls(content);
     case 'call-stats': return renderCallStats(content);
     case 'cdr-history': return renderCdrHistory(content);
-    case 'balance': return renderBalance(content);
-    case 'sip-log': return renderSipLog(content);
     case 'suppliers': return renderSuppliers(content);
     case 'numbers': return renderNumbers(content);
+    case 'prefix-staging': return renderPrefixStaging(content);
+    case 'iprn-inventory': return renderIprnInventory(content);
     case 'ivr-menus': return renderIvrMenus(content);
     case 'trunk': return renderTrunk(content);
-    case 'did-test': return renderDidTest(content);
     case 'config': return renderConfig(content);
-    case 'admin-users': return renderAdminUsers(content);
+    case 'routing-rules': return renderRoutingRules(content);
+    case 'routing-fraud':
+      return renderPlaceholderPage(
+        content,
+        'Fraud-aware routing',
+        'Policy-driven screening before termination (velocity, CLI anomalies, geo mismatch). Configuration UI will attach to the same control plane as Traffic Policy Engine — no dial-plan logic changes until enabled.'
+      );
+    case 'routing-lcr':
+      return renderPlaceholderPage(
+        content,
+        'Least-cost routing (LCR)',
+        'Rank termination providers by rate, quality, and capacity. Will integrate with Termination Providers and live stats — backend selection engine to follow.'
+      );
+    case 'routing-geo':
+      return renderPlaceholderPage(
+        content,
+        'Geo-routing',
+        'Route by caller or trunk geography, regulatory zones, and number class. Pairs with Prefix Routing Map and policy rules.'
+      );
+    case 'routing-quality':
+      return renderPlaceholderPage(
+        content,
+        'Quality-based routing',
+        'ASR/ACD/post-dial delay driven provider preference and automatic deprioritization. Uses the same metrics surface as Operations analytics.'
+      );
+    case 'billing': return renderPlaceholderPage(content, 'Billing', 'Invoicing, balances, and payment tracking will appear here.');
+    case 'profit-reports': return renderPlaceholderPage(content, 'Profit reports', 'Margin and profitability analytics will appear here.');
     case 'iprn-clients': return renderIprnClients(content);
     case 'tenant-dashboard': return renderTenantDashboard(content);
     case 'tenant-live-calls': return renderTenantLiveCalls(content);
@@ -424,8 +548,14 @@ async function renderPage(page) {
 
 // ---- DASHBOARD ----
 async function renderDashboard(el) {
+  el.innerHTML = `<div class="stats-grid" id="stats-grid"></div>
+    <p class="empty-state" style="padding:16px 0 0;font-size:13px">Use <strong>Operations → Live Calls</strong> for the live channel table.</p>`;
+  await refreshDashboard();
+  statusInterval = setInterval(refreshDashboard, 10000);
+}
+
+async function renderLiveCalls(el) {
   el.innerHTML = `
-    <div class="stats-grid" id="stats-grid"></div>
     <div class="card">
       <div class="card-header">
         <h3>Live Channels</h3>
@@ -437,20 +567,73 @@ async function renderDashboard(el) {
       <div class="card-body padded" id="channels-box"><p class="empty-state">Loading...</p></div>
     </div>`;
   const liveBtn = document.getElementById('btn-live-refresh');
-  if (liveBtn) liveBtn.addEventListener('click', () => refreshDashboard());
-  await refreshDashboard();
-  statusInterval = setInterval(refreshDashboard, 10000);
+  if (liveBtn) liveBtn.addEventListener('click', () => refreshLiveChannels());
+  await refreshLiveChannels();
+  if (liveCallsInterval) clearInterval(liveCallsInterval);
+  liveCallsInterval = setInterval(refreshLiveChannels, 10000);
+}
+
+function renderPlaceholderPage(el, title, body) {
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header"><h3>${escHtml(title)}</h3></div>
+      <div class="card-body padded">
+        <p class="empty-state" style="padding:24px;text-align:left;max-width:520px">${escHtml(body)}</p>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:8px">Placeholder — no backend changes in this release.</p>
+      </div>
+    </div>`;
+}
+
+async function renderRoutingRules(el) {
+  el.innerHTML = '<div class="card"><div class="card-body padded"><p class="empty-state">Loading routing defaults…</p></div></div>';
+  let globals = {};
+  let ivrMenus = [];
+  try {
+    [globals, ivrMenus] = await Promise.all([API.getGlobals(), API.getIvrMenus()]);
+  } catch (e) {
+    el.innerHTML = `<div class="card"><div class="card-body padded"><p class="empty-state">Could not load settings.</p></div></div>`;
+    return;
+  }
+  if (!Array.isArray(ivrMenus)) ivrMenus = [];
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header"><h3>Traffic Policy Engine</h3></div>
+      <div class="card-body padded">
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">
+          Switch-level defaults for inbound DID handling: fallback IVR and optional ODBC-based termination selection (<code>number_inventory</code> + DSN <code>iprn_db</code>). Same settings as DID Inventory → IPRN routing defaults.
+        </p>
+        <div class="form-group">
+          <label>Fallback IVR (unmatched / ODBC empty)</label>
+          <select class="form-control" id="routing-fallback-ivr">
+            ${ivrMenus.map((ivr) => `<option value="${escHtml(ivr.id)}" ${String(globals.fallbackIvrId || '1') === ivr.id ? 'selected' : ''}>${escHtml(ivr.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:10px">
+          <input type="checkbox" id="routing-odbc" ${globals.iprnOdbcRouting ? 'checked' : ''} />
+          <label for="routing-odbc" style="margin:0;cursor:pointer">Enable ODBC / PJSIP supplier routing for matched DIDs (<code>number_inventory</code> + DSN <code>iprn_db</code>)</label>
+        </div>
+        <button type="button" class="btn btn-primary" id="btn-save-routing-rules">Save routing defaults</button>
+      </div>
+    </div>`;
+  document.getElementById('btn-save-routing-rules').onclick = async () => {
+    const fallbackIvrId = document.getElementById('routing-fallback-ivr').value;
+    const iprnOdbcRouting = !!document.getElementById('routing-odbc')?.checked;
+    await API.updateGlobals({ fallbackIvrId, iprnOdbcRouting });
+    markChanged();
+    toast(`Routing defaults saved (fallback IVR ${fallbackIvrId}${iprnOdbcRouting ? ', ODBC on' : ''})`);
+  };
 }
 
 async function refreshDashboard() {
   try {
-    const [statusRes, modulesRes, numbersRes, ivrRes, suppliersRes, iprnPanelRes] = await Promise.allSettled([
+    const [statusRes, modulesRes, numbersRes, ivrRes, suppliersRes, iprnPanelRes, metricsRes] = await Promise.allSettled([
       API.getStatus(),
       API.getModules(),
       API.getNumbers(),
       API.getIvrMenus(),
       API.getSuppliers(),
       API.getIprnPanelStatus(),
+      API.getDashboardMetrics(),
     ]);
     const rawStatus = statusRes.status === 'fulfilled' ? statusRes.value : {
       running: false, uptime: 'Unavailable', activeCalls: 0, activeChannels: 0, freeRamMB: 0, totalRamMB: 0
@@ -473,6 +656,13 @@ async function refreshDashboard() {
       iprn = { skipped: true };
     }
     const iprnBanner = buildIprnLiveBanner(iprn);
+
+    let m = null;
+    if (metricsRes.status === 'fulfilled' && metricsRes.value && typeof metricsRes.value === 'object' && !metricsRes.value.error) {
+      m = metricsRes.value;
+    }
+    const worst = m && m.worstRoute ? m.worstRoute : { context: '—', asr: 0, calls: 0 };
+    const top = m && m.topCountry ? m.topCountry : { code: '—', revenue: 0 };
 
     document.getElementById('stats-grid').innerHTML = `
       <div class="stat-card">
@@ -515,14 +705,75 @@ async function refreshDashboard() {
         <div class="value">${iprn.odbcRoutingEnabled ? 'ON' : 'off'}</div>
         <div class="sub">DSN iprn_db + Apply</div>
       </div>
+      <div class="stat-card">
+        <div class="label">Revenue (today / month)</div>
+        <div class="value green">${m ? escHtml(String(m.revenueToday)) : '—'}</div>
+        <div class="sub">Month: ${m ? escHtml(String(m.revenueMonth)) : '—'} <span style="opacity:0.75">(est. from CDR × DID rate)</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="label">ASR (global)</div>
+        <div class="value blue">${m ? escHtml(String(m.asrGlobal)) : '—'}%</div>
+        <div class="sub">Month-to-date, all CDR</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">ACD (global)</div>
+        <div class="value amber">${m ? escHtml(String(m.acdGlobal)) : '—'}s</div>
+        <div class="sub">Avg billsec (answered), MTD</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Top country (revenue)</div>
+        <div class="value">${escHtml(String(top.code))}</div>
+        <div class="sub">${escHtml(String(top.revenue))} today (matched DIDs)</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Worst route</div>
+        <div class="value" style="color:var(--danger)">${escHtml(String(worst.context))}</div>
+        <div class="sub">ASR ${escHtml(String(worst.asr))}% · ${escHtml(String(worst.calls))} calls <span style="opacity:0.75">(dialplan context)</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Live CPS</div>
+        <div class="value">${m ? escHtml(String(m.liveCps)) : '—'}</div>
+        <div class="sub">Calls in last 60s ÷ 60</div>
+      </div>
     `;
-
-    let ch;
-    try {
-      ch = await API.getChannels();
-    } catch (e) {
-      ch = { output: '', calls: [], _timeout: true };
+  } catch (err) {
+    console.error('Dashboard refresh error:', err);
+    const grid = document.getElementById('stats-grid');
+    if (grid) {
+      grid.innerHTML = `
+        <div class="stat-card">
+          <div class="label">STATUS</div>
+          <div class="value">ERROR</div>
+          <div class="sub">Could not load dashboard data</div>
+        </div>`;
     }
+  }
+}
+
+async function refreshLiveChannels() {
+  const box = document.getElementById('channels-box');
+  if (!box) return;
+  try {
+    const [statusRes, suppliersRes, iprnPanelRes, chRes] = await Promise.allSettled([
+      API.getStatus(),
+      API.getSuppliers(),
+      API.getIprnPanelStatus(),
+      API.getChannels(),
+    ]);
+    const rawStatus = statusRes.status === 'fulfilled' ? statusRes.value : {};
+    const status = (rawStatus && !rawStatus.error) ? rawStatus : {
+      running: false, activeCalls: 0, activeChannels: 0,
+    };
+    const suppliers = suppliersRes.status === 'fulfilled' && Array.isArray(suppliersRes.value) ? suppliersRes.value : [];
+    let iprn = {};
+    if (iprnPanelRes.status === 'fulfilled' && iprnPanelRes.value && typeof iprnPanelRes.value === 'object') {
+      iprn = iprnPanelRes.value;
+    } else {
+      iprn = { skipped: true };
+    }
+    const iprnBanner = buildIprnLiveBanner(iprn);
+
+    let ch = chRes.status === 'fulfilled' ? chRes.value : { output: '', calls: [], _timeout: true };
     if (!ch || typeof ch !== 'object') ch = { output: '', calls: [] };
     const normalize = (v) => String(v || '').trim();
     const slugify = (s) => normalize(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -540,22 +791,22 @@ async function refreshDashboard() {
     const calls = Array.isArray(ch.calls) ? ch.calls : [];
     const hasActive = (Number(status.activeCalls) > 0) || (Number(status.activeChannels) > 0);
     if (ch._timeout) {
-      document.getElementById('channels-box').innerHTML = `${iprnBanner}<p class="empty-state">CHANNEL LIST TIMED OUT — ASTERISK CLI SLOW OR BLOCKED. RETRY OR CHECK SUDO.</p>`;
+      box.innerHTML = `${iprnBanner}<p class="empty-state">CHANNEL LIST TIMED OUT — ASTERISK CLI SLOW OR BLOCKED. RETRY OR CHECK SUDO.</p>`;
       return;
     }
     if (!calls.length) {
       if (hasActive && ch.output) {
-        document.getElementById('channels-box').innerHTML = `${iprnBanner}
+        box.innerHTML = `${iprnBanner}
           <p class="empty-state" style="margin-bottom:8px">ACTIVE CALL (RAW — PARSER COULD NOT BUILD TABLE)</p>
           <pre style="font-size:12px;color:var(--text-muted);white-space:pre-wrap">${escHtml(ch.output)}</pre>
         `;
         return;
       }
       if (hasActive && !ch.output) {
-        document.getElementById('channels-box').innerHTML = `${iprnBanner}<p class="empty-state">ACTIVE CALL DETECTED BUT CHANNEL LIST EMPTY — CHECK SUDO ASTERISK FOR DASHBOARD USER</p>`;
+        box.innerHTML = `${iprnBanner}<p class="empty-state">ACTIVE CALL DETECTED BUT CHANNEL LIST EMPTY — CHECK SUDO ASTERISK FOR DASHBOARD USER</p>`;
         return;
       }
-      document.getElementById('channels-box').innerHTML = `${iprnBanner}<p class="empty-state">NO ACTIVE CALLS</p>`;
+      box.innerHTML = `${iprnBanner}<p class="empty-state">NO ACTIVE CALLS</p>`;
       return;
     }
 
@@ -566,7 +817,7 @@ async function refreshDashboard() {
       return normalize(a.channel).localeCompare(normalize(b.channel));
     });
 
-    document.getElementById('channels-box').innerHTML = `${iprnBanner}
+    box.innerHTML = `${iprnBanner}
       <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Rows are sorted by caller (NUMBER A). Same caller uses the same row color.</p>
       <table class="live-channels-table">
         <thead>
@@ -595,37 +846,174 @@ async function refreshDashboard() {
         </tbody>
       </table>`;
   } catch (err) {
-    console.error('Dashboard refresh error:', err);
-    const grid = document.getElementById('stats-grid');
-    const box = document.getElementById('channels-box');
-    if (grid) {
-      grid.innerHTML = `
-        <div class="stat-card">
-          <div class="label">STATUS</div>
-          <div class="value">ERROR</div>
-          <div class="sub">Could not load dashboard data</div>
-        </div>`;
-    }
-    if (box) {
-      box.innerHTML = '<p class="empty-state">DASHBOARD DATA LOAD FAILED</p>';
-    }
+    console.error('Live channels refresh error:', err);
+    box.innerHTML = '<p class="empty-state">LIVE CHANNEL DATA FAILED</p>';
   }
 }
 
 // ---- CALL STATS ----
-async function renderCallStats(el) {
-  const [stats, suppliers] = await Promise.all([API.getCallStats(24), API.getSuppliers()]);
+function buildCallStatsProAlerts(summary) {
+  if (!summary || typeof summary !== 'object') return '';
+  const tc = Number(summary.total_calls) || 0;
+  const asr = parseFloat(summary.asr);
+  const acd = parseFloat(summary.acd);
+  const drop = summary.asr_drop != null ? parseFloat(summary.asr_drop) : null;
+  const flags = [];
+  if (tc > 0 && tc < 20) {
+    flags.push({ level: 'warn', text: 'LOW SAMPLE SIZE — MySQL call_logs stats may not be reliable' });
+  }
+  if (tc > 0 && !isNaN(asr) && asr < 30) {
+    flags.push({ level: 'bad', text: 'BAD ROUTE — ASR below 30%' });
+  }
+  if (tc > 0 && !isNaN(acd) && acd < 10) {
+    flags.push({ level: 'bad', text: 'SUSPICIOUS TRAFFIC — ACD below 10s (answered)' });
+  }
+  if (tc > 100 && drop != null && !isNaN(drop) && drop >= 10) {
+    flags.push({ level: 'bad', text: 'SUPPLIER ISSUE — ASR dropped vs prior window (compare previous period)' });
+  }
+  if (!flags.length) return '';
+  const color = (level) => (level === 'warn' ? 'var(--warning)' : 'var(--danger)');
+  return `<div class="card" style="margin-bottom:16px;border-color:${color('bad')}">
+    <div class="card-body padded" style="padding:12px 16px">
+      <strong style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em">Alerts</strong>
+      <ul style="margin:8px 0 0 18px;padding:0;font-size:13px;line-height:1.5">
+        ${flags.map((f) => `<li style="color:${color(f.level)}">${escHtml(f.text)}</li>`).join('')}
+      </ul>
+    </div>
+  </div>`;
+}
 
-  // Map supplier IPs to names
+async function renderCallStats(el, hours = 24) {
+  const h = Math.min(168, Math.max(1, parseInt(String(hours), 10) || 24));
+  const [statsRes, suppliersRes, proRes] = await Promise.allSettled([
+    API.getCallStats(h),
+    API.getSuppliers(),
+    API.getCallStatsPro(h),
+  ]);
+  const stats = statsRes.status === 'fulfilled' && statsRes.value && !statsRes.value.error
+    ? statsRes.value
+    : { totalCalls: 0, answeredCalls: 0, failedCalls: 0, totalDuration: 0, callsPerMinute: 0, asr: 0, acd: 0, recentCalls: [] };
+  const suppliers = suppliersRes.status === 'fulfilled' && Array.isArray(suppliersRes.value) ? suppliersRes.value : [];
+
   const ipToSupplier = {};
   for (const s of suppliers) {
     for (const ip of s.ips) ipToSupplier[ip] = s.name;
   }
 
+  let pro = null;
+  let proErr = null;
+  if (proRes.status === 'fulfilled' && proRes.value && typeof proRes.value === 'object') {
+    if (proRes.value.ok === false) proErr = proRes.value.error || proRes.value.code || 'Unavailable';
+    else if (proRes.value.summary) pro = proRes.value;
+  } else if (proRes.status === 'rejected') {
+    proErr = 'Request failed';
+  }
+
+  const proBanner = proErr
+    ? `<div class="card" style="margin-bottom:16px;opacity:0.95"><div class="card-body padded"><p style="margin:0;font-size:13px;color:var(--text-muted)">
+      <strong>Call logs analytics</strong> requires MySQL, <code>MYSQL_ENABLED=1</code>, and rows in <code>call_logs</code> (POST <code>/api/call-logs</code> or your ingest). Error: ${escHtml(String(proErr))}
+    </p></div></div>`
+    : '';
+
+  const sum = pro?.summary;
+  const recentDb = Array.isArray(pro?.recentSample) ? pro.recentSample : [];
+  const useDbPrimary = sum && Number(sum.total_calls) > 0;
+  const proGrid = pro && sum
+    ? `${buildCallStatsProAlerts(sum)}
+    ${!useDbPrimary ? `<div class="stats-grid" style="margin-bottom:16px">
+      <div class="stat-card"><div class="label">MySQL window</div><div class="value">${escHtml(String(sum.hours || h))}h</div><div class="sub">call_logs + DID match</div></div>
+      <div class="stat-card"><div class="label">Est. revenue (${sum.hours || h}h)</div><div class="value green">${escHtml(String(sum.revenue))}</div><div class="sub">duration × DID rate</div></div>
+      <div class="stat-card"><div class="label">ASR (logs)</div><div class="value blue">${escHtml(String(sum.asr))}%</div><div class="sub">vs prior: ${sum.previous_asr != null ? escHtml(String(sum.previous_asr)) + '%' : '—'}</div></div>
+      <div class="stat-card"><div class="label">ACD (logs)</div><div class="value amber">${escHtml(String(sum.acd))}s</div><div class="sub">answered only</div></div>
+    </div>` : `<p style="font-size:12px;color:var(--text-muted);margin:0 0 12px 0">ASR trend vs prior window: ${sum.previous_asr != null ? escHtml(String(sum.previous_asr)) + '%' : '—'} · Est. revenue (matched DIDs): <strong>${escHtml(String(sum.revenue))}</strong></p>`}
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h3>Prefix performance</h3></div>
+      <div class="card-body" style="overflow:auto">
+        ${pro.prefix && pro.prefix.length ? `<table><thead><tr><th>CC + prefix</th><th>Calls</th><th>ASR</th><th>ACD</th><th>Revenue</th></tr></thead><tbody>
+          ${pro.prefix.map((p) => `<tr>
+            <td style="font-family:monospace">${escHtml(String(p.prefix))}</td>
+            <td>${p.calls}</td>
+            <td>${escHtml(String(p.asr))}%</td>
+            <td>${escHtml(String(p.acd))}s</td>
+            <td>${escHtml(String(p.revenue))}</td>
+          </tr>`).join('')}
+        </tbody></table>` : '<p class="empty-state" style="padding:12px">No prefix match (check destinations vs DIDs)</p>'}
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h3>Supplier performance</h3></div>
+      <div class="card-body" style="overflow:auto">
+        ${pro.supplier && pro.supplier.length ? `<table><thead><tr><th>Supplier</th><th>Calls</th><th>ASR</th><th>ACD</th></tr></thead><tbody>
+          ${pro.supplier.map((s) => `<tr>
+            <td>${escHtml(String(s.name))}</td>
+            <td>${s.calls}</td>
+            <td>${escHtml(String(s.asr))}%</td>
+            <td>${escHtml(String(s.acd))}s</td>
+          </tr>`).join('')}
+        </tbody></table>` : '<p class="empty-state" style="padding:12px">No supplier link (assign supplier on DIDs)</p>'}
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px" class="call-stats-pro-split">
+      <div class="card"><div class="card-header"><h3>Failure reasons</h3></div><div class="card-body padded">
+        ${pro.failures && pro.failures.length
+          ? `<ul style="margin:0;padding-left:18px;font-size:13px">${pro.failures.map((f) => `<li><strong>${escHtml(String(f.status))}</strong>: ${f.count}</li>`).join('')}</ul>`
+          : '<p class="empty-state" style="margin:0">No data</p>'}
+      </div></div>
+      <div class="card"><div class="card-header"><h3>CLI analysis</h3></div><div class="card-body padded">
+        ${pro.cli && pro.cli.length
+          ? `<ul style="margin:0;padding-left:18px;font-size:13px">${pro.cli.map((c) => `<li>${escHtml(String(c.cli_type))}: ${c.calls} calls, ASR ${escHtml(String(c.asr))}%</li>`).join('')}</ul>`
+          : '<p class="empty-state" style="margin:0">No data</p>'}
+      </div></div>
+    </div>`
+    : '';
+
+  const updatedAt = new Date().toLocaleString();
+
   el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <span style="font-size:12px;color:var(--text-muted)">Last updated: <strong style="color:var(--text)">${escHtml(updatedAt)}</strong> · ${h}h window</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:11px;color:var(--text-muted)">Auto-refresh 60s</span>
+        <button type="button" class="btn btn-outline btn-sm" id="btn-call-stats-refresh">Refresh now</button>
+      </div>
+    </div>
+    ${proBanner}
+    ${proGrid}
+    <p style="font-size:12px;color:var(--text-muted);margin:0 0 12px 0">
+      <strong>Summary (${h}h)</strong> — ${useDbPrimary
+        ? `from <strong>MySQL call_logs</strong> (synced from CDR). Est. revenue: <strong>${escHtml(String(sum.revenue))}</strong>.`
+        : `from <strong>CDR Master.csv</strong> until call_logs has rows; enable sync and deploy the collation fix.`}
+    </p>
     <div class="stats-grid">
+      ${useDbPrimary ? `
       <div class="stat-card">
-        <div class="label">Total Calls (24h)</div>
+        <div class="label">Total calls (${h}h) · DB</div>
+        <div class="value blue">${sum.total_calls}</div>
+        <div class="sub">${sum.calls_per_minute != null ? escHtml(String(sum.calls_per_minute)) : stats.callsPerMinute} / min</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Answered · DB</div>
+        <div class="value green">${sum.answered}</div>
+        <div class="sub">ASR: ${escHtml(String(sum.asr))}%</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Failed · DB</div>
+        <div class="value" style="color:var(--danger)">${sum.failed}</div>
+        <div class="sub">${sum.total_calls ? ((sum.failed / sum.total_calls) * 100).toFixed(1) : 0}% fail rate</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">ACD · DB</div>
+        <div class="value amber">${escHtml(String(sum.acd))}s</div>
+        <div class="sub">answered calls</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Total duration · DB</div>
+        <div class="value">${Math.round(sum.total_duration / 60)}m</div>
+        <div class="sub">${sum.total_duration}s total billsec</div>
+      </div>
+      ` : `
+      <div class="stat-card">
+        <div class="label">Total Calls (${h}h) · CDR file</div>
         <div class="value blue">${stats.totalCalls}</div>
         <div class="sub">${stats.callsPerMinute} calls/min avg</div>
       </div>
@@ -649,10 +1037,12 @@ async function renderCallStats(el) {
         <div class="value">${Math.round(stats.totalDuration / 60)}m</div>
         <div class="sub">${stats.totalDuration}s total</div>
       </div>
+      `}
     </div>
+    ${useDbPrimary ? `<p style="font-size:11px;color:var(--text-muted);margin:0 0 12px 0">CDR file reference — ${stats.totalCalls} calls in same window (may differ until fully synced).</p>` : ''}
     <div class="card">
       <div class="card-header">
-        <h3>Recent Calls</h3>
+        <h3>${recentDb.length ? 'Recent calls (MySQL)' : 'Recent calls (CDR file)'}</h3>
         <div style="display:flex;gap:8px">
           <button class="btn btn-outline btn-sm" onclick="renderCallStatsForHours(1)">1h</button>
           <button class="btn btn-outline btn-sm" onclick="renderCallStatsForHours(6)">6h</button>
@@ -660,9 +1050,24 @@ async function renderCallStats(el) {
         </div>
       </div>
       <div class="card-body">
-        ${stats.recentCalls.length ? `
+        ${recentDb.length ? `
         <table>
-          <thead><tr><th>SL</th><th>Prefix</th><th>Caller Number</th><th>Calling Number</th><th>Duration</th><th>Supplier</th><th>Status</th></tr></thead>
+          <thead><tr><th>SL</th><th>CC + prefix</th><th>Caller</th><th>Destination</th><th>Duration</th><th>Supplier</th><th>Status</th></tr></thead>
+          <tbody>${recentDb.map((c, i) => {
+            const statusClass = c.disposition === 'ANSWERED' ? 'badge-ring' : 'badge-direct';
+            return `<tr>
+              <td>${i + 1}</td>
+              <td style="font-family:monospace;font-size:12px"><span class="badge badge-ivr">${escHtml(c.prefix)}</span></td>
+              <td style="font-family:monospace;font-size:12px">${escHtml(c.src)}</td>
+              <td style="font-family:monospace;font-size:12px"><strong>${escHtml(c.dst)}</strong></td>
+              <td>${c.billsec}s</td>
+              <td><span class="badge badge-direct" style="font-size:11px">${escHtml(c.supplierName)}</span></td>
+              <td><span class="badge ${statusClass}">${escHtml(c.disposition)}</span></td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>` : (stats.recentCalls.length ? `
+        <table>
+          <thead><tr><th>SL</th><th>CC + prefix</th><th>Caller Number</th><th>Calling Number</th><th>Duration</th><th>Supplier</th><th>Status</th></tr></thead>
           <tbody>${stats.recentCalls.map((c, i) => {
             const statusClass = c.disposition === 'ANSWERED' ? 'badge-ring' : 'badge-direct';
             const prefix = c.dst.length > 4 ? c.dst.substring(0, c.dst.length - 4) : c.dst;
@@ -677,15 +1082,26 @@ async function renderCallStats(el) {
               <td><span class="badge ${statusClass}">${c.disposition}</span></td>
             </tr>`;
           }).join('')}</tbody>
-        </table>` : '<div class="empty-state">No calls recorded in this period.<br>CDR data is read from /var/log/asterisk/cdr-csv/Master.csv</div>'}
+        </table>` : '<div class="empty-state">No calls in this window.<br>Ensure CDR sync populates <code>call_logs</code> or check Master.csv.</div>')}
       </div>
     </div>`;
+
+  document.getElementById('btn-call-stats-refresh')?.addEventListener('click', () => {
+    renderCallStats(el, h);
+  });
+
+  if (callStatsInterval) clearInterval(callStatsInterval);
+  window._callStatsHours = h;
+  callStatsInterval = setInterval(() => {
+    if (currentPage !== 'call-stats') return;
+    const box = document.getElementById('content');
+    if (box) renderCallStats(box, window._callStatsHours || 24);
+  }, 60000);
 }
 // expose for inline onclick handlers
 window.renderCallStatsForHours = async (h) => {
-  const stats = await API.getCallStats(h);
   const el = document.getElementById('content');
-  renderCallStats(el);
+  await renderCallStats(el, h);
 };
 
 // ---- CDR HISTORY ----
@@ -1048,7 +1464,7 @@ async function renderSipLog(el) {
     <div class="card">
       <div class="card-header">
         <h3>Recent SIP Events</h3>
-        <button class="btn btn-outline btn-sm" onclick="navigateTo('sip-log')">Refresh</button>
+        <button class="btn btn-outline btn-sm" type="button" onclick="location.reload()">Refresh</button>
       </div>
       <div class="card-body">
         ${invites.length ? `
@@ -1506,7 +1922,7 @@ async function renderSuppliers(el) {
   el.innerHTML = `
     <div class="card">
       <div class="card-header">
-        <h3>Suppliers (${suppliers.length})</h3>
+        <h3>Termination Providers (${suppliers.length})</h3>
         <button class="btn btn-primary" id="btn-add-sup">+ Add Supplier</button>
       </div>
       <div class="card-body">
@@ -1586,11 +2002,36 @@ function sipStateForEndpoint(contacts, endpoint) {
 
 // ---- NUMBERS ----
 async function renderNumbers(el) {
-  const [numbers, suppliers, ivrMenus, globals, billingRes, sipRes] = await Promise.all([
-    API.getNumbers(), API.getSuppliers(), API.getIvrMenus(), API.getGlobals(),
+  el.innerHTML = '<div class="card"><div class="card-body padded"><p class="empty-state">Loading number inventory…</p></div></div>';
+  try {
+  const settled = await Promise.allSettled([
+    API.getNumbers(),
+    API.getSuppliers(),
+    API.getIvrMenus(),
+    API.getGlobals(),
     API.getIprnBillingSummary(800).catch(() => ({ rows: [] })),
     API.getPjsipContacts().catch(() => ({ contacts: [] })),
+    API.getPrefixCatalog().catch(() => ({ rows: [] })),
   ]);
+  const numRes = settled[0];
+  let numbers = numRes.status === 'fulfilled' && Array.isArray(numRes.value) ? numRes.value : [];
+  if (numRes.status === 'rejected') {
+    console.error('[numbers]', numRes.reason);
+    toast(`Could not load numbers: ${numRes.reason?.message || numRes.reason}`, 'error');
+  } else if (numRes.status === 'fulfilled' && numRes.value && !Array.isArray(numRes.value) && numRes.value.error) {
+    toast(`Numbers API: ${escHtml(String(numRes.value.error))}`, 'error');
+    numbers = [];
+  }
+  const suppliers = settled[1].status === 'fulfilled' && Array.isArray(settled[1].value) ? settled[1].value : [];
+  const ivrMenus = settled[2].status === 'fulfilled' && Array.isArray(settled[2].value) ? settled[2].value : [];
+  const globals = settled[3].status === 'fulfilled' && settled[3].value && typeof settled[3].value === 'object'
+    ? settled[3].value
+    : {};
+  const billingRes = settled[4].status === 'fulfilled' ? settled[4].value : { rows: [] };
+  const sipRes = settled[5].status === 'fulfilled' ? settled[5].value : { contacts: [] };
+  const prefixCatPayload = settled[6].status === 'fulfilled' ? settled[6].value : null;
+  const prefixCatalogRows =
+    prefixCatPayload && !prefixCatPayload.error && Array.isArray(prefixCatPayload.rows) ? prefixCatPayload.rows : [];
   const billRows = billingRes && Array.isArray(billingRes.rows) ? billingRes.rows : [];
   const billByNum = Object.fromEntries(billRows.map((r) => [String(r.number), r]));
   const contacts = sipRes && Array.isArray(sipRes.contacts) ? sipRes.contacts : [];
@@ -1635,6 +2076,63 @@ async function renderNumbers(el) {
   }, {});
   const detectedCountryOrder = Object.keys(groupedByDetectedCountry).sort();
 
+  const prefixRowsSorted = [...flatPrefixes].sort((a, b) => {
+    const ca = String(a.detectedCountry || '');
+    const cb = String(b.detectedCountry || '');
+    if (ca !== cb) return ca.localeCompare(cb);
+    const pa = `${a.pg.countryCode || ''}${a.pg.prefix || ''}`;
+    const pb = `${b.pg.countryCode || ''}${b.pg.prefix || ''}`;
+    return pa.localeCompare(pb);
+  });
+  const prefixSummaryByCountry = prefixRowsSorted.reduce((acc, entry) => {
+    const k = String(entry.detectedCountry || '—');
+    if (!acc[k]) acc[k] = [];
+    acc[k].push(entry);
+    return acc;
+  }, {});
+  const prefixSummaryCountryOrder = Object.keys(prefixSummaryByCountry).sort();
+  const prefixInventoryTable = prefixRowsSorted.length
+    ? `<div class="did-inventory-wrap">
+        ${prefixSummaryCountryOrder.map((cLabel) => {
+          const entries = prefixSummaryByCountry[cLabel];
+          return `
+          <section class="did-country-block">
+            <h4 class="did-country-title">${escHtml(cLabel)} <span class="did-country-meta">(${entries.length} prefix${entries.length !== 1 ? 'es' : ''})</span></h4>
+            ${entries.map((entry) => {
+              const { pg, detectedCountry } = entry;
+              const fullP = `${pg.countryCode || ''}${pg.prefix || ''}`;
+              const ivrId = pg.numbers[0]?.destinationId;
+              const ivrName = ivrMenus.find((i) => i.id === ivrId)?.name || '—';
+              const supNames = [...new Set(
+                pg.numbers.map((n) => suppliers.find((s) => s.id === n.supplierId)?.name).filter(Boolean)
+              )];
+              const supStr = supNames.length ? supNames.map((x) => escHtml(String(x))).join(', ') : '—';
+              return `
+              <div class="did-prefix-card did-prefix-card--summary">
+                <div class="did-prefix-card-toolbar">
+                  <div class="did-prefix-line">
+                    <span class="did-prefix-key">${escHtml(fullP)}</span>
+                    <span class="did-prefix-count">(${pg.numbers.length} number${pg.numbers.length !== 1 ? 's' : ''})</span>
+                  </div>
+                  <div class="did-prefix-meta-inline" style="font-size:12px;color:var(--text-muted)">${escHtml(String(detectedCountry || '—'))}</div>
+                </div>
+                <div class="did-prefix-body">
+                  <table class="did-simple-table">
+                    <thead><tr><th>Default IVR</th><th>IVR tariff</th><th>Termination</th></tr></thead>
+                    <tbody><tr>
+                      <td>${escHtml(ivrName)}</td>
+                      <td>${formatPrefixTariff(pg)}</td>
+                      <td style="color:var(--text-muted);font-size:12px">${supStr}</td>
+                    </tr></tbody>
+                  </table>
+                </div>
+              </div>`;
+            }).join('')}
+          </section>`;
+        }).join('')}
+      </div>`
+    : '<p class="empty-state">No prefixes yet — add DIDs below.</p>';
+
   el.innerHTML = `
     <div class="card" style="margin-bottom:20px">
       <div class="card-header"><h3>IPRN routing defaults</h3></div>
@@ -1667,126 +2165,160 @@ async function renderNumbers(el) {
       <div class="stat-card"><div class="label">Countries</div><div class="value">${detectedCountryCount}</div></div>
       <div class="stat-card"><div class="label">Prefixes</div><div class="value">${totalPrefixes}</div></div>
     </div>
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><h3>Prefix inventory</h3></div>
+      <div class="card-body padded">
+        <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px;line-height:1.45">
+          One summary row per <strong>CC + prefix</strong>. Full DID lists and per-number edits are in <strong>DID Inventory</strong> below (grouped by country, same layout as wholesale number panels).
+        </p>
+        ${prefixInventoryTable}
+      </div>
+    </div>
     <div class="card">
       <div class="card-header">
-        <h3>Number inventory</h3>
-        <div style="display:flex;gap:8px">
+        <h3>DID Inventory</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <button class="btn btn-outline" id="btn-upload-file">Upload File</button>
           <button class="btn btn-primary" id="btn-add-number">+ Add DID</button>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-rebuild-did-inv" title="Rebuild carrier did_inventory from MySQL numbers">Sync did_inventory</button>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-wipe-all-dids" style="border-color:var(--danger);color:var(--danger)" title="Deletes every DID from MySQL">Wipe all DIDs</button>
         </div>
       </div>
       <div class="card-body padded" id="numbers-list">
         ${flatPrefixes.length ? `
-        <table>
-          <thead>
-            <tr>
-              <th style="width:38%">Numbers</th>
-              <th style="width:20%">IVR</th>
-              <th style="width:12%">Tariff</th>
-              <th style="width:18%">Bulk</th>
-              <th style="width:10%">Del</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${detectedCountryOrder.map(countryLabel => {
+        <div class="did-inventory-wrap">
+            ${detectedCountryOrder.map((countryLabel) => {
               const entries = groupedByDetectedCountry[countryLabel];
               return `
-              <tr>
-                <td colspan="5" style="font-weight:600;color:var(--text-muted);padding-top:14px">${escHtml(countryLabel)} <span style="font-weight:400">(${entries.length} prefix${entries.length !== 1 ? 'es' : ''})</span></td>
-              </tr>
-              ${entries.map((entry, idx) => {
+              <section class="did-country-block">
+                <h4 class="did-country-title">${escHtml(countryLabel)} <span class="did-country-meta">(${entries.length} prefix${entries.length !== 1 ? 'es' : ''})</span></h4>
+                ${entries.map((entry, idx) => {
                 const { country, pg, detectedCountry } = entry;
                 const groupId = `prefix-group-${countryLabel.replace(/\W+/g, '-')}-${idx}`;
+                const fullPrefixDigits = `${pg.countryCode || ''}${pg.prefix || ''}`;
                 return `
-                <tr>
-                  <td>
-                    <button class="btn-icon did-prefix-toggle" data-target="${groupId}" style="margin-right:6px">+</button>
-                    <strong style="font-family:monospace">${pg.countryCode}${pg.prefix}</strong>
-                    <span style="color:var(--text-muted);font-size:12px">(${pg.numbers.length} number${pg.numbers.length !== 1 ? 's' : ''})</span>
-                  </td>
-                  <td>
-                    <select class="form-control prefix-ivr-sel" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" style="width:auto;padding:4px 8px;font-size:12px">
-                      ${ivrMenus.map(ivr => `<option value="${ivr.id}" ${pg.numbers[0]?.destinationId === ivr.id ? 'selected' : ''}>${ivr.name}</option>`).join('')}
-                    </select>
-                  </td>
-                  <td style="font-size:12px">${formatPrefixTariff(pg)}</td>
-                  <td>
-                    <select class="form-control prefix-bulk-ivr" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" style="width:auto;padding:4px 8px;font-size:12px;display:inline-block">
-                      ${ivrMenus.map(ivr => `<option value="${ivr.id}">${ivr.name}</option>`).join('')}
-                    </select>
-                    <button class="btn btn-outline btn-sm apply-prefix-bulk-ivr" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}">Set</button>
-                  </td>
-                  <td><button class="btn-icon del-prefix" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}">&#128465;</button></td>
-                </tr>
-                <tr id="${groupId}" style="display:none">
-                  <td colspan="5">
-                    <table style="margin:8px 0 2px 0">
-                      <thead><tr><th><input type="checkbox" class="prefix-select-all" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}"></th><th>Full Number</th><th>Extension</th><th>Supplier</th><th>Route</th><th>PJSIP</th><th>Backup</th><th>Cost/m</th><th>Pri</th><th>Last used</th><th>Billing Σ</th><th>SIP</th><th>Per DID IVR</th><th>Rate</th><th>Allocation</th></tr></thead>
+                <div class="did-prefix-card">
+                  <div class="did-prefix-card-toolbar">
+                    <div class="did-prefix-line">
+                      <span class="did-prefix-key">${escHtml(fullPrefixDigits)}</span>
+                      <span class="did-prefix-count">(${pg.numbers.length} number${pg.numbers.length !== 1 ? 's' : ''})</span>
+                    </div>
+                    <div class="did-prefix-bulk">
+                      <span class="text-muted" style="font-size:12px">Default IVR</span>
+                      <select class="form-control prefix-ivr-sel" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" style="width:auto;min-width:140px;padding:4px 8px;font-size:12px">
+                        ${ivrMenus.map(ivr => `<option value="${ivr.id}" ${pg.numbers[0]?.destinationId === ivr.id ? 'selected' : ''}>${ivr.name}</option>`).join('')}
+                      </select>
+                      <span class="did-prefix-tariff-inline">${formatPrefixTariff(pg)}</span>
+                      <select class="form-control prefix-bulk-ivr" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" style="width:auto;min-width:120px;padding:4px 8px;font-size:12px;display:inline-block">
+                        ${ivrMenus.map(ivr => `<option value="${ivr.id}">${ivr.name}</option>`).join('')}
+                      </select>
+                      <button type="button" class="btn btn-outline btn-sm apply-prefix-bulk-ivr" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}">Set</button>
+                      <button type="button" class="btn-icon del-prefix" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" title="Delete entire prefix">&#128465;</button>
+                    </div>
+                  </div>
+                  <div id="${groupId}" class="did-prefix-body">
+                    <table class="did-simple-table">
+                      <thead>
+                        <tr>
+                          <th class="did-col-chk"><input type="checkbox" class="prefix-select-all" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" title="Select all"></th>
+                          <th>Numbers</th>
+                          <th>Country</th>
+                          <th>IVR</th>
+                          <th>IVR tariff</th>
+                          <th>Terms</th>
+                          <th>Allocation</th>
+                          <th>Del</th>
+                        </tr>
+                      </thead>
                       <tbody>
-                        ${pg.numbers.map(n => {
-                          const sup = suppliers.find(s => s.id === n.supplierId);
+                        ${pg.numbers.map((n) => {
+                          const sup = suppliers.find((s) => s.id === n.supplierId);
                           const isAlloc = String(n.status || '').toLowerCase() === 'allocated';
                           const allocDateShort = n.allocationDate ? String(n.allocationDate).slice(0, 10) : '';
                           const fullDig = `${n.countryCode}${n.prefix}${n.extension}`;
+                          const routeSel = n.iprnRouteStatus === 'blocked' ? 'blocked' : 'active';
+                          const sipLbl = sipStateForEndpoint(contacts, n.routingPjsipEndpoint || '');
                           const br = billByNum[fullDig];
                           const billTxt = br
                             ? `${br.call_count}× ${Math.round((br.duration_seconds || 0) / 60)}m / ${Number(br.total_profit || 0).toFixed(2)}`
                             : '—';
                           const lastU = n.lastUsedInventory ? String(n.lastUsedInventory).replace('T', ' ').slice(0, 19) : '—';
-                          const routeSel = n.iprnRouteStatus === 'blocked' ? 'blocked' : 'active';
-                          const sipLbl = sipStateForEndpoint(contacts, n.routingPjsipEndpoint || '');
                           return `<tr>
                             <td><input type="checkbox" class="prefix-number-chk" data-country="${country}" data-cc="${n.countryCode}" data-prefix="${n.prefix}" data-id="${n.id}"></td>
-                            <td style="font-family:monospace">${fullDig}</td>
-                            <td style="font-family:monospace">${n.extension}</td>
-                            <td>${sup ? `<span class="badge badge-direct">${escHtml(sup.name)}</span>` : '-'}</td>
-                            <td><select class="form-control iprn-route-st" data-id="${n.id}" style="width:auto;padding:2px 6px;font-size:11px">
-                              <option value="active" ${routeSel === 'active' ? 'selected' : ''}>active</option>
-                              <option value="blocked" ${routeSel === 'blocked' ? 'selected' : ''}>blocked</option>
-                            </select></td>
-                            <td><input type="text" class="form-control iprn-pjsip" data-id="${n.id}" value="${escHtml(String(n.routingPjsipEndpoint || ''))}" placeholder="endpoint" style="width:100px;font-size:11px;padding:2px 6px" /></td>
-                            <td><input type="text" class="form-control iprn-backup" data-id="${n.id}" value="${escHtml(String(n.backupPjsipEndpoint || ''))}" style="width:88px;font-size:11px;padding:2px 6px" /></td>
-                            <td><input type="text" class="form-control iprn-cost" data-id="${n.id}" value="${escHtml(String(n.costPerMin != null ? n.costPerMin : ''))}" style="width:52px;font-size:11px;padding:2px 6px" /></td>
-                            <td><input type="text" class="form-control iprn-pri" data-id="${n.id}" value="${escHtml(String(n.iprnPriority != null ? n.iprnPriority : 0))}" style="width:36px;font-size:11px;padding:2px 6px" /></td>
-                            <td style="font-size:11px;color:var(--text-muted)">${escHtml(lastU)}</td>
-                            <td style="font-size:11px" title="calls × approx minutes / profit sum">${escHtml(billTxt)}</td>
-                            <td style="font-size:11px">${escHtml(sipLbl)}</td>
+                            <td style="font-family:monospace;font-weight:500">${fullDig}</td>
+                            <td>${escHtml(String(detectedCountry))}</td>
                             <td>
-                              <select class="form-control number-ivr-sel" data-id="${n.id}" style="width:auto;padding:4px 8px;font-size:12px">
+                              <select class="form-control number-ivr-sel" data-id="${n.id}" style="width:auto;min-width:130px;padding:4px 8px;font-size:12px">
                                 ${ivrMenus.map(ivr => `<option value="${ivr.id}" ${n.destinationId === ivr.id ? 'selected' : ''}>${ivr.name}</option>`).join('')}
                               </select>
                             </td>
-                            <td>
-                              <button class="btn btn-outline btn-sm edit-prefix-rate" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" data-rate="${escHtml(String(pg.rate))}" data-currency="${escHtml(String(pg.numbers[0]?.rateCurrency || 'usd'))}" data-term="${escHtml(String(pg.numbers[0]?.paymentTerm || 'weekly'))}">Rate</button>
-                            </td>
+                            <td style="font-size:13px">${formatDidIvrTariff(n)}</td>
+                            <td style="font-size:12px">${formatDidPaymentTerms(n)}</td>
                             <td style="font-size:12px;vertical-align:middle">
                               ${isAlloc
-                                ? `<div><span class="badge badge-ring">allocated</span></div>
-                                   <div style="margin-top:4px">${escHtml(n.clientName || '—')}</div>
+                                ? `<span class="badge badge-ring">allocated</span><div style="margin-top:4px">${escHtml(n.clientName || '—')}</div>
                                    ${allocDateShort ? `<div style="color:var(--text-muted);font-size:11px">${escHtml(allocDateShort)}</div>` : ''}
                                    <button type="button" class="btn btn-outline btn-sm btn-release-did" data-id="${n.id}" style="margin-top:6px">Release</button>`
-                                : `<div><span class="badge badge-direct">pool</span></div>
+                                : `<span class="badge badge-direct">pool</span>
                                    <button type="button" class="btn btn-outline btn-sm btn-assign-did" data-id="${n.id}" style="margin-top:6px">Assign</button>`}
+                            </td>
+                            <td>
+                              <button type="button" class="btn-icon del-single-did" data-id="${n.id}" title="Delete this DID">&#128465;</button>
+                            </td>
+                          </tr>
+                          <tr class="did-advanced-row">
+                            <td colspan="8" style="padding:0;border:none">
+                              <details class="did-advanced-details">
+                                <summary>Advanced — supplier, ODBC route, billing</summary>
+                                <div style="overflow:auto;padding:10px 0 4px">
+                                  <table class="did-advanced-table">
+                                    <thead>
+                                      <tr>
+                                        <th>Ext</th><th>Supplier</th><th>Route</th><th>PJSIP</th><th>Backup</th><th>Cost/m</th><th>Pri</th><th>Last used</th><th>Billing Σ</th><th>SIP</th><th>Rate</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      <tr>
+                                        <td style="font-family:monospace">${escHtml(String(n.extension))}</td>
+                                        <td>${sup ? `<span class="badge badge-direct">${escHtml(sup.name)}</span>` : '—'}</td>
+                                        <td><select class="form-control iprn-route-st" data-id="${n.id}" style="width:auto;padding:2px 6px;font-size:11px">
+                                          <option value="active" ${routeSel === 'active' ? 'selected' : ''}>active</option>
+                                          <option value="blocked" ${routeSel === 'blocked' ? 'selected' : ''}>blocked</option>
+                                        </select></td>
+                                        <td><input type="text" class="form-control iprn-pjsip" data-id="${n.id}" value="${escHtml(String(n.routingPjsipEndpoint || ''))}" placeholder="endpoint" style="width:100px;font-size:11px;padding:2px 6px" /></td>
+                                        <td><input type="text" class="form-control iprn-backup" data-id="${n.id}" value="${escHtml(String(n.backupPjsipEndpoint || ''))}" style="width:88px;font-size:11px;padding:2px 6px" /></td>
+                                        <td><input type="text" class="form-control iprn-cost" data-id="${n.id}" value="${escHtml(String(n.costPerMin != null ? n.costPerMin : ''))}" style="width:52px;font-size:11px;padding:2px 6px" /></td>
+                                        <td><input type="text" class="form-control iprn-pri" data-id="${n.id}" value="${escHtml(String(n.iprnPriority != null ? n.iprnPriority : 0))}" style="width:36px;font-size:11px;padding:2px 6px" /></td>
+                                        <td style="font-size:11px;color:var(--text-muted)">${escHtml(lastU)}</td>
+                                        <td style="font-size:11px" title="calls × approx minutes / profit sum">${escHtml(billTxt)}</td>
+                                        <td style="font-size:11px">${escHtml(sipLbl)}</td>
+                                        <td><button type="button" class="btn btn-outline btn-sm edit-prefix-rate" data-country="${country}" data-cc="${pg.countryCode}" data-prefix="${pg.prefix}" data-rate="${escHtml(String(pg.rate))}" data-currency="${escHtml(String(pg.numbers[0]?.rateCurrency || 'usd'))}" data-term="${escHtml(String(pg.numbers[0]?.paymentTerm || 'weekly'))}">Edit rate</button></td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </details>
                             </td>
                           </tr>`;
                         }).join('')}
                       </tbody>
                     </table>
-                  </td>
-                </tr>`;
+                  </div>
+                </div>`;
               }).join('')}
-              `;
+              </section>`;
             }).join('')}
-          </tbody>
-        </table>` : '<div class="empty-state">No numbers in inventory yet. Click &quot;+ Add DID&quot; to get started.</div>'}
+        </div>` : '<div class="empty-state">No numbers in inventory yet. Click &quot;+ Add DID&quot; to get started.</div>'}
       </div>
     </div>`;
-  el.querySelectorAll('.did-prefix-toggle').forEach(btn => {
-    btn.onclick = () => {
-      const target = document.getElementById(btn.dataset.target);
-      const isHidden = target.style.display === 'none';
-      target.style.display = isHidden ? '' : 'none';
-      btn.textContent = isHidden ? '−' : '+';
+  el.querySelectorAll('.del-single-did').forEach((btn) => {
+    btn.onclick = async () => {
+      const id = btn.dataset.id;
+      if (!id || !confirm('Delete this DID from inventory?')) return;
+      await API.deleteNumber(id);
+      markChanged();
+      toast('DID removed');
+      renderNumbers(el);
     };
   });
 
@@ -1832,7 +2364,33 @@ async function renderNumbers(el) {
     toast(`Routing defaults saved (fallback IVR ${fallbackIvrId}${iprnOdbcRouting ? ', ODBC routing on' : ''})`);
   };
 
-  document.getElementById('btn-add-number').onclick = () => showAddNumberModal(suppliers, ivrMenus);
+  document.getElementById('btn-add-number').onclick = () => showAddNumberModal(suppliers, ivrMenus, prefixCatalogRows);
+
+  const btnRebuildDid = document.getElementById('btn-rebuild-did-inv');
+  if (btnRebuildDid) {
+    btnRebuildDid.onclick = async () => {
+      const r = await API.rebuildDidInventory();
+      if (r.error) {
+        toast(String(r.error), 'error');
+        return;
+      }
+      toast(r.skipped ? 'did_inventory table not present (run schema deploy)' : `did_inventory rebuilt (${r.count ?? 0} rows)`);
+    };
+  }
+  const btnWipeAll = document.getElementById('btn-wipe-all-dids');
+  if (btnWipeAll) {
+    btnWipeAll.onclick = async () => {
+      if (!confirm('Delete EVERY DID from MySQL (numbers + number_inventory)? This cannot be undone.')) return;
+      const r = await API.wipeAllNumbers();
+      if (r.error) {
+        toast(String(r.error), 'error');
+        return;
+      }
+      markChanged();
+      toast('All DIDs removed');
+      renderNumbers(el);
+    };
+  }
 
   el.querySelectorAll('.del-prefix').forEach(b => b.onclick = async () => {
     const prefix = b.dataset.prefix;
@@ -2036,25 +2594,75 @@ async function renderNumbers(el) {
       renderNumbers(el);
     });
   });
+  } catch (err) {
+    console.error('[renderNumbers]', err);
+    el.innerHTML = `<div class="card"><div class="card-body padded">
+      <p style="color:var(--danger);margin-bottom:8px"><strong>Number inventory failed to load.</strong></p>
+      <p style="font-size:13px;color:var(--text-muted)">${escHtml(String(err?.message || err))}</p>
+      <p style="font-size:12px;color:var(--text-muted);margin-top:10px">If MySQL is slow or the schema is wrong, check server logs and <code>journalctl -u asterisk-dashboard</code>. Retry after fixing DB or use <code>MYSQL_ENABLED=0</code> to use <code>db.json</code> only.</p>
+      <button type="button" class="btn btn-outline btn-sm" style="margin-top:12px" onclick="navigateTo('numbers')">Retry</button>
+    </div></div>`;
+    toast('Number inventory error — see message above', 'error');
+  }
 }
 
-function showAddNumberModal(suppliers, ivrMenus) {
+function showAddNumberModal(suppliers, ivrMenus, prefixCatalogRows = []) {
+  const pcOptions = (prefixCatalogRows || [])
+    .map((r) => {
+      const label = `+${String(r.countryCode || '')}${String(r.prefix || '')} (${r.countryName || r.country || '—'})`;
+      return `<option value="${escHtml(String(r.id))}">${escHtml(label)}</option>`;
+    })
+    .join('');
+  const hasPc = pcOptions.length > 0;
   showModal('Add DID', `
-    <div class="form-row-3">
+    ${hasPc ? `<div class="form-group">
+      <label>Apply from prefix inventory</label>
+      <select class="form-control" id="num-from-prefix">
+        <option value="">— Manual entry —</option>
+        ${pcOptions}
+      </select>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Loads country code, prefix, price, term, supplier, and IVR from <strong>Routing → Prefix inventory</strong>.</div>
+    </div>` : ''}
+    <div class="form-row">
       <div class="form-group">
         <label>Country Code (optional)</label>
-        <input class="form-control" id="num-country-code" placeholder="e.g. 39 (optional)" style="font-family:monospace">
+        <input class="form-control" id="num-country-code" placeholder="e.g. 39" style="font-family:monospace">
       </div>
       <div class="form-group">
         <label>DID Prefix</label>
-        <input class="form-control" id="num-prefix" placeholder="e.g. 393199050">
+        <input class="form-control" id="num-prefix" placeholder="e.g. 393199050 (no spaces)">
       </div>
+    </div>
+    <div class="form-group" style="margin-top:-4px">
+      <label>Extension(s) — appended to the prefix above</label>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin:8px 0;font-size:13px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="num-ext-mode" id="num-ext-mode-list" value="list" checked> List (one extension per line)
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="num-ext-mode" id="num-ext-mode-range" value="range"> Range (from → to)
+        </label>
+      </div>
+      <div id="num-ext-manual">
+        <textarea class="form-control" id="num-extensions" rows="5" style="font-family:monospace" placeholder="646&#10;642&#10;645"></textarea>
+      </div>
+      <div id="num-ext-range" style="display:none">
+        <div class="form-row">
+          <div class="form-group" style="margin-bottom:0">
+            <input class="form-control" id="num-range-from" aria-label="Extension range from" placeholder="From" style="font-family:monospace">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <input class="form-control" id="num-range-to" aria-label="Extension range to" placeholder="To" style="font-family:monospace">
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:6px" id="num-range-count"></div>
+      </div>
+    </div>
+    <div class="form-row-3">
       <div class="form-group">
         <label>Rate / min</label>
         <input class="form-control" id="num-rate" type="number" step="0.001" value="0.01" placeholder="0.01">
       </div>
-    </div>
-    <div class="form-row-3">
       <div class="form-group">
         <label>Rate currency</label>
         <select class="form-control" id="num-rate-currency">
@@ -2070,7 +2678,6 @@ function showAddNumberModal(suppliers, ivrMenus) {
           <option value="monthly">Monthly → monthly wallet</option>
         </select>
       </div>
-      <div class="form-group"></div>
     </div>
     <div class="form-group">
       <label>Supplier</label>
@@ -2085,28 +2692,6 @@ function showAddNumberModal(suppliers, ivrMenus) {
         <select class="form-control" id="num-dest-id">
           ${(ivrMenus || []).map(m => `<option value="${m.id}">${m.name}</option>`).join('')}
         </select>
-      </div>
-    </div>
-    <div class="form-group">
-      <label style="display:flex;align-items:center;gap:12px">
-        Extensions
-        <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--primary)">
-          <input type="checkbox" id="num-range-mode"> Range mode (from-to)
-        </label>
-      </label>
-      <div id="num-ext-manual">
-        <textarea class="form-control" id="num-extensions" rows="5" style="font-family:monospace" placeholder="5550100\n5550101\n5550102"></textarea>
-      </div>
-      <div id="num-ext-range" style="display:none">
-        <div class="form-row">
-          <div class="form-group" style="margin-bottom:0">
-            <input class="form-control" id="num-range-from" placeholder="From: 0000" style="font-family:monospace">
-          </div>
-          <div class="form-group" style="margin-bottom:0">
-            <input class="form-control" id="num-range-to" placeholder="To: 9999" style="font-family:monospace">
-          </div>
-        </div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:6px" id="num-range-count"></div>
       </div>
     </div>
     <div class="form-group">
@@ -2129,7 +2714,7 @@ function showAddNumberModal(suppliers, ivrMenus) {
     const paymentTerm = document.getElementById('num-payment-term').value || 'weekly';
     const supplierId = document.getElementById('num-supplier').value;
     let extensions;
-    const isRange = document.getElementById('num-range-mode').checked;
+    const isRange = document.getElementById('num-ext-mode-range').checked;
     if (isRange) {
       const from = parseInt(document.getElementById('num-range-from').value);
       const to = parseInt(document.getElementById('num-range-to').value);
@@ -2161,7 +2746,7 @@ function showAddNumberModal(suppliers, ivrMenus) {
     const cc = document.getElementById('num-country-code').value.trim().replace(/\D/g, '') || '?';
     const prefix = document.getElementById('num-prefix').value.trim() || '???';
     const preview = document.getElementById('num-preview');
-    const isRange = document.getElementById('num-range-mode')?.checked;
+    const isRange = document.getElementById('num-ext-mode-range')?.checked;
 
     if (isRange) {
       const from = document.getElementById('num-range-from').value || '0000';
@@ -2179,11 +2764,14 @@ function showAddNumberModal(suppliers, ivrMenus) {
   document.getElementById('num-country-code').oninput = updatePreview;
   document.getElementById('num-prefix').oninput = updatePreview;
   document.getElementById('num-extensions').oninput = updatePreview;
-  document.getElementById('num-range-mode').onchange = (e) => {
-    document.getElementById('num-ext-manual').style.display = e.target.checked ? 'none' : '';
-    document.getElementById('num-ext-range').style.display = e.target.checked ? '' : 'none';
+  function syncExtModeUi() {
+    const range = document.getElementById('num-ext-mode-range').checked;
+    document.getElementById('num-ext-manual').style.display = range ? 'none' : '';
+    document.getElementById('num-ext-range').style.display = range ? '' : 'none';
     updatePreview();
-  };
+  }
+  document.getElementById('num-ext-mode-list').onchange = syncExtModeUi;
+  document.getElementById('num-ext-mode-range').onchange = syncExtModeUi;
   document.getElementById('num-range-from').oninput = () => {
     const from = parseInt(document.getElementById('num-range-from').value);
     const to = parseInt(document.getElementById('num-range-to').value);
@@ -2194,6 +2782,23 @@ function showAddNumberModal(suppliers, ivrMenus) {
     updatePreview();
   };
   document.getElementById('num-range-to').oninput = document.getElementById('num-range-from').oninput;
+
+  function applyFromPrefixCatalog(id) {
+    if (!id) return;
+    const row = prefixCatalogRows.find((x) => String(x.id) === String(id));
+    if (!row) return;
+    document.getElementById('num-country-code').value = row.countryCode || '';
+    document.getElementById('num-prefix').value = row.prefix || '';
+    document.getElementById('num-rate').value = row.rate || '0.01';
+    document.getElementById('num-rate-currency').value = row.rateCurrency || 'usd';
+    document.getElementById('num-payment-term').value = row.paymentTerm || 'weekly';
+    document.getElementById('num-supplier').value = row.supplierId || '';
+    document.getElementById('num-dest-id').value = row.destinationId || '1';
+    updatePreview();
+    toast('Loaded from prefix inventory');
+  }
+  const selPref = document.getElementById('num-from-prefix');
+  if (selPref) selPref.onchange = () => applyFromPrefixCatalog(selPref.value);
 
   document.getElementById('btn-auto-split-dids').onclick = () => {
     const raw = document.getElementById('num-full-dids').value;
@@ -2224,13 +2829,529 @@ function showAddNumberModal(suppliers, ivrMenus) {
 
     document.getElementById('num-prefix').value = prefix;
     document.getElementById('num-extensions').value = exts.join('\n');
-    document.getElementById('num-range-mode').checked = false;
+    document.getElementById('num-ext-mode-list').checked = true;
     document.getElementById('num-ext-manual').style.display = '';
     document.getElementById('num-ext-range').style.display = 'none';
     updatePreview();
     toast(`Detected prefix ${prefix} with ${exts.length} extension(s) as XXX`);
   };
 
+}
+
+// ---- PREFIX STAGING (MySQL prefix_catalog — template before DIDs) ----
+async function renderPrefixStaging(el) {
+  el.innerHTML = '<div class="card"><div class="card-body padded"><p class="empty-state">Loading prefix inventory…</p></div></div>';
+  const settled = await Promise.allSettled([
+    API.getPrefixCatalog(),
+    API.getSuppliers(),
+    API.getIvrMenus(),
+    API.getNumbers().catch(() => []),
+  ]);
+  const catRes = settled[0];
+  const supRes = settled[1];
+  const ivrRes = settled[2];
+  const numsRes = settled[3];
+
+  const catPayload = catRes.status === 'fulfilled' ? catRes.value : null;
+  const mysqlOff = !catPayload || catPayload.error === 'MySQL required' || catPayload.enabled === false;
+  if (mysqlOff) {
+    el.innerHTML = `<div class="card"><div class="card-body padded">
+      <p style="color:var(--danger)"><strong>MySQL required.</strong> Enable <code>MYSQL_ENABLED=1</code> and database credentials, restart the dashboard, then refresh. Table <code>prefix_catalog</code> is created automatically on connect.</p>
+    </div></div>`;
+    return;
+  }
+
+  if (catRes.status === 'rejected') {
+    el.innerHTML = `<div class="card"><div class="card-body padded"><p class="empty-state">Could not load prefix catalog: ${escHtml(String(catRes.reason?.message || catRes.reason))}</p></div></div>`;
+    return;
+  }
+
+  const catalog = Array.isArray(catPayload?.rows) ? catPayload.rows : [];
+  const suppliers = supRes.status === 'fulfilled' && Array.isArray(supRes.value) ? supRes.value : [];
+  const ivrMenus = ivrRes.status === 'fulfilled' && Array.isArray(ivrRes.value) ? ivrRes.value : [];
+  const allNumbers = numsRes.status === 'fulfilled' && Array.isArray(numsRes.value) ? numsRes.value : [];
+  const didsForCatalogRow = (row) => {
+    const head = `${String(row.countryCode || '').replace(/\D/g, '')}${String(row.prefix || '').replace(/\D/g, '')}`;
+    if (!head) return [];
+    return allNumbers.filter((n) => {
+      const d = `${String(n.countryCode || '').replace(/\D/g, '')}${String(n.prefix || '').replace(/\D/g, '')}${String(n.extension || '').replace(/\D/g, '')}`;
+      return d.startsWith(head);
+    });
+  };
+
+  const supName = (id) => {
+    const s = suppliers.find((x) => String(x.id) === String(id));
+    return s ? s.name : '—';
+  };
+  const ivrLabel = (id) => {
+    const s = ivrMenus.find((x) => String(x.id) === String(id));
+    return s ? s.name : `IVR ${id}`;
+  };
+
+  const byCountry = {};
+  for (const r of catalog) {
+    const c = String(r.country || 'XX').trim() || 'XX';
+    if (!byCountry[c]) byCountry[c] = [];
+    byCountry[c].push(r);
+  }
+  const countryOrder = Object.keys(byCountry).sort();
+
+  const supOpts = suppliers.length
+    ? suppliers.map((s) => `<option value="${escHtml(String(s.id))}">${escHtml(s.name)}</option>`).join('')
+    : '<option value="">— add supplier first —</option>';
+  const ivrOpts = ivrMenus.map((i) => `<option value="${escHtml(String(i.id))}">${escHtml(i.name)}</option>`).join('');
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><h3>Add prefix</h3></div>
+      <div class="card-body padded">
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px"><strong>Prefix inventory</strong> — country, prefix, price, term, IVR, access, supplier, test number. Then add DIDs under <strong>Number inventory</strong> (single or range) or use <strong>Promote</strong> / <strong>Bulk DIDs</strong>.</p>
+        <div class="form-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div class="form-group"><label>Country (ISO)</label><input class="form-control" id="pc-add-country" placeholder="e.g. BH" maxlength="8" value="XX"></div>
+          <div class="form-group"><label>Country name</label><input class="form-control" id="pc-add-cname" placeholder="e.g. Bahrain"></div>
+          <div class="form-group"><label>Country code (digits)</label><input class="form-control" id="pc-add-cc" placeholder="e.g. 973"></div>
+          <div class="form-group"><label>Prefix (digits)</label><input class="form-control" id="pc-add-pfx" placeholder="national prefix after CC"></div>
+          <div class="form-group"><label>Test number (full E.164 digits)</label><input class="form-control" id="pc-add-test" placeholder="must start with CC + prefix"></div>
+          <div class="form-group"><label>Rate</label><input class="form-control" id="pc-add-rate" value="0.01"></div>
+          <div class="form-group"><label>Currency</label>
+            <select class="form-control" id="pc-add-cur"><option value="usd">USD</option><option value="eur">EUR</option></select>
+          </div>
+          <div class="form-group"><label>Payment term</label>
+            <select class="form-control" id="pc-add-pt"><option value="weekly">weekly</option><option value="monthly">monthly</option><option value="daily">daily</option></select>
+          </div>
+          <div class="form-group"><label>Termination provider</label>
+            <select class="form-control" id="pc-add-sup">${supOpts}</select>
+          </div>
+          <div class="form-group"><label>IVR</label>
+            <select class="form-control" id="pc-add-ivr">${ivrOpts || '<option value="1">IVR 1</option>'}</select>
+          </div>
+          <div class="form-group"><label>Access</label><input class="form-control" id="pc-add-access" placeholder="e.g. IP-auth trunk, ODBC"></div>
+          <div class="form-group"><label>Status</label>
+            <select class="form-control" id="pc-add-st"><option value="staging">staging</option><option value="validated">validated</option></select>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:8px">
+          <label>Routes / notes</label>
+          <textarea class="form-control" id="pc-add-notes" rows="2" placeholder="Optional failover, supplier notes, test results…"></textarea>
+        </div>
+        <button type="button" class="btn btn-primary" id="pc-add-btn">Add prefix</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3>All prefixes</h3>
+        <button type="button" class="btn btn-outline btn-sm" id="pc-refresh-btn">Refresh</button>
+      </div>
+      <div class="card-body padded">
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Unique key: <code>country_code + prefix</code>. Promoting writes rows into <code>numbers</code> / <code>number_inventory</code> — use <strong>Apply &amp; Reload Asterisk</strong> to activate dialplan.</p>
+        ${catalog.length ? `<div class="did-inventory-wrap" id="prefix-inv-wrap">
+          ${countryOrder.map((cLabel) => {
+            const list = byCountry[cLabel];
+            return `
+            <section class="did-country-block">
+              <h4 class="did-country-title">${escHtml(cLabel)} <span class="did-country-meta">(${list.length} prefix${list.length !== 1 ? 'es' : ''})</span></h4>
+              ${list.map((row) => {
+                const fullP = `${row.countryCode || ''}${row.prefix || ''}`;
+                const st = String(row.status || 'staging');
+                const badge = st === 'validated' ? 'validated' : 'staging';
+                const matchedDids = didsForCatalogRow(row);
+                const expandId = `pc-exp-${String(row.id)}`;
+                return `
+                <div class="did-prefix-card" data-pc-id="${escHtml(String(row.id))}">
+                  <div class="did-prefix-card-toolbar" style="cursor:pointer" title="Click to show DIDs for this prefix">
+                    <div class="did-prefix-line" onclick="document.getElementById('${expandId}').classList.toggle('hidden');">
+                      <span class="did-prefix-key">+${escHtml(fullP)}</span>
+                      <span class="did-prefix-count">
+                        <span class="badge ${badge === 'validated' ? 'badge-ring' : 'badge-ivr'}">${escHtml(badge)}</span>
+                        <span style="font-size:12px;color:var(--text-muted);margin-left:8px">${matchedDids.length} DID(s)</span>
+                      </span>
+                    </div>
+                    <div class="did-prefix-meta-inline" style="font-size:12px;color:var(--text-muted)">ID ${escHtml(String(row.id))}</div>
+                  </div>
+                  <div class="did-prefix-body">
+                    <table class="did-simple-table">
+                      <thead>
+                        <tr>
+                          <th>Country</th>
+                          <th>Prefix</th>
+                          <th>Price</th>
+                          <th>Term</th>
+                          <th>IVR</th>
+                          <th>Access</th>
+                          <th>Supplier</th>
+                          <th>Test #</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>${escHtml(row.countryName || row.country || '—')}</td>
+                          <td style="font-family:monospace;font-size:13px">+${escHtml(fullP)}</td>
+                          <td>${escHtml(String(row.rate || ''))} ${escHtml(String(row.rateCurrency || 'usd').toUpperCase())}</td>
+                          <td>${escHtml(String(row.paymentTerm || '—'))}</td>
+                          <td>${escHtml(ivrLabel(row.destinationId))}</td>
+                          <td style="font-size:12px;max-width:140px">${escHtml(row.accessText || '—')}</td>
+                          <td>${escHtml(supName(row.supplierId))}</td>
+                          <td style="font-family:monospace;font-size:12px">${escHtml(row.testNumber || '—')}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    ${row.routesNotes ? `<p style="font-size:12px;color:var(--text-muted);margin:8px 0 0;font-style:italic">${escHtml(row.routesNotes)}</p>` : ''}
+                    <div id="${expandId}" class="hidden" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+                      <div style="font-size:12px;font-weight:600;margin-bottom:6px">DIDs for this prefix (${matchedDids.length})</div>
+                      ${matchedDids.length ? `<div style="font-family:monospace;font-size:12px;max-height:160px;overflow:auto;line-height:1.6">${matchedDids.map((n) => {
+                        const full = `${n.countryCode || ''}${n.prefix || ''}${n.extension || ''}`;
+                        return escHtml(full);
+                      }).join('<br>')}</div>` : '<p style="font-size:12px;color:var(--text-muted)">No DIDs in inventory yet — use Number inventory → Add DID or Bulk DIDs.</p>'}
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+                      <button type="button" class="btn btn-outline btn-sm pc-edit" data-id="${escHtml(String(row.id))}">Edit</button>
+                      <button type="button" class="btn btn-outline btn-sm pc-del" data-id="${escHtml(String(row.id))}">Delete</button>
+                      <button type="button" class="btn btn-primary btn-sm pc-test" data-id="${escHtml(String(row.id))}">Promote test DID</button>
+                      <button type="button" class="btn btn-outline btn-sm pc-bulk" data-id="${escHtml(String(row.id))}">Bulk DIDs…</button>
+                    </div>
+                  </div>
+                </div>`;
+              }).join('')}
+            </section>`;
+          }).join('')}
+        </div>` : '<p class="empty-state">No prefixes yet — use <strong>Add prefix</strong> above.</p>'}
+      </div>
+    </div>`;
+
+  document.getElementById('pc-add-btn').onclick = async () => {
+    const body = {
+      country: document.getElementById('pc-add-country').value.trim() || 'XX',
+      countryName: document.getElementById('pc-add-cname').value.trim(),
+      countryCode: document.getElementById('pc-add-cc').value.trim(),
+      prefix: document.getElementById('pc-add-pfx').value.trim(),
+      testNumber: document.getElementById('pc-add-test').value.trim(),
+      rate: document.getElementById('pc-add-rate').value.trim() || '0.01',
+      rateCurrency: document.getElementById('pc-add-cur').value,
+      paymentTerm: document.getElementById('pc-add-pt').value,
+      supplierId: document.getElementById('pc-add-sup').value || '',
+      destinationId: document.getElementById('pc-add-ivr').value || '1',
+      accessText: document.getElementById('pc-add-access').value.trim(),
+      routesNotes: document.getElementById('pc-add-notes').value.trim(),
+      status: document.getElementById('pc-add-st').value,
+    };
+    const r = await API.postPrefixCatalog(body);
+    if (r && r.error) {
+      toast(String(r.error), 'error');
+      return;
+    }
+    toast('Prefix added');
+    renderPrefixStaging(el);
+  };
+
+  document.getElementById('pc-refresh-btn').onclick = () => renderPrefixStaging(el);
+
+  el.querySelectorAll('.pc-edit').forEach((btn) => {
+    btn.onclick = () => {
+      const id = btn.dataset.id;
+      const row = catalog.find((x) => String(x.id) === String(id));
+      if (!row) return;
+      showModal('Edit prefix', `
+        <div class="form-group"><label>Country (ISO)</label><input class="form-control" id="pc-e-country" value="${escHtml(row.country)}"></div>
+        <div class="form-group"><label>Country name</label><input class="form-control" id="pc-e-cname" value="${escHtml(row.countryName || '')}"></div>
+        <div class="form-group"><label>Country code</label><input class="form-control" id="pc-e-cc" value="${escHtml(row.countryCode)}"></div>
+        <div class="form-group"><label>Prefix</label><input class="form-control" id="pc-e-pfx" value="${escHtml(row.prefix)}"></div>
+        <div class="form-group"><label>Test number (full digits)</label><input class="form-control" id="pc-e-test" value="${escHtml(row.testNumber)}"></div>
+        <div class="form-group"><label>Rate</label><input class="form-control" id="pc-e-rate" value="${escHtml(row.rate)}"></div>
+        <div class="form-group"><label>Currency</label>
+          <select class="form-control" id="pc-e-cur"><option value="usd" ${row.rateCurrency === 'usd' ? 'selected' : ''}>USD</option><option value="eur" ${row.rateCurrency === 'eur' ? 'selected' : ''}>EUR</option></select>
+        </div>
+        <div class="form-group"><label>Payment term</label>
+          <select class="form-control" id="pc-e-pt">
+            <option value="weekly" ${row.paymentTerm === 'weekly' ? 'selected' : ''}>weekly</option>
+            <option value="monthly" ${row.paymentTerm === 'monthly' ? 'selected' : ''}>monthly</option>
+            <option value="daily" ${row.paymentTerm === 'daily' ? 'selected' : ''}>daily</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Termination provider</label>
+          <select class="form-control" id="pc-e-sup">${suppliers.map((s) => `<option value="${escHtml(String(s.id))}" ${String(s.id) === String(row.supplierId) ? 'selected' : ''}>${escHtml(s.name)}</option>`).join('')}</select>
+        </div>
+        <div class="form-group"><label>IVR</label>
+          <select class="form-control" id="pc-e-ivr">${ivrMenus.map((i) => `<option value="${escHtml(String(i.id))}" ${String(i.id) === String(row.destinationId) ? 'selected' : ''}>${escHtml(i.name)}</option>`).join('')}</select>
+        </div>
+        <div class="form-group"><label>Access</label><input class="form-control" id="pc-e-access" value="${escHtml(row.accessText || '')}"></div>
+        <div class="form-group"><label>Status</label>
+          <select class="form-control" id="pc-e-st">
+            <option value="staging" ${row.status === 'staging' ? 'selected' : ''}>staging</option>
+            <option value="validated" ${row.status === 'validated' ? 'selected' : ''}>validated</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Routes / notes</label><textarea class="form-control" id="pc-e-notes" rows="3">${escHtml(row.routesNotes || '')}</textarea></div>
+      `, async () => {
+        const body = {
+          country: document.getElementById('pc-e-country').value.trim(),
+          countryName: document.getElementById('pc-e-cname').value.trim(),
+          countryCode: document.getElementById('pc-e-cc').value.trim(),
+          prefix: document.getElementById('pc-e-pfx').value.trim(),
+          testNumber: document.getElementById('pc-e-test').value.trim(),
+          rate: document.getElementById('pc-e-rate').value.trim(),
+          rateCurrency: document.getElementById('pc-e-cur').value,
+          paymentTerm: document.getElementById('pc-e-pt').value,
+          supplierId: document.getElementById('pc-e-sup').value,
+          destinationId: document.getElementById('pc-e-ivr').value,
+          accessText: document.getElementById('pc-e-access').value.trim(),
+          status: document.getElementById('pc-e-st').value,
+          routesNotes: document.getElementById('pc-e-notes').value,
+        };
+        const r = await API.putPrefixCatalog(id, body);
+        if (r && r.error) {
+          toast(String(r.error), 'error');
+          return;
+        }
+        closeModal();
+        toast('Prefix updated');
+        renderPrefixStaging(el);
+      });
+    };
+  });
+
+  el.querySelectorAll('.pc-del').forEach((btn) => {
+    btn.onclick = async () => {
+      const id = btn.dataset.id;
+      if (!confirm('Delete this staging prefix?')) return;
+      const r = await API.deletePrefixCatalog(id);
+      if (r && r.error) {
+        toast(String(r.error), 'error');
+        return;
+      }
+      toast('Deleted');
+      renderPrefixStaging(el);
+    };
+  });
+
+  el.querySelectorAll('.pc-test').forEach((btn) => {
+    btn.onclick = async () => {
+      const id = btn.dataset.id;
+      if (!confirm('Create one DID from the catalog test number in DID Inventory?')) return;
+      const r = await API.postPrefixCatalogPromoteTest(id);
+      if (r && r.error) {
+        toast(String(r.error), 'error');
+        return;
+      }
+      markChanged();
+      const ext = r.number && r.number.extension != null ? String(r.number.extension) : '';
+      toast(ext ? `Test DID promoted (ext ${ext})` : 'Test DID promoted');
+      renderPrefixStaging(el);
+    };
+  });
+
+  el.querySelectorAll('.pc-bulk').forEach((btn) => {
+    btn.onclick = () => {
+      const id = btn.dataset.id;
+      const row = catalog.find((x) => String(x.id) === String(id));
+      const head = row ? `${row.countryCode || ''}${row.prefix || ''}` : '';
+      showModal(`Bulk DIDs — +${escHtml(head)}`, `
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Extensions are appended to <strong>+${escHtml(head)}</strong>. Enter one extension per line, <em>or</em> use a numeric range (inclusive).</p>
+        <div class="form-group"><label>Extensions (one per line)</label>
+          <textarea class="form-control" id="pc-bulk-txt" rows="6" placeholder="e.g.&#10;0001&#10;0002&#10;0003"></textarea>
+        </div>
+        <p style="font-size:12px;color:var(--text-muted);margin:12px 0">Or numeric range (leave textarea empty):</p>
+        <div class="form-row" style="gap:12px">
+          <div class="form-group"><label>From</label><input class="form-control" id="pc-bulk-from" placeholder="0"></div>
+          <div class="form-group"><label>To</label><input class="form-control" id="pc-bulk-to" placeholder="99"></div>
+        </div>
+      `, async () => {
+        const txt = document.getElementById('pc-bulk-txt').value.trim();
+        const fromEl = document.getElementById('pc-bulk-from').value.trim();
+        const toEl = document.getElementById('pc-bulk-to').value.trim();
+        let body = {};
+        if (fromEl !== '' && toEl !== '') {
+          body = { rangeFrom: fromEl, rangeTo: toEl };
+        } else if (txt) {
+          body = { extensionsText: txt };
+        } else {
+          toast('Enter extensions or a from/to range', 'error');
+          return;
+        }
+        const r = await API.postPrefixCatalogPromoteExtensions(id, body);
+        if (r && r.error) {
+          toast(String(r.error), 'error');
+          return;
+        }
+        closeModal();
+        markChanged();
+        toast(`Created ${r.count != null ? r.count : ''} DIDs from staging`.trim());
+        renderPrefixStaging(el);
+      });
+    };
+  });
+}
+
+// ---- IPRN RANGE INVENTORY (MySQL iprn_inv_* — Phase 1) ----
+async function renderIprnInventory(el) {
+  el.innerHTML = '<div class="card"><div class="card-body padded"><p class="empty-state">Loading IPRN range inventory…</p></div></div>';
+  const [supRes, rangeRes] = await Promise.all([
+    API.getIprnInventorySuppliers(),
+    API.getIprnInventoryRanges(),
+  ]);
+  if (supRes && supRes.error && supRes.enabled === false) {
+    el.innerHTML = `<div class="card"><div class="card-body padded">
+      <p style="color:var(--danger)"><strong>MySQL required.</strong> Set <code>MYSQL_ENABLED=1</code> and DB credentials, restart the dashboard, then refresh. Tables <code>iprn_inv_*</code> are created on connect from <code>sql/iprn_inventory.sql</code>.</p>
+    </div></div>`;
+    return;
+  }
+  const suppliers = (supRes && supRes.rows) || [];
+  const rows = (rangeRes && rangeRes.rows) || [];
+  const statusOpts = ['NEW', 'TESTING', 'ACTIVE', 'DEGRADED', 'BLOCKED', 'ARCHIVED'];
+
+  function iprnRouteKey(n) {
+    const c = String(n.country || '').trim();
+    const p = String(n.prefix || '').trim();
+    const cd = digitsOnly(c);
+    if (cd.length >= 1 && p) return cd + digitsOnly(p);
+    if (c && p) return `${c} ${p}`;
+    return p || c || '—';
+  }
+
+  const iprnByCountry = rows.reduce((acc, r) => {
+    const k = String(r.country || '—');
+    if (!acc[k]) acc[k] = [];
+    acc[k].push(r);
+    return acc;
+  }, {});
+  const iprnCountryOrder = Object.keys(iprnByCountry).sort();
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><h3>Add IPRN range</h3></div>
+      <div class="card-body padded">
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Range-based rows in <code>iprn_inv_numbers</code>. Separate from per-DID <strong>DID Inventory</strong>.</p>
+        <div class="form-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div class="form-group"><label>Country</label><input class="form-control" id="iprn-add-country" placeholder="e.g. DE"></div>
+          <div class="form-group"><label>Prefix</label><input class="form-control" id="iprn-add-prefix" placeholder="e.g. 49"></div>
+          <div class="form-group"><label>Range start</label><input class="form-control" id="iprn-add-rs" placeholder="digits"></div>
+          <div class="form-group"><label>Range end</label><input class="form-control" id="iprn-add-re" placeholder="digits"></div>
+          <div class="form-group"><label>Supplier</label>
+            <select class="form-control" id="iprn-add-sup">${suppliers.length ? suppliers.map((s) => `<option value="${escHtml(String(s.id))}">${escHtml(s.name)}</option>`).join('') : '<option value="">— add supplier first —</option>'}</select>
+          </div>
+          <div class="form-group"><label>Access</label>
+            <select class="form-control" id="iprn-add-acc"><option value="IVR">IVR</option><option value="DIRECT">DIRECT</option><option value="SIP">SIP</option></select>
+          </div>
+          <div class="form-group"><label>Type</label>
+            <select class="form-control" id="iprn-add-typ"><option value="IPRN">IPRN</option><option value="TEST">TEST</option></select>
+          </div>
+          <button type="button" class="btn btn-primary" id="iprn-add-btn">Add range</button>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><h3>Add supplier (IPRN module)</h3></div>
+      <div class="card-body padded">
+        <div class="form-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div class="form-group"><label>Name</label><input class="form-control" id="iprn-sup-name" placeholder="Name"></div>
+          <div class="form-group"><label>Country</label><input class="form-control" id="iprn-sup-country" placeholder=""></div>
+          <div class="form-group"><label>SIP host</label><input class="form-control" id="iprn-sup-host" placeholder="sip.example.com"></div>
+          <div class="form-group"><label>Protocol</label>
+            <select class="form-control" id="iprn-sup-prot"><option value="SIP">SIP</option><option value="IAX">IAX</option></select>
+          </div>
+          <div class="form-group"><label>Reliability</label><input class="form-control" id="iprn-sup-rel" type="number" step="0.1" value="0"></div>
+          <button type="button" class="btn btn-outline" id="iprn-sup-btn">Add supplier</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>Prefix Routing Map</h3></div>
+      <div class="card-body padded">
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Range blocks in <code>iprn_inv_numbers</code>, grouped by country (same panel style as DID Inventory). ASR / ACD placeholders in <code>iprn_inv_stats</code>. Health job: <code>node dashboard/jobs/numberHealth.js</code>.</p>
+        ${rows.length ? `<div class="did-inventory-wrap">
+          ${iprnCountryOrder.map((cLabel) => {
+            const list = iprnByCountry[cLabel];
+            return `
+            <section class="did-country-block">
+              <h4 class="did-country-title">${escHtml(cLabel)} <span class="did-country-meta">(${list.length} range${list.length !== 1 ? 's' : ''})</span></h4>
+              ${list.map((n) => {
+                const rk = iprnRouteKey(n);
+                const sel = statusOpts.map((s) => `<option value="${s}" ${n.status === s ? 'selected' : ''}>${s}</option>`).join('');
+                return `
+                <div class="did-prefix-card">
+                  <div class="did-prefix-card-toolbar">
+                    <div class="did-prefix-line">
+                      <span class="did-prefix-key">${escHtml(rk)}</span>
+                      <span class="did-prefix-count">(${escHtml(String(n.type || 'IPRN'))})</span>
+                    </div>
+                    <div class="did-prefix-meta-inline" style="font-size:12px;color:var(--text-muted)">ID ${n.id}</div>
+                  </div>
+                  <div class="did-prefix-body">
+                    <table class="did-simple-table">
+                      <thead>
+                        <tr>
+                          <th>Range</th>
+                          <th>Supplier</th>
+                          <th>Access</th>
+                          <th>Status</th>
+                          <th>ASR / ACD</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td style="font-family:monospace;font-size:13px">${escHtml(String(n.range_start || ''))} – ${escHtml(String(n.range_end || ''))}</td>
+                          <td>${escHtml(String(n.supplier_name || '—'))}</td>
+                          <td>${escHtml(String(n.access_type || '—'))}</td>
+                          <td><select class="form-control iprn-inv-status" data-id="${n.id}" style="width:auto;min-width:120px;padding:4px 8px;font-size:12px">${sel}</select></td>
+                          <td style="font-size:12px;color:var(--text-muted)">— / —</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>`;
+              }).join('')}
+            </section>`;
+          }).join('')}
+        </div>` : '<p class="empty-state">No IPRN ranges yet.</p>'}
+      </div>
+    </div>`;
+
+  document.getElementById('iprn-add-btn').onclick = async () => {
+    const body = {
+      country: document.getElementById('iprn-add-country').value.trim(),
+      prefix: document.getElementById('iprn-add-prefix').value.trim(),
+      range_start: document.getElementById('iprn-add-rs').value.trim(),
+      range_end: document.getElementById('iprn-add-re').value.trim(),
+      supplier_id: document.getElementById('iprn-add-sup').value || null,
+      access_type: document.getElementById('iprn-add-acc').value,
+      type: document.getElementById('iprn-add-typ').value,
+    };
+    const r = await API.postIprnInventoryRange(body);
+    if (r && r.error) {
+      toast(String(r.error), 'error');
+      return;
+    }
+    toast('Range added');
+    renderIprnInventory(el);
+  };
+
+  document.getElementById('iprn-sup-btn').onclick = async () => {
+    const body = {
+      name: document.getElementById('iprn-sup-name').value.trim(),
+      country: document.getElementById('iprn-sup-country').value.trim(),
+      sip_host: document.getElementById('iprn-sup-host').value.trim(),
+      protocol: document.getElementById('iprn-sup-prot').value,
+      reliability_score: parseFloat(document.getElementById('iprn-sup-rel').value) || 0,
+    };
+    const r = await API.postIprnInventorySupplier(body);
+    if (r && r.error) {
+      toast(String(r.error), 'error');
+      return;
+    }
+    toast('Supplier added');
+    renderIprnInventory(el);
+  };
+
+  el.querySelectorAll('.iprn-inv-status').forEach((sel) => {
+    sel.onchange = async () => {
+      const id = sel.dataset.id;
+      const r = await API.putIprnInventoryRangeStatus(id, sel.value);
+      if (r && r.error) {
+        toast(String(r.error), 'error');
+        return;
+      }
+      toast('Status updated');
+    };
+  });
 }
 
 // ---- IVR AUDIO ----
@@ -2318,8 +3439,8 @@ async function renderTrunk(el) {
     <div class="card">
       <div class="card-header"><h3>SIP Listening (Trunk Config)</h3></div>
       <div class="card-body padded">
-        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Supplier authentication is managed in <a href="#" onclick="event.preventDefault();navigateTo('suppliers')" style="color:var(--primary)">Suppliers</a>. Save here, then use Apply & Reload Asterisk to activate.</p>
-        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Inbound route is fixed as <code>from-supplier-ip → did-routing → ivr-*</code>. DIDs and destinations are managed in <a href="#" onclick="event.preventDefault();navigateTo('numbers')" style="color:var(--primary)">Number inventory</a>.</p>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Supplier authentication is managed under <a href="#" onclick="event.preventDefault();navigateTo('suppliers')" style="color:var(--primary)">Termination Providers</a>. Save here, then use Apply & Reload Asterisk to activate.</p>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Inbound route is fixed as <code>from-supplier-ip → did-routing → ivr-*</code>. DIDs and destinations are managed in <a href="#" onclick="event.preventDefault();navigateTo('numbers')" style="color:var(--primary)">DID Inventory</a>.</p>
         <div class="form-row">
           <div class="form-group">
             <label>Your Public IP (this VPS)</label>
@@ -2454,8 +3575,8 @@ async function renderDidTest(el) {
             <tr><th>EXTENSION</th><td style="font-family:monospace">${escHtml(result.matchedNumber?.extension || '-')}</td></tr>
             <tr><th>ROUTED IVR</th><td>${escHtml(result.route?.ivrName || '-')} (ID: ${escHtml(result.route?.ivrId || '-')})</td></tr>
             <tr><th>FALLBACK USED</th><td>${result.route?.isFallback ? 'YES' : 'NO'}</td></tr>
-            <tr><th>SUPPLIER (ROUTE)</th><td>${escHtml(result.supplier?.routeSupplier || '-')}</td></tr>
-            <tr><th>SUPPLIER (SOURCE IP)</th><td>${escHtml(result.supplier?.sourceSupplier || '-')}</td></tr>
+            <tr><th>SUPPLIER (ROUTE)</th><td>${escHtml(result.supplier?.routeSupplier || '-')} ${result.supplier?.routeSupplierId ? `<span style="color:var(--text-muted);font-size:12px">(ID ${escHtml(String(result.supplier.routeSupplierId))})</span>` : ''}</td></tr>
+            <tr><th>SUPPLIER (SOURCE IP)</th><td>${escHtml(result.supplier?.sourceSupplier || '-')} ${result.supplier?.sourceSupplierId ? `<span style="color:var(--text-muted);font-size:12px">(ID ${escHtml(String(result.supplier.sourceSupplierId))})</span>` : ''}</td></tr>
           </tbody>
         </table>`;
     } catch (err) {
@@ -2473,7 +3594,38 @@ async function renderDidTest(el) {
 // ---- CONFIG PREVIEW ----
 async function renderConfig(el) {
   const config = await API.previewConfig();
-  el.innerHTML = `
+  if (config && config.ok === false) {
+    el.innerHTML = `<div class="card"><div class="card-body padded">
+      <p style="color:var(--danger);margin-bottom:8px"><strong>Could not load config preview.</strong>${config.error ? ` ${escHtml(config.error)}` : ''}</p>
+      <p class="empty-state" style="font-size:13px">Sign in to the operator panel and refresh. Preview requires a valid session cookie.</p>
+      <button type="button" class="btn btn-outline btn-sm" onclick="navigateTo('config')">Retry</button>
+    </div></div>`;
+    return;
+  }
+  const ext = String(config.extensionsConf ?? '').trim();
+  const pj = String(config.pjsipConf ?? '').trim();
+  const acl = String(config.aclConf ?? '').trim();
+  const rtp = String(config.rtpConf ?? '').trim();
+  const odbc = String(config.funcOdbcConf ?? '').trim();
+  if (!ext && !pj) {
+    el.innerHTML = `<div class="card"><div class="card-body padded"><p class="empty-state">No config text returned. If Asterisk configs are missing under <code>/etc/asterisk/</code>, click Apply after fixing DB/schema issues.</p></div></div>`;
+    return;
+  }
+  const srcLive = config.source === 'live';
+  const previewBanner = srcLive
+    ? `<div class="card" style="margin-bottom:16px;border-color:var(--success);background:rgba(34,197,94,.08)">
+        <div class="card-body padded" style="font-size:13px">
+          <strong>Live Asterisk files</strong> — text below is read from <code>${escHtml(config.livePath || '/etc/asterisk')}</code> (what the PBX is using now).
+        </div>
+      </div>`
+    : config.note
+      ? `<div class="card" style="margin-bottom:16px;border-color:var(--warning);background:rgba(245,158,11,.08)">
+          <div class="card-body padded" style="font-size:13px;color:var(--text-muted)">
+            <strong>Generated preview</strong> — ${escHtml(config.note)}${(config.liveReadErrors && config.liveReadErrors.length) ? `<br><span style="font-size:11px">${escHtml(config.liveReadErrors.join('; '))}</span>` : ''}
+          </div>
+        </div>`
+      : '';
+  el.innerHTML = `${previewBanner}
     <div class="card">
       <div class="card-header"><h3>Deploy</h3></div>
       <div class="card-body padded" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
@@ -2483,23 +3635,23 @@ async function renderConfig(el) {
     </div>
     <div class="card">
       <div class="card-header"><h3>extensions.conf</h3></div>
-      <div class="card-body padded"><div class="config-preview">${escHtml(config.extensionsConf)}</div></div>
+      <div class="card-body padded"><div class="config-preview">${escHtml(ext || '(empty)')}</div></div>
     </div>
     <div class="card">
       <div class="card-header"><h3>pjsip.conf</h3></div>
-      <div class="card-body padded"><div class="config-preview">${escHtml(config.pjsipConf)}</div></div>
+      <div class="card-body padded"><div class="config-preview">${escHtml(pj || '(empty)')}</div></div>
     </div>
-    ${config.aclConf ? `<div class="card">
-      <div class="card-header"><h3>acl.conf</h3></div>
-      <div class="card-body padded"><div class="config-preview">${escHtml(config.aclConf)}</div></div>
+    ${acl ? `<div class="card">
+      <div class="card-header"><h3>acl.conf</h3><span style="font-size:12px;color:var(--text-muted);font-weight:400">Supplier IP allow list (from Termination Providers)</span></div>
+      <div class="card-body padded"><div class="config-preview">${escHtml(acl)}</div></div>
     </div>` : ''}
-    ${config.rtpConf ? `<div class="card">
+    ${rtp ? `<div class="card">
       <div class="card-header"><h3>rtp.conf</h3></div>
-      <div class="card-body padded"><div class="config-preview">${escHtml(config.rtpConf)}</div></div>
+      <div class="card-body padded"><div class="config-preview">${escHtml(rtp)}</div></div>
     </div>` : ''}
-    ${config.funcOdbcConf ? `<div class="card">
+    ${odbc ? `<div class="card">
       <div class="card-header"><h3>func_odbc.conf (DSN iprn_db)</h3></div>
-      <div class="card-body padded"><div class="config-preview">${escHtml(config.funcOdbcConf)}</div></div>
+      <div class="card-body padded"><div class="config-preview">${escHtml(odbc)}</div></div>
     </div>` : ''}`;
 
   document.getElementById('btn-apply-config-preview').onclick = async () => {
@@ -2632,7 +3784,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
       if (navTenant) navTenant.style.display = '';
       if (applyBanner) applyBanner.style.display = 'none';
       const brand = document.querySelector('.sidebar-brand span');
-      if (brand) brand.textContent = 'Gulf Premium Telecom — client portal';
+      if (brand) brand.textContent = 'Gulf-Premium-Telecom — client portal';
       if (me.role === 'user' || me.role === 'admin') {
         document.querySelectorAll('.tenant-client-only').forEach((n) => { n.style.display = ''; });
       }
@@ -2642,6 +3794,8 @@ document.querySelectorAll('.nav-item').forEach(btn => {
       if (me.tenantPortalEnabled) {
         const ic = document.getElementById('nav-iprn-clients');
         if (ic) ic.style.display = '';
+        const inv = document.getElementById('nav-iprn-inventory');
+        if (inv) inv.style.display = '';
       }
       navigateTo('dashboard');
     }

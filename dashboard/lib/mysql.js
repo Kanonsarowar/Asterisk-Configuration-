@@ -2,7 +2,12 @@
  * Optional MySQL integration. Disabled unless MYSQL_ENABLED is set and required env vars are present.
  * When enabled and healthy, DID inventory is read/written from the `numbers` table (see numbers-service).
  */
+import { readFileSync, existsSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import mysql from 'mysql2/promise';
+
+const __dirnameMysql = dirname(fileURLToPath(import.meta.url));
 
 /** Set true after a failed init so health reflects degraded state without throwing elsewhere. */
 let initFailed = false;
@@ -75,6 +80,16 @@ CREATE TABLE IF NOT EXISTS \`numbers\` (
   UNIQUE KEY \`uk_numbers_number\` (\`number\`),
   KEY \`idx_numbers_status\` (\`status\`),
   KEY \`idx_numbers_prefix\` (\`country\`, \`country_code\`, \`prefix\`(16))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+`;
+
+/** Suppliers, IVR, trunk, globals, balance, panel admins — single JSON row (MySQL-only app settings). */
+const DDL_DASHBOARD_APP_STATE = `
+CREATE TABLE IF NOT EXISTS \`dashboard_app_state\` (
+  \`id\` TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  \`state_json\` JSON NOT NULL,
+  \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (\`id\`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 `;
 
@@ -234,19 +249,132 @@ async function migrateNumbersIprnColumns(p) {
   }
 }
 
+/** Older deployments may have number_inventory without last_used; CREATE IF NOT EXISTS does not add columns. */
+async function migrateNumberInventoryColumns(p) {
+  try {
+    await p.execute('ALTER TABLE `number_inventory` ADD COLUMN `last_used` DATETIME NULL');
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+  }
+}
+
+/** CDR → call_logs deduplication (sync job inserts with stable hash per Master.csv row). */
+async function migratePrefixCatalogColumns(p) {
+  const cols = [
+    ['country_name', "VARCHAR(128) NOT NULL DEFAULT ''"],
+    ['access_text', "VARCHAR(255) NOT NULL DEFAULT ''"],
+  ];
+  for (const [col, def] of cols) {
+    try {
+      await p.execute(`ALTER TABLE \`prefix_catalog\` ADD COLUMN \`${col}\` ${def}`);
+    } catch (e) {
+      if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+    }
+  }
+}
+
+async function migrateCallLogsDedupHash(p) {
+  try {
+    await p.execute(
+      'ALTER TABLE `call_logs` ADD COLUMN `dedup_hash` CHAR(64) NULL COMMENT \'sha256 CDR row fingerprint\''
+    );
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+  }
+  try {
+    await p.execute('ALTER TABLE `call_logs` ADD UNIQUE KEY `uk_call_logs_dedup_hash` (`dedup_hash`)');
+  } catch (e) {
+    if (e.code !== 'ER_DUP_KEYNAME') throw e;
+  }
+  try {
+    await p.execute(
+      'ALTER TABLE `call_logs` ADD COLUMN `cdr_start` DATETIME NULL COMMENT \'Call start from CDR (for time windows)\''
+    );
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+  }
+}
+
+/** Staging prefix templates (price + test number + routes); promote → numbers. */
+const DDL_PREFIX_CATALOG = `
+CREATE TABLE IF NOT EXISTS \`prefix_catalog\` (
+  \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  \`country\` VARCHAR(8) NOT NULL DEFAULT 'XX',
+  \`country_code\` VARCHAR(32) NOT NULL DEFAULT '',
+  \`prefix\` VARCHAR(64) NOT NULL DEFAULT '',
+  \`rate\` VARCHAR(32) NOT NULL DEFAULT '0.01',
+  \`rate_currency\` VARCHAR(8) NOT NULL DEFAULT 'usd',
+  \`payment_term\` VARCHAR(16) NOT NULL DEFAULT 'weekly',
+  \`supplier_id\` VARCHAR(32) NOT NULL DEFAULT '',
+  \`destination_id\` VARCHAR(16) NOT NULL DEFAULT '1',
+  \`test_number\` VARCHAR(64) NOT NULL DEFAULT '',
+  \`routes_notes\` TEXT NULL,
+  \`country_name\` VARCHAR(128) NOT NULL DEFAULT '',
+  \`access_text\` VARCHAR(255) NOT NULL DEFAULT '',
+  \`status\` VARCHAR(16) NOT NULL DEFAULT 'staging',
+  \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (\`id\`),
+  UNIQUE KEY \`uk_prefix_catalog_cc_pfx\` (\`country_code\`(16), \`prefix\`(32))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+`;
+
+/** IPRN range inventory tables — /sql/iprn_inventory.sql (CREATE IF NOT EXISTS). */
+async function ensureIprnInventorySchema(p) {
+  const sqlPath = join(__dirnameMysql, '..', '..', 'sql', 'iprn_inventory.sql');
+  if (!existsSync(sqlPath)) return;
+  try {
+    let raw = readFileSync(sqlPath, 'utf8');
+    raw = raw.replace(/^\s*SET\s+[^;]+;/gim, '');
+    const parts = raw
+      .split(';')
+      .map((s) => s.replace(/--[^\n]*/g, '').trim())
+      .filter((s) => s.length > 0);
+    for (const st of parts) {
+      await p.query(st);
+    }
+  } catch (e) {
+    console.error('[mysql] iprn_inventory.sql:', e?.message || e);
+  }
+}
+
+async function ensureCarrierInventorySchema(p) {
+  const sqlPath = join(__dirnameMysql, '..', '..', 'sql', 'carrier_inventory.sql');
+  if (!existsSync(sqlPath)) return;
+  try {
+    let raw = readFileSync(sqlPath, 'utf8');
+    raw = raw.replace(/^\s*SET\s+[^;]+;/gim, '');
+    const parts = raw
+      .split(';')
+      .map((s) => s.replace(/--[^\n]*/g, '').trim())
+      .filter((s) => s.length > 0);
+    for (const st of parts) {
+      await p.query(st);
+    }
+  } catch (e) {
+    console.error('[mysql] carrier_inventory.sql:', e?.message || e);
+  }
+}
+
 export async function ensureMysqlSchema() {
   const p = getMysqlPool();
   if (!p) return { ok: false, skipped: true };
   await p.execute(DDL_NUMBERS);
   await p.execute(DDL_CALL_LOGS);
+  await migrateCallLogsDedupHash(p);
   await migrateNumbersColumns(p);
   await migrateNumbersIprnColumns(p);
   await p.execute(DDL_NUMBER_INVENTORY);
+  await migrateNumberInventoryColumns(p);
   await p.execute(DDL_CALL_BILLING);
   await p.execute(DDL_DAILY_USAGE);
   await p.execute(DDL_IPRN_USERS);
   await p.execute(DDL_USER_NUMBERS);
   await p.execute(DDL_IPRN_INVOICES);
+  await ensureIprnInventorySchema(p);
+  await ensureCarrierInventorySchema(p);
+  await p.execute(DDL_PREFIX_CATALOG);
+  await migratePrefixCatalogColumns(p);
+  await p.execute(DDL_DASHBOARD_APP_STATE);
   return { ok: true };
 }
 

@@ -5,7 +5,8 @@ import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
-import { Store } from './lib/store.js';
+import { Store, hydrateStoreFromData, setStorePersistenceMode } from './lib/store.js';
+import { migrateAppStateFromJsonIfNeeded, loadAppStateFromMysql } from './lib/app-settings-mysql.js';
 import { writeConfigs } from './lib/config-generator.js';
 import * as asterisk from './lib/asterisk.js';
 import {
@@ -18,6 +19,7 @@ import {
 } from './lib/auth.js';
 import * as tenant from './lib/iprn-tenant.js';
 import { getCdrStats, getCdrHistory } from './lib/cdr.js';
+import { computeDashboardMetrics } from './lib/dashboard-metrics.js';
 import { getRecentInvites } from './lib/sip-log.js';
 import { buildBalanceReport } from './lib/balance.js';
 import {
@@ -32,6 +34,16 @@ import {
 } from './lib/mysql.js';
 import { validateAndNormalizeCallLog } from './lib/call-log-ingest.js';
 import * as numbersService from './lib/numbers-service.js';
+import * as iprnInv from './lib/iprn-inventory-mysql.js';
+import {
+  fetchCallLogsInHours,
+  aggregateCallLogsPro,
+  fetchCallLogsRecentForUi,
+} from './lib/call-stats-mysql.js';
+import { syncCdrToCallLogs } from './lib/cdr-sync.js';
+import { findSupplierById, findSupplierBySourceIp } from './lib/supplier-resolve.js';
+import * as prefixCatalog from './lib/prefix-catalog-mysql.js';
+import { rebuildDidInventoryFromNumbers } from './lib/did-inventory-sync.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -68,6 +80,39 @@ const execAsync = promisify(exec);
 const PUBLIC_DIR = join(__dirname, 'public');
 const PORT = process.env.PORT || 3000;
 const store = new Store();
+
+async function runCdrSyncOnce() {
+  try {
+    const nums = await numbersService.getNumbers(store);
+    return await syncCdrToCallLogs(nums);
+  } catch (e) {
+    console.error('[cdr-sync]', e?.message || e);
+    return { ok: false, skipped: true, reason: String(e?.message || e) };
+  }
+}
+
+async function buildCallStatsProFromDb(hoursParam) {
+  const pool = getMysqlPool();
+  if (!pool) {
+    return {
+      ok: false,
+      code: 'MYSQL_UNAVAILABLE',
+      error: 'MySQL required for call_logs stats (MYSQL_ENABLED=1 and a working connection)',
+    };
+  }
+  const hours = Math.min(168, Math.max(1, parseInt(String(hoursParam), 10) || 24));
+  const { rows, hoursWindow } = await fetchCallLogsInHours(pool, hours);
+  const numbers = await numbersService.getNumbers(store);
+  const suppliers = store.getSuppliers();
+  const agg = aggregateCallLogsPro(rows, numbers, suppliers, hoursWindow);
+  let recentSample = [];
+  try {
+    recentSample = await fetchCallLogsRecentForUi(pool, numbers, suppliers, hoursWindow, 50);
+  } catch {
+    recentSample = [];
+  }
+  return { ok: true, ...agg, recentSample };
+}
 
 const MIME_TYPES = {
   '.html': 'text/html',
@@ -152,11 +197,52 @@ function serveStatic(req, res, urlPath) {
 
   const ext = extname(filePath);
   const mime = MIME_TYPES[ext] || 'application/octet-stream';
-  res.writeHead(200, { 'Content-Type': mime });
+  // Avoid stale app.js/css after deploy (browsers cache aggressively otherwise).
+  res.writeHead(200, {
+    'Content-Type': mime,
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    Pragma: 'no-cache',
+  });
   res.end(readFileSync(filePath));
 }
 
 const CONF_SRC = process.env.ASTERISK_CONF_DIR || join(__dirname, '..', 'asterisk');
+/** Files Asterisk loads after Apply (same paths deploy uses). */
+const LIVE_AST_PREVIEW_FILES = [
+  ['extensions.conf', 'extensionsConf'],
+  ['pjsip.conf', 'pjsipConf'],
+  ['acl.conf', 'aclConf'],
+  ['rtp.conf', 'rtpConf'],
+  ['func_odbc.conf', 'funcOdbcConf'],
+];
+
+function readLiveAsteriskPreviewPayload() {
+  const dir = '/etc/asterisk';
+  const out = {
+    ok: true,
+    source: 'live',
+    livePath: dir,
+    extensionsConf: '',
+    pjsipConf: '',
+    aclConf: '',
+    rtpConf: '',
+    funcOdbcConf: '',
+    liveReadErrors: /** @type {string[]} */ ([]),
+  };
+  for (const [filename, key] of LIVE_AST_PREVIEW_FILES) {
+    const fp = join(dir, filename);
+    try {
+      if (existsSync(fp) && statSync(fp).isFile()) {
+        out[key] = readFileSync(fp, 'utf8');
+      } else {
+        out.liveReadErrors.push(`${filename}: not found`);
+      }
+    } catch (e) {
+      out.liveReadErrors.push(`${filename}: ${String(e?.message || e)}`);
+    }
+  }
+  return out;
+}
 
 async function deployConfigs() {
   const configs = await writeConfigs(store, numbersService.getNumbers);
@@ -180,6 +266,15 @@ async function handleApi(req, res) {
 
   try {
     // Auth endpoints (no auth required)
+    if (path === '/api/internal/cdr-sync' && method === 'GET') {
+      const tok = String(process.env.CDR_SYNC_INTERNAL_TOKEN || '').trim();
+      if (!tok || url.searchParams.get('token') !== tok) {
+        return sendJson(res, 404, { error: 'Not found' });
+      }
+      const r = await runCdrSyncOnce();
+      return sendJson(res, 200, r);
+    }
+
     if (path === '/api/auth/login' && method === 'POST') {
       const body = await parseBody(req);
       let token = authenticate(body.username, body.password, () => store.getAdminUsers());
@@ -441,6 +536,48 @@ async function handleApi(req, res) {
       const hours = parseInt(url.searchParams.get('hours')) || 24;
       return sendJson(res, 200, getCdrStats(hours));
     }
+    if (path === '/api/dashboard-metrics' && method === 'GET') {
+      const numbers = await numbersService.getNumbers(store);
+      return sendJson(res, 200, computeDashboardMetrics(numbers));
+    }
+
+    // Call Statistics Pro — MySQL `call_logs` + DID match (no extra columns)
+    if (path === '/api/stats/pro' && method === 'GET') {
+      const hours = url.searchParams.get('hours');
+      const data = await buildCallStatsProFromDb(hours);
+      if (!data.ok) return sendJson(res, 503, data);
+      return sendJson(res, 200, data);
+    }
+    if (path === '/api/stats/summary' && method === 'GET') {
+      const hours = url.searchParams.get('hours');
+      const data = await buildCallStatsProFromDb(hours);
+      if (!data.ok) return sendJson(res, 503, data);
+      return sendJson(res, 200, data.summary);
+    }
+    if (path === '/api/stats/prefix' && method === 'GET') {
+      const hours = url.searchParams.get('hours');
+      const data = await buildCallStatsProFromDb(hours);
+      if (!data.ok) return sendJson(res, 503, data);
+      return sendJson(res, 200, data.prefix);
+    }
+    if (path === '/api/stats/supplier' && method === 'GET') {
+      const hours = url.searchParams.get('hours');
+      const data = await buildCallStatsProFromDb(hours);
+      if (!data.ok) return sendJson(res, 503, data);
+      return sendJson(res, 200, data.supplier);
+    }
+    if (path === '/api/stats/failures' && method === 'GET') {
+      const hours = url.searchParams.get('hours');
+      const data = await buildCallStatsProFromDb(hours);
+      if (!data.ok) return sendJson(res, 503, data);
+      return sendJson(res, 200, data.failures);
+    }
+    if (path === '/api/stats/cli' && method === 'GET') {
+      const hours = url.searchParams.get('hours');
+      const data = await buildCallStatsProFromDb(hours);
+      if (!data.ok) return sendJson(res, 503, data);
+      return sendJson(res, 200, data.cli);
+    }
     if (path === '/api/cdr-history' && method === 'GET') {
       const hours = parseInt(url.searchParams.get('hours'), 10) || 168;
       const limit = parseInt(url.searchParams.get('limit'), 10) || 500;
@@ -511,6 +648,99 @@ async function handleApi(req, res) {
       return store.deleteSupplier(id) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
     }
 
+    // IPRN range inventory (MySQL iprn_inv_* — Phase 1; does not replace DID numbers API)
+    if (path.startsWith('/api/iprn-inventory')) {
+      if (!getMysqlPool()) {
+        return sendJson(res, 503, { error: 'MySQL required', enabled: false, rows: [] });
+      }
+      if (path === '/api/iprn-inventory/suppliers' && method === 'GET') {
+        return sendJson(res, 200, { enabled: true, rows: await iprnInv.listIprnSuppliers() });
+      }
+      if (path === '/api/iprn-inventory/suppliers' && method === 'POST') {
+        const body = await parseBody(req);
+        const r = await iprnInv.insertIprnSupplier(body);
+        return sendJson(res, 201, r);
+      }
+      if (path === '/api/iprn-inventory/ranges' && method === 'GET') {
+        return sendJson(res, 200, { enabled: true, rows: await iprnInv.listIprnRangeNumbers() });
+      }
+      if (path === '/api/iprn-inventory/ranges' && method === 'POST') {
+        const body = await parseBody(req);
+        const r = await iprnInv.insertIprnRange(body);
+        return sendJson(res, 201, r);
+      }
+      const statusMatch = path.match(/^\/api\/iprn-inventory\/ranges\/(\d+)\/status$/);
+      if (statusMatch && method === 'PUT') {
+        const body = await parseBody(req);
+        const r = await iprnInv.updateIprnRangeStatus(statusMatch[1], body.status);
+        return sendJson(res, 200, r);
+      }
+      return sendJson(res, 404, { error: 'Not found' });
+    }
+
+    // Prefix staging catalog (MySQL — template + test number → promote to DIDs)
+    if (path === '/api/prefix-catalog' && method === 'GET') {
+      if (!isMysqlNumbersReady()) {
+        return sendJson(res, 503, { error: 'MySQL required', enabled: false, rows: [] });
+      }
+      try {
+        return sendJson(res, 200, { enabled: true, rows: await prefixCatalog.mysqlListPrefixCatalog() });
+      } catch (e) {
+        return sendJson(res, 500, { error: String(e?.message || e) });
+      }
+    }
+    if (path === '/api/prefix-catalog' && method === 'POST') {
+      if (!isMysqlNumbersReady()) return sendJson(res, 503, { error: 'MySQL required' });
+      try {
+        const body = await parseBody(req);
+        const row = await prefixCatalog.mysqlCreatePrefixCatalog(body);
+        return sendJson(res, 201, row);
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e?.message || e) });
+      }
+    }
+    const pcIdMatch = path.match(/^\/api\/prefix-catalog\/([^/]+)$/);
+    if (pcIdMatch && method === 'PUT') {
+      if (!isMysqlNumbersReady()) return sendJson(res, 503, { error: 'MySQL required' });
+      try {
+        const body = await parseBody(req);
+        const row = await prefixCatalog.mysqlUpdatePrefixCatalog(pcIdMatch[1], body);
+        return row ? sendJson(res, 200, row) : sendJson(res, 404, { error: 'Not found' });
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e?.message || e) });
+      }
+    }
+    if (pcIdMatch && method === 'DELETE') {
+      if (!isMysqlNumbersReady()) return sendJson(res, 503, { error: 'MySQL required' });
+      try {
+        const ok = await prefixCatalog.mysqlDeletePrefixCatalog(pcIdMatch[1]);
+        return ok ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e?.message || e) });
+      }
+    }
+    const pcPromoteTest = path.match(/^\/api\/prefix-catalog\/([^/]+)\/promote-test$/);
+    if (pcPromoteTest && method === 'POST') {
+      if (!isMysqlNumbersReady()) return sendJson(res, 503, { error: 'MySQL required' });
+      try {
+        const num = await prefixCatalog.mysqlPromoteCatalogTestNumber(pcPromoteTest[1]);
+        return sendJson(res, 201, { ok: true, number: num });
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e?.message || e) });
+      }
+    }
+    const pcPromoteBulk = path.match(/^\/api\/prefix-catalog\/([^/]+)\/promote-extensions$/);
+    if (pcPromoteBulk && method === 'POST') {
+      if (!isMysqlNumbersReady()) return sendJson(res, 503, { error: 'MySQL required' });
+      try {
+        const body = await parseBody(req);
+        const nums = await prefixCatalog.mysqlPromoteCatalogExtensions(pcPromoteBulk[1], body);
+        return sendJson(res, 201, { ok: true, count: nums.length });
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e?.message || e) });
+      }
+    }
+
     // Panel admins (db.json); DASH_USER / DASH_PASS always valid via env
     if (path.startsWith('/api/admin/users')) {
       const segs = path.split('/').filter(Boolean);
@@ -574,8 +804,8 @@ async function handleApi(req, res) {
 
       const routeIvrId = matched?.destinationId || fallbackIvr.id;
       const routeIvr = ivrMenus.find(i => i.id === routeIvrId) || fallbackIvr;
-      const routeSupplier = matched?.supplierId ? (suppliers.find(s => s.id === matched.supplierId) || null) : null;
-      const sourceSupplier = sourceIp ? (suppliers.find(s => (s.ips || []).includes(sourceIp)) || null) : null;
+      const routeSupplier = matched?.supplierId ? findSupplierById(suppliers, matched.supplierId) : null;
+      const sourceSupplier = sourceIp ? findSupplierBySourceIp(suppliers, sourceIp) : null;
 
       return sendJson(res, 200, {
         ok: true,
@@ -597,7 +827,9 @@ async function handleApi(req, res) {
         },
         supplier: {
           routeSupplier: routeSupplier ? routeSupplier.name : null,
-          sourceSupplier: sourceSupplier ? sourceSupplier.name : null
+          sourceSupplier: sourceSupplier ? sourceSupplier.name : null,
+          routeSupplierId: routeSupplier ? String(routeSupplier.id) : '',
+          sourceSupplierId: sourceSupplier ? String(sourceSupplier.id) : ''
         }
       });
     }
@@ -714,6 +946,35 @@ async function handleApi(req, res) {
     if (path.startsWith('/api/numbers/') && method === 'DELETE') {
       const id = path.split('/').pop();
       return (await numbersService.deleteNumber(store, id)) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'Not found' });
+    }
+    if (path === '/api/numbers/rebuild-did-inventory' && method === 'POST') {
+      if (!isMysqlNumbersReady()) {
+        return sendJson(res, 503, { ok: false, error: 'MySQL required' });
+      }
+      const r = await rebuildDidInventoryFromNumbers();
+      return r.ok
+        ? sendJson(res, 200, { ok: true, count: r.count, skipped: r.skipped || false })
+        : sendJson(res, 500, { ok: false, error: r.error });
+    }
+    if (path === '/api/numbers/wipe-all' && method === 'POST') {
+      if (!isMysqlNumbersReady()) {
+        return sendJson(res, 503, { ok: false, error: 'MySQL required' });
+      }
+      const body = await parseBody(req);
+      if (String(body?.confirm) !== 'DELETE_ALL_DIDS') {
+        return sendJson(res, 400, { ok: false, error: 'Send JSON { "confirm": "DELETE_ALL_DIDS" }' });
+      }
+      const pool = getMysqlPool();
+      if (!pool) return sendJson(res, 503, { ok: false, error: 'MySQL pool unavailable' });
+      try {
+        await pool.execute('DELETE FROM `number_inventory`');
+        await pool.execute('DELETE FROM `numbers`');
+        await pool.execute('DELETE FROM `did_inventory`').catch(() => {});
+        await rebuildDidInventoryFromNumbers();
+        return sendJson(res, 200, { ok: true, message: 'All DIDs cleared from numbers and number_inventory' });
+      } catch (e) {
+        return sendJson(res, 500, { ok: false, error: String(e?.message || e) });
+      }
     }
 
     // Audio file upload & list
@@ -841,10 +1102,37 @@ async function handleApi(req, res) {
       return sendJson(res, result.ok ? 200 : 500, result);
     }
 
-    // Preview generated configs
+    // Preview: show what Asterisk actually uses — read /etc/asterisk (no DB). Optional generated fallback.
     if (path === '/api/preview-config' && method === 'GET') {
-      const configs = await writeConfigs(store, numbersService.getNumbers);
-      return sendJson(res, 200, configs);
+      const live = readLiveAsteriskPreviewPayload();
+      const extLen = String(live.extensionsConf || '').length;
+      const pjLen = String(live.pjsipConf || '').length;
+      const hasUsefulLive = extLen > 0 || pjLen > 0;
+      if (hasUsefulLive || live.liveReadErrors.length === 0) {
+        return sendJson(res, 200, live);
+      }
+      try {
+        const gen = await writeConfigs(store, numbersService.getNumbers);
+        return sendJson(res, 200, {
+          ok: true,
+          source: 'generated',
+          livePath: '/etc/asterisk',
+          liveReadErrors: live.liveReadErrors,
+          note: 'Live files missing or empty — showing generated preview from dashboard (not yet deployed).',
+          extensionsConf: gen.extensionsConf,
+          pjsipConf: gen.pjsipConf,
+          aclConf: gen.aclConf,
+          rtpConf: gen.rtpConf,
+          funcOdbcConf: gen.funcOdbcConf,
+        });
+      } catch (e) {
+        return sendJson(res, 500, {
+          ok: false,
+          error: String(e?.message || e),
+          livePath: '/etc/asterisk',
+          liveReadErrors: live.liveReadErrors,
+        });
+      }
     }
 
     // Optional MySQL (env-driven; does not replace db.json)
@@ -948,7 +1236,42 @@ const server = createServer(async (req, res) => {
   if (m.enabled) {
     console.log(m.schemaOk === false ? `[mysql] ${m.error || 'schema/connection issue'}` : `[mysql] ${m.message || 'ok'}`);
   }
+  if (m.enabled && m.schemaOk !== false && isMysqlNumbersReady()) {
+    try {
+      await migrateAppStateFromJsonIfNeeded();
+      const appState = await loadAppStateFromMysql();
+      if (appState) {
+        hydrateStoreFromData(store, appState);
+        setStorePersistenceMode('mysql');
+        console.log('[mysql] App settings loaded from dashboard_app_state (suppliers/IVR/trunk/globals — DIDs remain in `numbers` table)');
+      }
+    } catch (e) {
+      console.error('[mysql] app settings load:', e?.message || e);
+    }
+    try {
+      const dr = await rebuildDidInventoryFromNumbers();
+      if (dr.ok && !dr.skipped && dr.count != null) {
+        console.log(`[mysql] did_inventory synced: ${dr.count} row(s)`);
+      }
+    } catch (e) {
+      console.error('[mysql] did_inventory sync:', e?.message || e);
+    }
+  }
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`Asterisk Dashboard running at http://localhost:${PORT}`);
   });
+
+  const disableCdr = /^(1|true|yes|on)$/i.test(String(process.env.CDR_SYNC_DISABLE || ''));
+  if (getMysqlPool() && !disableCdr) {
+    const ms = Math.min(3_600_000, Math.max(10_000, parseInt(process.env.CDR_SYNC_INTERVAL_MS || '60000', 10) || 60000));
+    runCdrSyncOnce().then((r) => {
+      if (r && (r.inserted > 0 || r.errors > 0)) console.log('[cdr-sync] initial', JSON.stringify(r));
+    });
+    setInterval(() => {
+      runCdrSyncOnce().then((r) => {
+        if (r && r.inserted > 0) console.log('[cdr-sync]', JSON.stringify(r));
+      });
+    }, ms);
+    console.log(`[cdr-sync] interval ${ms}ms (set CDR_SYNC_DISABLE=1 to stop)`);
+  }
 })();

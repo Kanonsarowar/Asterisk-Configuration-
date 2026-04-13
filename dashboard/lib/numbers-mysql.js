@@ -3,6 +3,7 @@
  * Dedup key: `number` = digits-only full DID (countryCode + prefix + extension).
  */
 import { getMysqlPool } from './mysql.js';
+import { syncDidInventoryFromApp, deleteDidInventoryByNumberDigits, rebuildDidInventoryFromNumbers } from './did-inventory-sync.js';
 
 export function fullNumberDigits(n) {
   const cc = String(n.countryCode ?? '').replace(/\D/g, '');
@@ -143,7 +144,7 @@ export async function mysqlListNumbers() {
   const [rows] = await p.query(
     `SELECT n.*, i.last_used AS inv_last_used
      FROM \`numbers\` n
-     LEFT JOIN \`number_inventory\` i ON i.\`number\` = n.\`number\`
+     LEFT JOIN \`number_inventory\` i ON BINARY i.\`number\` = BINARY n.\`number\`
      ORDER BY n.\`country\` ASC, n.\`country_code\` ASC, n.\`prefix\` ASC, n.\`extension\` ASC, n.\`id\` ASC`
   );
   return (rows || []).map(rowToApp);
@@ -155,7 +156,7 @@ export async function mysqlGetById(id) {
   const [rows] = await p.query(
     `SELECT n.*, i.last_used AS inv_last_used
      FROM \`numbers\` n
-     LEFT JOIN \`number_inventory\` i ON i.\`number\` = n.\`number\`
+     LEFT JOIN \`number_inventory\` i ON BINARY i.\`number\` = BINARY n.\`number\`
      WHERE n.\`id\` = ? LIMIT 1`,
     [parseInt(id, 10)]
   );
@@ -193,12 +194,13 @@ export async function mysqlUpsertDashboardNumber(n) {
   const [rows] = await p.query(
     `SELECT n.*, i.last_used AS inv_last_used
      FROM \`numbers\` n
-     LEFT JOIN \`number_inventory\` i ON i.\`number\` = n.\`number\`
+     LEFT JOIN \`number_inventory\` i ON BINARY i.\`number\` = BINARY n.\`number\`
      WHERE n.\`number\` = ? LIMIT 1`,
     [row.number]
   );
   const app = rowToApp(rows[0]);
   await syncNumberInventory(p, app);
+  await syncDidInventoryFromApp(app);
   return app;
 }
 
@@ -208,7 +210,10 @@ export async function mysqlDeleteById(id) {
   const [before] = await p.query('SELECT `number` FROM `numbers` WHERE `id` = ? LIMIT 1', [parseInt(id, 10)]);
   const num = before && before[0] && before[0].number;
   const [r] = await p.execute('DELETE FROM `numbers` WHERE `id` = ?', [parseInt(id, 10)]);
-  if (r.affectedRows > 0 && num) await deleteNumberInventoryByNumbers(p, [String(num)]);
+  if (r.affectedRows > 0 && num) {
+    await deleteNumberInventoryByNumbers(p, [String(num)]);
+    await deleteDidInventoryByNumberDigits(String(num));
+  }
   return r.affectedRows > 0;
 }
 
@@ -226,6 +231,7 @@ export async function mysqlDeleteByPrefix(country, countryCode, prefix) {
   );
   const n = r.affectedRows || 0;
   if (n > 0 && digitList.length) await deleteNumberInventoryByNumbers(p, digitList);
+  if (n > 0) await rebuildDidInventoryFromNumbers();
   return n;
 }
 
@@ -264,7 +270,7 @@ export async function mysqlBulkUpsert(nums) {
       const [rows] = await conn.query(
         `SELECT n.*, i.last_used AS inv_last_used
          FROM \`numbers\` n
-         LEFT JOIN \`number_inventory\` i ON i.\`number\` = n.\`number\`
+         LEFT JOIN \`number_inventory\` i ON BINARY i.\`number\` = BINARY n.\`number\`
          WHERE n.\`number\` = ? LIMIT 1`,
         [row.number]
       );
@@ -281,5 +287,6 @@ export async function mysqlBulkUpsert(nums) {
   } finally {
     conn.release();
   }
+  await rebuildDidInventoryFromNumbers();
   return out;
 }

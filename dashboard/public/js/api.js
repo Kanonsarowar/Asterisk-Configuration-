@@ -1,8 +1,16 @@
-async function fetchJsonWithTimeout(url, ms = 15000) {
+async function fetchJsonWithTimeout(url, ms = 15000, method, body) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
   try {
-    const res = await fetch(url, { signal: ctrl.signal });
+    const opts = { signal: ctrl.signal, credentials: 'same-origin' };
+    if (method) {
+      opts.method = method;
+      if (method !== 'GET' && method !== 'HEAD') {
+        opts.headers = { 'Content-Type': 'application/json' };
+        opts.body = JSON.stringify(body !== undefined ? body : {});
+      }
+    }
+    const res = await fetch(url, opts);
     if (!res.ok) {
       try {
         return await res.json();
@@ -21,24 +29,40 @@ async function fetchJsonWithTimeout(url, ms = 15000) {
 
 const API = {
   async get(url) {
-    const res = await fetch(url);
+    const res = await fetch(url, { credentials: 'same-origin' });
     return res.json();
   },
   async post(url, data) {
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(data),
+    });
     return res.json();
   },
   async put(url, data) {
-    const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(data),
+    });
     return res.json();
   },
   async del(url) {
-    const res = await fetch(url, { method: 'DELETE' });
+    const res = await fetch(url, { method: 'DELETE', credentials: 'same-origin' });
     return res.json();
   },
 
   // Call Stats
   getCallStats(hours = 24) { return this.get(`/api/call-stats?hours=${hours}`); },
+  /** MySQL call_logs + DID match: summary, prefix, supplier, failures, cli */
+  getCallStatsPro(hours = 24) {
+    return fetchJsonWithTimeout(`/api/stats/pro?hours=${encodeURIComponent(hours)}`, 45000);
+  },
+  /** CDR + DID rates: revenue, ASR/ACD MTD, top country, worst context, live CPS */
+  getDashboardMetrics() { return fetchJsonWithTimeout('/api/dashboard-metrics', 35000); },
   getCdrHistory(opts = {}) {
     const hours = opts.hours != null ? opts.hours : 168;
     const limit = opts.limit != null ? opts.limit : 2000;
@@ -59,7 +83,7 @@ const API = {
   getModules() { return fetchJsonWithTimeout('/api/modules', 12000); },
   getPjsipContacts() { return fetchJsonWithTimeout('/api/pjsip/contacts', 15000); },
   getIprnBillingSummary(limit = 500) {
-    return fetchJsonWithTimeout(`/api/iprn/billing-summary?limit=${encodeURIComponent(limit)}`, 12000);
+    return fetchJsonWithTimeout(`/api/iprn/billing-summary?limit=${encodeURIComponent(limit)}`, 25000);
   },
   getIprnPanelStatus() {
     return fetchJsonWithTimeout('/api/iprn/panel-status', 8000);
@@ -69,7 +93,7 @@ const API = {
   },
 
   // Suppliers
-  getSuppliers() { return fetchJsonWithTimeout('/api/suppliers', 12000); },
+  getSuppliers() { return fetchJsonWithTimeout('/api/suppliers', 20000); },
   addSupplier(sup) { return this.post('/api/suppliers', sup); },
   updateSupplier(id, sup) { return this.put(`/api/suppliers/${id}`, sup); },
   deleteSupplier(id) { return this.del(`/api/suppliers/${id}`); },
@@ -80,8 +104,8 @@ const API = {
   },
   uploadNumbersCsv(text, supplierId) { return this.postRaw(`/api/numbers/upload-csv?supplier=${encodeURIComponent(supplierId)}`, text); },
 
-  // Numbers
-  getNumbers() { return fetchJsonWithTimeout('/api/numbers', 12000); },
+  // Numbers (large MySQL lists can exceed a few seconds)
+  getNumbers() { return fetchJsonWithTimeout('/api/numbers', 120000); },
   addNumber(num) { return this.post('/api/numbers', num); },
   addBulkNumbers(nums) { return this.post('/api/numbers/bulk', { numbers: nums }); },
   updateNumber(id, num) { return this.put(`/api/numbers/${id}`, num); },
@@ -89,13 +113,20 @@ const API = {
   releaseNumber(id) { return this.post(`/api/numbers/${encodeURIComponent(id)}/release`, {}); },
   deleteNumber(id) { return this.del(`/api/numbers/${id}`); },
   deletePrefix(country, countryCode, prefix) { return this.post('/api/numbers/delete-prefix', { country, countryCode, prefix }); },
+  /** Danger: removes every row from `numbers` + `number_inventory` (MySQL). */
+  wipeAllNumbers() {
+    return fetchJsonWithTimeout('/api/numbers/wipe-all', 120000, 'POST', { confirm: 'DELETE_ALL_DIDS' });
+  },
+  rebuildDidInventory() {
+    return fetchJsonWithTimeout('/api/numbers/rebuild-did-inventory', 60000, 'POST', {});
+  },
   testDidRoute(did, sourceIp = '') {
     const qs = `did=${encodeURIComponent(did)}&sourceIp=${encodeURIComponent(sourceIp)}`;
     return this.get(`/api/numbers/test-route?${qs}`);
   },
 
   // IVR (fixed 10 slots - only update)
-  getIvrMenus() { return fetchJsonWithTimeout('/api/ivr-menus', 12000); },
+  getIvrMenus() { return fetchJsonWithTimeout('/api/ivr-menus', 20000); },
   updateIvrMenu(id, menu) { return this.put(`/api/ivr-menus/${id}`, menu); },
 
   // Trunk
@@ -103,7 +134,7 @@ const API = {
   updateTrunkConfig(config) { return this.put('/api/trunk-config', config); },
 
   // Globals
-  getGlobals() { return this.get('/api/globals'); },
+  getGlobals() { return fetchJsonWithTimeout('/api/globals', 20000); },
   updateGlobals(globals) { return this.put('/api/globals', globals); },
 
   getBalance() { return fetchJsonWithTimeout('/api/balance', 60000); },
@@ -122,7 +153,39 @@ const API = {
 
   // Apply
   apply() { return this.post('/api/apply', {}); },
-  previewConfig() { return this.get('/api/preview-config'); },
+  /** Requires panel session cookie — same-origin credentials. */
+  async previewConfig() {
+    const res = await fetch('/api/preview-config', { credentials: 'same-origin' });
+    let data = {};
+    try {
+      data = await res.json();
+    } catch {
+      data = { error: 'Invalid JSON response' };
+    }
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: data.error || `HTTP ${res.status}`,
+        extensionsConf: '',
+        pjsipConf: '',
+        aclConf: '',
+        rtpConf: '',
+        funcOdbcConf: '',
+      };
+    }
+    return {
+      ok: true,
+      source: data.source || 'generated',
+      livePath: data.livePath || '/etc/asterisk',
+      note: data.note || '',
+      liveReadErrors: data.liveReadErrors || [],
+      extensionsConf: data.extensionsConf ?? data.extensions ?? '',
+      pjsipConf: data.pjsipConf ?? data.pjsip ?? '',
+      aclConf: data.aclConf ?? '',
+      rtpConf: data.rtpConf ?? '',
+      funcOdbcConf: data.funcOdbcConf ?? '',
+    };
+  },
 
   // Panel admins (extra logins besides DASH_USER)
   getAdminUsers() { return this.get('/api/admin/users'); },
@@ -136,6 +199,43 @@ const API = {
 
   getAuthMe() {
     return fetch('/api/auth/me', { credentials: 'same-origin' }).then((r) => r.json());
+  },
+
+  /** IPRN range inventory (MySQL iprn_inv_*). */
+  getIprnInventoryRanges() {
+    return fetchJsonWithTimeout('/api/iprn-inventory/ranges', 30000);
+  },
+  getIprnInventorySuppliers() {
+    return fetchJsonWithTimeout('/api/iprn-inventory/suppliers', 15000);
+  },
+  postIprnInventoryRange(body) {
+    return this.post('/api/iprn-inventory/ranges', body);
+  },
+  postIprnInventorySupplier(body) {
+    return this.post('/api/iprn-inventory/suppliers', body);
+  },
+  putIprnInventoryRangeStatus(id, status) {
+    return this.put(`/api/iprn-inventory/ranges/${encodeURIComponent(id)}/status`, { status });
+  },
+
+  /** Prefix staging catalog (MySQL): template → promote test DID or bulk extensions */
+  getPrefixCatalog() {
+    return fetchJsonWithTimeout('/api/prefix-catalog', 25000);
+  },
+  postPrefixCatalog(body) {
+    return this.post('/api/prefix-catalog', body);
+  },
+  putPrefixCatalog(id, body) {
+    return this.put(`/api/prefix-catalog/${encodeURIComponent(id)}`, body);
+  },
+  deletePrefixCatalog(id) {
+    return this.del(`/api/prefix-catalog/${encodeURIComponent(id)}`);
+  },
+  postPrefixCatalogPromoteTest(id) {
+    return fetchJsonWithTimeout(`/api/prefix-catalog/${encodeURIComponent(id)}/promote-test`, 60000, 'POST', {});
+  },
+  postPrefixCatalogPromoteExtensions(id, body) {
+    return fetchJsonWithTimeout(`/api/prefix-catalog/${encodeURIComponent(id)}/promote-extensions`, 120000, 'POST', body || {});
   },
 
   getTenantDashboard() {
