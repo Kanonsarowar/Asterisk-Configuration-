@@ -7,6 +7,7 @@ import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 
 import { authenticateJwt, internalApiKey } from './hooks/authenticate.js';
+import { rateLimitCheck } from './lib/rateLimit.js';
 import loginRoutes from './routes/login.js';
 import routeLookupRoutes from './routes/route-lookup.js';
 import cdrIngestRoutes from './routes/cdr-ingest.routes.js';
@@ -21,6 +22,17 @@ import usersRoutes from './routes/users.routes.js';
 import billingRoutes from './routes/billing.routes.js';
 import liveRoutes from './routes/live.routes.js';
 import configRoutes from './routes/config.routes.js';
+import carrierRoutes from './routes/carriers.routes.js';
+import didInventoryRoutes from './routes/did-inventory.routes.js';
+import rateCardRoutes from './routes/rate-cards.routes.js';
+import sipEndpointRoutes from './routes/sip-endpoints.routes.js';
+import queueRoutes from './routes/queues.routes.js';
+import voicemailRoutes from './routes/voicemail.routes.js';
+import timeConditionRoutes from './routes/time-conditions.routes.js';
+import paymentRoutes from './routes/payments.routes.js';
+import recordingRoutes from './routes/recordings.routes.js';
+import fraudRoutes from './routes/fraud.routes.js';
+import trafficStatsRoutes from './routes/traffic-stats.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -33,6 +45,18 @@ if (!process.env.JWT_SECRET) {
 const fastify = Fastify({ logger: true });
 
 await fastify.register(cors, { origin: true, credentials: true });
+
+fastify.addHook('onRequest', async (req, reply) => {
+  const ip = req.ip || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || '0.0.0.0';
+  const rl = rateLimitCheck(ip, req.url.split('?')[0]);
+  if (!rl.allowed) {
+    reply.header('Retry-After', String(rl.retryAfter));
+    return reply.code(429).send({ error: 'Too many requests', retryAfter: rl.retryAfter });
+  }
+  if (rl.remaining !== undefined) {
+    reply.header('X-RateLimit-Remaining', String(rl.remaining));
+  }
+});
 
 fastify.addHook('preHandler', async (req, reply) => {
   if (req.method === 'OPTIONS') return;
@@ -59,6 +83,17 @@ await fastify.register(usersRoutes, apiPrefix);
 await fastify.register(billingRoutes, apiPrefix);
 await fastify.register(liveRoutes, apiPrefix);
 await fastify.register(configRoutes, apiPrefix);
+await fastify.register(carrierRoutes, apiPrefix);
+await fastify.register(didInventoryRoutes, apiPrefix);
+await fastify.register(rateCardRoutes, apiPrefix);
+await fastify.register(sipEndpointRoutes, apiPrefix);
+await fastify.register(queueRoutes, apiPrefix);
+await fastify.register(voicemailRoutes, apiPrefix);
+await fastify.register(timeConditionRoutes, apiPrefix);
+await fastify.register(paymentRoutes, apiPrefix);
+await fastify.register(recordingRoutes, apiPrefix);
+await fastify.register(fraudRoutes, apiPrefix);
+await fastify.register(trafficStatsRoutes, apiPrefix);
 
 try {
   await fastify.listen({ port, host: '0.0.0.0' });

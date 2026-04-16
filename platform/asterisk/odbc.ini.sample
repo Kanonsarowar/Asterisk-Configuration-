@@ -1,9 +1,13 @@
-; /etc/odbc.ini (system) — PostgreSQL driver
-[iprn_pg]
-Description = IPRN PostgreSQL
-Driver = PostgreSQL Unicode
-Servername = 127.0.0.1
-Port = 5432
-Database = iprn
-Username = asterisk
-Password = your_password
+; /etc/odbc.ini — ODBC DSN for Asterisk ↔ MySQL
+; Install: apt install unixodbc libmyodbc
+; Driver path may vary; check: odbcinst -j && ls /usr/lib/x86_64-linux-gnu/odbc/
+
+[iprn]
+Driver      = /usr/lib/x86_64-linux-gnu/odbc/libmaodbc.so
+Server      = 127.0.0.1
+Port        = 3306
+Database    = iprn
+User        = iprn
+Password    = iprn_secret
+Option      = 3
+Socket      =
