@@ -3,8 +3,8 @@ import { useApi } from '../../hooks/useApi';
 
 export default function UsageStats() {
   const [hours, setHours] = useState(24);
-  const { data, loading } = useApi(`/api/traffic/summary?hours=${hours}`);
-  const s = data?.summary || {};
+  const { data, loading } = useApi(`/api/cdr/stats?hours=${hours}`);
+  const s = data || {};
 
   return (
     <div>
@@ -30,33 +30,7 @@ export default function UsageStats() {
             <SC label="Usage Cost" value={`$${Number(s.total_revenue ?? 0).toFixed(2)}`} color="var(--warning)" />
           </div>
 
-          {data?.top_destinations?.length > 0 && (
-            <div className="card" style={{ marginBottom: 20 }}>
-              <h3 style={{ marginBottom: 12, fontSize: 15 }}>Top Destinations</h3>
-              <table>
-                <thead><tr><th>Destination</th><th>Calls</th><th>Revenue</th></tr></thead>
-                <tbody>
-                  {data.top_destinations.slice(0, 15).map((d, i) => (
-                    <tr key={i}><td>{d.destination}</td><td>{d.calls}</td><td>${Number(d.revenue).toFixed(4)}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {data?.per_hour?.length > 0 && (
-            <div className="card">
-              <h3 style={{ marginBottom: 12, fontSize: 15 }}>Hourly Breakdown</h3>
-              <table>
-                <thead><tr><th>Hour</th><th>Calls</th><th>Answered</th><th>Revenue</th></tr></thead>
-                <tbody>
-                  {data.per_hour.map((h, i) => (
-                    <tr key={i}><td>{h.hour}</td><td>{h.calls}</td><td>{h.answered}</td><td>${Number(h.revenue).toFixed(2)}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+        
         </>
       )}
     </div>

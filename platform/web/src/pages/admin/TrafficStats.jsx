@@ -3,8 +3,8 @@ import { useApi } from '../../hooks/useApi';
 
 export default function TrafficStats() {
   const [hours, setHours] = useState(24);
-  const { data, loading } = useApi(`/api/traffic/summary?hours=${hours}`);
-  const s = data?.summary || {};
+  const { data, loading } = useApi(`/api/cdr/stats?hours=${hours}`);
+  const s = data || {};
 
   return (
     <div>
@@ -31,33 +31,7 @@ export default function TrafficStats() {
             <StatCard label="Profit" value={`$${Number(s.total_profit ?? 0).toFixed(2)}`} color="var(--primary)" />
           </div>
 
-          {data?.per_carrier?.length > 0 && (
-            <div className="card" style={{ marginBottom: 20 }}>
-              <h3 style={{ marginBottom: 12, fontSize: 15 }}>Per Carrier</h3>
-              <table>
-                <thead><tr><th>Carrier</th><th>Calls</th><th>Answered</th><th>ASR</th><th>Cost</th></tr></thead>
-                <tbody>
-                  {data.per_carrier.map((c, i) => (
-                    <tr key={i}><td>{c.carrier}</td><td>{c.calls}</td><td>{c.answered}</td><td>{c.calls > 0 ? ((c.answered / c.calls) * 100).toFixed(1) : 0}%</td><td>${Number(c.cost).toFixed(2)}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {data?.per_hour?.length > 0 && (
-            <div className="card">
-              <h3 style={{ marginBottom: 12, fontSize: 15 }}>Hourly Breakdown</h3>
-              <table>
-                <thead><tr><th>Hour</th><th>Calls</th><th>Answered</th><th>Revenue</th></tr></thead>
-                <tbody>
-                  {data.per_hour.map((h, i) => (
-                    <tr key={i}><td>{h.hour}</td><td>{h.calls}</td><td>{h.answered}</td><td>${Number(h.revenue).toFixed(2)}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+        
         </>
       )}
     </div>

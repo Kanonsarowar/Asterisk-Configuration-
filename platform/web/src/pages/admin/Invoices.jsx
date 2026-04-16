@@ -5,7 +5,7 @@ import DataTable from '../../components/shared/DataTable';
 import Modal from '../../components/shared/Modal';
 
 export default function Invoices() {
-  const { data, loading, refetch } = useApi('/api/billing/invoices');
+  const { data, loading, refetch } = useApi('/api/invoices');
   const [showGen, setShowGen] = useState(false);
   const [form, setForm] = useState({ user_id: '', period_start: '', period_end: '' });
 
@@ -23,7 +23,7 @@ export default function Invoices() {
   const handleGen = async (e) => {
     e.preventDefault();
     try {
-      await api('/api/billing/invoices', { method: 'POST', body: form });
+      await api('/api/invoices', { method: 'POST', body: form });
       setShowGen(false);
       refetch();
     } catch (err) { alert(err.message); }

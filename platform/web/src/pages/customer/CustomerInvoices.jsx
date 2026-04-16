@@ -2,7 +2,7 @@ import { useApi } from '../../hooks/useApi';
 import DataTable from '../../components/shared/DataTable';
 
 export default function CustomerInvoices() {
-  const { data, loading } = useApi('/api/billing/invoices');
+  const { data, loading } = useApi('/api/invoices');
 
   const columns = [
     { key: 'id', label: 'Invoice #' },

@@ -5,10 +5,10 @@ import DataTable from '../../components/shared/DataTable';
 import Modal from '../../components/shared/Modal';
 
 export default function MyDIDs() {
-  const { data, loading, refetch } = useApi('/api/did-inventory');
+  const { data, loading, refetch } = useApi('/api/dids');
   const [showRoute, setShowRoute] = useState(null);
   const [routeForm, setRouteForm] = useState({ route_type: 'sip_endpoint', route_target: '', failover_target: '' });
-  const { data: endpoints } = useApi('/api/sip-endpoints');
+  const { data: endpoints } = useApi('/api/sip-accounts');
   const { data: queues } = useApi('/api/queues');
   const { data: voicemail } = useApi('/api/voicemail');
   const { data: ivrs } = useApi('/api/ivr');
@@ -34,7 +34,7 @@ export default function MyDIDs() {
   const handleRoute = async (e) => {
     e.preventDefault();
     try {
-      await api(`/api/did-inventory/${showRoute.id}/route`, { method: 'POST', body: routeForm });
+      await api(`/api/dids/${showRoute.id}/route`, { method: 'POST', body: routeForm });
       setShowRoute(null);
       refetch();
     } catch (err) { alert(err.message); }
@@ -42,7 +42,7 @@ export default function MyDIDs() {
 
   const targetOptions = () => {
     switch (routeForm.route_type) {
-      case 'sip_endpoint': return endpoints?.endpoints?.map(e => ({ value: String(e.id), label: `${e.name} (${e.username})` })) || [];
+      case 'sip_endpoint': return endpoints?.sip_accounts?.map(e => ({ value: String(e.id), label: `${e.name} (${e.username})` })) || [];
       case 'queue': return queues?.queues?.map(q => ({ value: String(q.id), label: q.name })) || [];
       case 'voicemail': return voicemail?.voicemail_boxes?.map(v => ({ value: v.mailbox, label: `${v.mailbox}${v.email ? ' — ' + v.email : ''}` })) || [];
       case 'ivr': return ivrs?.rows?.map(i => ({ value: String(i.id), label: i.name })) || [];

@@ -36,9 +36,9 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/login" element={user ? <Navigate to={user.role === 'user' ? '/portal' : '/admin'} replace /> : <Login />} />
+      <Route path="/login" element={user ? <Navigate to={user.role === 'client' ? '/portal' : '/admin'} replace /> : <Login />} />
 
-      <Route path="/admin" element={<ProtectedRoute roles={['admin','reseller']}><Layout /></ProtectedRoute>}>
+      <Route path="/admin" element={<ProtectedRoute roles={['superadmin','admin','reseller']}><Layout /></ProtectedRoute>}>
         <Route index element={<AdminDashboard />} />
         <Route path="customers" element={<Customers />} />
         <Route path="did-inventory" element={<DIDInventory />} />
@@ -54,7 +54,7 @@ export default function App() {
         <Route path="users" element={<Users />} />
       </Route>
 
-      <Route path="/portal" element={<ProtectedRoute roles={['user']}><Layout /></ProtectedRoute>}>
+      <Route path="/portal" element={<ProtectedRoute roles={['client']}><Layout /></ProtectedRoute>}>
         <Route index element={<PortalDashboard />} />
         <Route path="dids" element={<MyDIDs />} />
         <Route path="sip-endpoints" element={<SIPEndpoints />} />
@@ -65,7 +65,7 @@ export default function App() {
         <Route path="usage" element={<UsageStats />} />
       </Route>
 
-      <Route path="*" element={<Navigate to={user ? (user.role === 'user' ? '/portal' : '/admin') : '/login'} replace />} />
+      <Route path="*" element={<Navigate to={user ? (user.role === 'client' ? '/portal' : '/admin') : '/login'} replace />} />
     </Routes>
   );
 }

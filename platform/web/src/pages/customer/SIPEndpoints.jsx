@@ -7,7 +7,7 @@ import Modal from '../../components/shared/Modal';
 
 export default function SIPEndpoints() {
   const { user } = useAuth();
-  const { data, loading, refetch } = useApi('/api/sip-endpoints');
+  const { data, loading, refetch } = useApi('/api/sip-accounts');
   const [showAdd, setShowAdd] = useState(false);
   const [created, setCreated] = useState(null);
   const [form, setForm] = useState({ name: '', codecs: 'g729,alaw,ulaw', max_channels: 2, transport: 'udp', nat: true });
@@ -26,7 +26,7 @@ export default function SIPEndpoints() {
   const handleAdd = async (e) => {
     e.preventDefault();
     try {
-      const res = await api('/api/sip-endpoints', {
+      const res = await api('/api/sip-accounts', {
         method: 'POST',
         body: { ...form, customer_id: user.customerId },
       });
@@ -42,7 +42,7 @@ export default function SIPEndpoints() {
         <button className="btn-primary" onClick={() => { setShowAdd(true); setCreated(null); }}>+ New Endpoint</button>
       </div>
       <div className="card">
-        <DataTable columns={columns} rows={data?.endpoints} loading={loading} empty="No SIP endpoints configured" />
+        <DataTable columns={columns} rows={data?.sip_accounts} loading={loading} empty="No SIP endpoints configured" />
       </div>
       {showAdd && (
         <Modal title={created ? 'Endpoint Created' : 'New SIP Endpoint'} onClose={() => setShowAdd(false)}>

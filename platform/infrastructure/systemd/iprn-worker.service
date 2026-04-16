@@ -1,0 +1,20 @@
+[Unit]
+Description=IPRN Telecom Platform Worker Engine
+After=network.target mysql.service iprn-api.service
+Wants=mysql.service
+
+[Service]
+Type=simple
+User=iprn
+Group=iprn
+WorkingDirectory=/opt/iprn-platform/apps/worker-engine
+ExecStart=/usr/bin/node src/index.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iprn-worker
+EnvironmentFile=/opt/iprn-platform/apps/worker-engine/.env
+
+[Install]
+WantedBy=multi-user.target

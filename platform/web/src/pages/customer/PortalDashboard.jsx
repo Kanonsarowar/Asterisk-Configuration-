@@ -3,10 +3,10 @@ import { useAuth } from '../../context/AuthContext';
 
 export default function PortalDashboard() {
   const { user } = useAuth();
-  const { data: traffic } = useApi('/api/traffic/summary?hours=24');
-  const { data: dids } = useApi('/api/did-inventory?limit=5');
+  const { data: cdrStats } = useApi('/api/cdr/stats?hours=24');
+  const { data: dids } = useApi('/api/dids?limit=5');
 
-  const s = traffic?.summary || {};
+  const s = cdrStats || {};
 
   return (
     <div>

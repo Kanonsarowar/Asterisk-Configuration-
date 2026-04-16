@@ -11,11 +11,8 @@ export default function LiveCalls() {
     let active = true;
     const poll = async () => {
       try {
-        const [c, s] = await Promise.all([
-          api('/api/live/calls'),
-          api('/api/traffic/live-stats'),
-        ]);
-        if (active) { setCalls(c.calls || []); setStats(s); setLoading(false); }
+        const c = await api('/api/live/calls');
+        if (active) { setCalls(c.calls || []); setStats({ active_calls: c.count || 0 }); setLoading(false); }
       } catch { if (active) setLoading(false); }
     };
     poll();

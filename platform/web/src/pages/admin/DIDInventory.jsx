@@ -7,7 +7,7 @@ import Modal from '../../components/shared/Modal';
 export default function DIDInventory() {
   const [filters, setFilters] = useState({ status: '', country_code: '' });
   const qs = Object.entries(filters).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join('&');
-  const { data, loading, refetch } = useApi(`/api/did-inventory${qs ? '?' + qs : ''}`);
+  const { data, loading, refetch } = useApi(`/api/dids${qs ? '?' + qs : ''}`);
   const [showAdd, setShowAdd] = useState(false);
   const [showRoute, setShowRoute] = useState(null);
   const [form, setForm] = useState({ did_number: '', carrier_id: '', country_code: '', monthly_price: 0, billing_type: 'prepaid' });
@@ -33,7 +33,7 @@ export default function DIDInventory() {
   const handleAdd = async (e) => {
     e.preventDefault();
     try {
-      await api('/api/did-inventory', { method: 'POST', body: form });
+      await api('/api/dids', { method: 'POST', body: form });
       setShowAdd(false);
       refetch();
     } catch (err) { alert(err.message); }
@@ -42,7 +42,7 @@ export default function DIDInventory() {
   const handleRoute = async (e) => {
     e.preventDefault();
     try {
-      await api(`/api/did-inventory/${showRoute.id}/route`, { method: 'POST', body: routeForm });
+      await api(`/api/dids/${showRoute.id}/route`, { method: 'POST', body: routeForm });
       setShowRoute(null);
       refetch();
     } catch (err) { alert(err.message); }
