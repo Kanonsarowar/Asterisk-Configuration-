@@ -8,7 +8,13 @@ export default defineConfig({
     host: '0.0.0.0',
     proxy: {
       '/api': 'http://127.0.0.1:3010',
-      '/login': 'http://127.0.0.1:3010',
+      '/internal': 'http://127.0.0.1:3010',
+      '/login': {
+        target: 'http://127.0.0.1:3010',
+        bypass(req) {
+          if (req.method === 'GET') return req.url;
+        },
+      },
     },
   },
 });

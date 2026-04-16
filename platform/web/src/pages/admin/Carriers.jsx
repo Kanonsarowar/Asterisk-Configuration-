@@ -5,7 +5,7 @@ import DataTable from '../../components/shared/DataTable';
 import Modal from '../../components/shared/Modal';
 
 export default function Carriers() {
-  const { data, loading, refetch } = useApi('/api/carriers');
+  const { data, loading, refetch } = useApi('/api/providers');
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: '', host: '', port: 5060, transport: 'udp', auth_type: 'ip', codecs: 'g729,alaw,ulaw', max_channels: 0, cps_limit: 0, cost_per_minute: 0, connection_fee: 0 });
 
@@ -25,7 +25,7 @@ export default function Carriers() {
   const handleAdd = async (e) => {
     e.preventDefault();
     try {
-      await api('/api/carriers', { method: 'POST', body: form });
+      await api('/api/providers', { method: 'POST', body: form });
       setShowAdd(false);
       refetch();
     } catch (err) { alert(err.message); }
@@ -38,7 +38,7 @@ export default function Carriers() {
         <button className="btn-primary" onClick={() => setShowAdd(true)}>+ Add Carrier</button>
       </div>
       <div className="card">
-        <DataTable columns={columns} rows={data?.carriers} loading={loading} />
+        <DataTable columns={columns} rows={data?.providers} loading={loading} />
       </div>
       {showAdd && (
         <Modal title="Add Carrier" onClose={() => setShowAdd(false)}>
