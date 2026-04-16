@@ -7,7 +7,7 @@ export default function Routes() {
   const columns = [
     { key: 'id', label: 'ID' },
     { key: 'prefix', label: 'Prefix' },
-    { key: 'supplier_name', label: 'Supplier', render: r => r.supplier_name || `#${r.supplier_id}` },
+    { key: 'provider_name', label: 'Provider', render: r => r.provider_name || `#${r.provider_id}` },
     { key: 'priority', label: 'Priority' },
     { key: 'rate', label: 'Rate', render: r => `$${Number(r.rate).toFixed(4)}` },
     { key: 'active', label: 'Active', render: r => r.active ? <span className="badge badge-green">Yes</span> : <span className="badge badge-red">No</span> },

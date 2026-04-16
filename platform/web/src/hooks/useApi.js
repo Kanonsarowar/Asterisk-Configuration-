@@ -17,7 +17,7 @@ export function useApi(path, deps = []) {
     } finally {
       setLoading(false);
     }
-  }, [path, ...deps]);
+  }, [path]);
 
   useEffect(() => { refetch(); }, [refetch]);
 
