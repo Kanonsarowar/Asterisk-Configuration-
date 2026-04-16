@@ -1,0 +1,20 @@
+[Unit]
+Description=IPRN Telecom Platform API Server
+After=network.target mysql.service
+Wants=mysql.service
+
+[Service]
+Type=simple
+User=iprn
+Group=iprn
+WorkingDirectory=/opt/iprn-platform/apps/api-server
+ExecStart=/usr/bin/node src/server.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iprn-api
+EnvironmentFile=/opt/iprn-platform/apps/api-server/.env
+
+[Install]
+WantedBy=multi-user.target
