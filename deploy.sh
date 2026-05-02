@@ -1,176 +1,187 @@
-#!/bin/bash
-# ============================================
-# Asterisk IPRN Dashboard - Production Deploy
-# Target: 167.172.170.88
-# ============================================
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-INSTALL_DIR="/opt/asterisk-dashboard"
-SERVICE_NAME="asterisk-dashboard"
-VPS_IP="167.172.170.88"
+# Full project deployer for Asterisk-Configuration-
+# - Installs/updates Dashboard (port 3000)
+# - Optionally installs/updates Platform API + SPA (port 3010)
+# - Prepares Asterisk runtime directories and systemd services
 
-echo "============================================"
-echo "  Asterisk IPRN Dashboard - Production Deploy"
-echo "============================================"
-echo ""
-
-if [ "$EUID" -ne 0 ]; then
-  echo "ERROR: Run as root: sudo bash deploy.sh"
+if [[ ${EUID} -ne 0 ]]; then
+  echo "ERROR: run as root: sudo bash deploy.sh"
   exit 1
 fi
 
-# ---- NODE.JS ----
-if ! command -v node &> /dev/null; then
-  echo "[1/8] Installing Node.js 22.x..."
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DASH_SRC="${REPO_DIR}/dashboard"
+PLATFORM_SRC="${REPO_DIR}/platform/api"
+ASTERISK_SRC="${REPO_DIR}/asterisk"
+
+DASH_DIR="/opt/asterisk-dashboard"
+PLATFORM_DIR="/opt/iprn-platform-api"
+SERVICE_DASH="asterisk-dashboard"
+SERVICE_PLATFORM="iprn-platform-api"
+
+DASH_USER="${DASH_USER:-admin}"
+DASH_PASS="${DASH_PASS:-admin123}"
+DASH_PORT="${DASH_PORT:-3000}"
+INSTALL_PLATFORM="${INSTALL_PLATFORM:-yes}"
+PLATFORM_PORT="${PLATFORM_PORT:-3010}"
+
+echo "[1/10] Install base packages"
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates gnupg lsb-release ufw postgresql postgresql-contrib
+
+echo "[2/10] Install Asterisk (package or keep existing source build)"
+if command -v asterisk >/dev/null 2>&1; then
+  echo "Asterisk already present: $(asterisk -V 2>/dev/null || echo 'unknown version')"
+else
+  if apt-cache policy asterisk 2>/dev/null | grep -q Candidate:; then
+    CANDIDATE=$(apt-cache policy asterisk | awk '/Candidate:/ {print $2; exit}')
+    if [[ "$CANDIDATE" != "(none)" ]]; then
+      DEBIAN_FRONTEND=noninteractive apt-get install -y asterisk || echo "WARNING: apt asterisk install failed; continuing"
+    else
+      echo "WARNING: Package 'asterisk' has no installation candidate on this OS. Continuing without apt install."
+    fi
+  else
+    echo "WARNING: Could not query apt candidate for asterisk. Continuing."
+  fi
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "[3/10] Install Node.js 22.x"
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-  apt-get install -y nodejs
+  DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
 else
-  echo "[1/8] Node.js already installed: $(node -v)"
+  echo "[3/10] Node already installed: $(node -v)"
 fi
 
-# ---- ASTERISK ----
-if ! command -v asterisk &> /dev/null; then
-  echo "[2/8] Installing Asterisk..."
-  apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y asterisk
-else
-  echo "[2/8] Asterisk already installed: $(asterisk -V 2>/dev/null || echo 'unknown')"
-fi
-
-# ---- BACKUP ----
-echo "[3/8] Backing up existing configs..."
+echo "[4/10] Backup existing Asterisk config"
 BACKUP_DIR="/etc/asterisk/backup_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 cp /etc/asterisk/pjsip.conf "$BACKUP_DIR/" 2>/dev/null || true
 cp /etc/asterisk/extensions.conf "$BACKUP_DIR/" 2>/dev/null || true
-echo "  Backup: $BACKUP_DIR"
+cp /etc/asterisk/acl.conf "$BACKUP_DIR/" 2>/dev/null || true
 
-# ---- INSTALL ----
-echo "[4/8] Copying dashboard to $INSTALL_DIR..."
-# Preserve live dashboard data on redeploy (otherwise db.json from git replaces production)
-DB_JSON_LIVE="$INSTALL_DIR/data/db.json"
-DB_JSON_SAVE=""
-if [ -f "$DB_JSON_LIVE" ]; then
-  DB_JSON_SAVE=$(mktemp)
-  cp "$DB_JSON_LIVE" "$DB_JSON_SAVE"
-  echo "  Saved existing $DB_JSON_LIVE (will restore after copy)"
+echo "[5/10] Deploy dashboard source"
+DB_JSON_TMP=""
+if [[ -f "${DASH_DIR}/data/db.json" ]]; then
+  DB_JSON_TMP="$(mktemp)"
+  cp "${DASH_DIR}/data/db.json" "$DB_JSON_TMP"
 fi
-mkdir -p "$INSTALL_DIR"
-cp -r dashboard/* "$INSTALL_DIR/"
-if [ -n "$DB_JSON_SAVE" ] && [ -f "$DB_JSON_SAVE" ]; then
-  mkdir -p "$INSTALL_DIR/data"
-  cp "$DB_JSON_SAVE" "$INSTALL_DIR/data/db.json"
-  rm -f "$DB_JSON_SAVE"
-  echo "  Restored preserved db.json — suppliers, IVR, trunk, and JSON-backed numbers kept"
-fi
-mkdir -p "$INSTALL_DIR/../asterisk"
-cp -r asterisk/* "$INSTALL_DIR/../asterisk/" 2>/dev/null || true
 
-echo "[5/8] npm install (required — picks up mysql2 and any new deps)..."
-if [ -f "$INSTALL_DIR/package.json" ]; then
-  if [ -f "$INSTALL_DIR/package-lock.json" ]; then
-    (cd "$INSTALL_DIR" && npm ci --omit=dev)
-  else
-    (cd "$INSTALL_DIR" && npm install --omit=dev)
-  fi
+mkdir -p "$DASH_DIR"
+cp -a "${DASH_SRC}/." "$DASH_DIR/"
+if [[ -n "$DB_JSON_TMP" && -f "$DB_JSON_TMP" ]]; then
+  mkdir -p "${DASH_DIR}/data"
+  cp "$DB_JSON_TMP" "${DASH_DIR}/data/db.json"
+  rm -f "$DB_JSON_TMP"
+fi
+
+if [[ -f "${DASH_DIR}/package-lock.json" ]]; then
+  (cd "$DASH_DIR" && npm ci --omit=dev)
 else
-  echo "  WARNING: no package.json — dashboard copy may have failed"
+  (cd "$DASH_DIR" && npm install --omit=dev)
 fi
 
-# Directories Asterisk needs
-mkdir -p /var/lib/asterisk/sounds/custom
-mkdir -p /var/log/asterisk/cdr-csv
-mkdir -p /var/spool/asterisk/outgoing
-
-# ---- CREDENTIALS ----
-echo "[6/8] Setting up credentials..."
-if [ -z "$DASH_USER" ]; then
-  read -p "  Dashboard username [admin]: " DASH_USER
-  DASH_USER=${DASH_USER:-admin}
-fi
-if [ -z "$DASH_PASS" ]; then
-  read -sp "  Dashboard password [admin123]: " DASH_PASS
-  echo ""
-  DASH_PASS=${DASH_PASS:-admin123}
-fi
-
-# ---- SYSTEMD SERVICE ----
-echo "[7/8] Creating systemd service..."
-cat > /etc/systemd/system/${SERVICE_NAME}.service << EOF
+echo "[6/10] Create dashboard service"
+cat > "/etc/systemd/system/${SERVICE_DASH}.service" <<UNIT
 [Unit]
-Description=Asterisk IPRN Dashboard
+Description=Asterisk Dashboard
 After=network.target asterisk.service
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=${INSTALL_DIR}
-ExecStart=/usr/bin/node ${INSTALL_DIR}/server.js
+WorkingDirectory=${DASH_DIR}
+ExecStart=/usr/bin/node ${DASH_DIR}/server.js
 Restart=on-failure
 RestartSec=5
-Environment=PORT=3000
-Environment=ASTERISK_CONF_DIR=${INSTALL_DIR}/../asterisk
+Environment=PORT=${DASH_PORT}
 Environment=DASH_USER=${DASH_USER}
 Environment=DASH_PASS=${DASH_PASS}
 
 [Install]
 WantedBy=multi-user.target
-EOF
+UNIT
 
+if [[ "${INSTALL_PLATFORM}" == "yes" ]]; then
+  echo "[7/10] Deploy platform API"
+  mkdir -p "$PLATFORM_DIR"
+  cp -a "${PLATFORM_SRC}/." "$PLATFORM_DIR/"
+
+  if [[ -f "${PLATFORM_DIR}/package-lock.json" ]]; then
+    (cd "$PLATFORM_DIR" && npm ci --omit=dev)
+  else
+    (cd "$PLATFORM_DIR" && npm install --omit=dev)
+  fi
+
+  if [[ ! -f "${PLATFORM_DIR}/.env" ]]; then
+    cp "${PLATFORM_DIR}/.env.example" "${PLATFORM_DIR}/.env"
+  fi
+
+  sed -i "s/^PORT=.*/PORT=${PLATFORM_PORT}/" "${PLATFORM_DIR}/.env" 2>/dev/null || true
+
+  cat > "/etc/systemd/system/${SERVICE_PLATFORM}.service" <<UNIT
+[Unit]
+Description=IPRN Platform API
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${PLATFORM_DIR}
+ExecStart=/usr/bin/node ${PLATFORM_DIR}/src/server.js
+Restart=on-failure
+RestartSec=5
+Environment=PORT=${PLATFORM_PORT}
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+fi
+
+echo "[8/10] Sync repository Asterisk templates"
+mkdir -p /opt/asterisk
+cp -a "${ASTERISK_SRC}/." /opt/asterisk/
+mkdir -p /var/lib/asterisk/sounds/custom /var/log/asterisk/cdr-csv /var/spool/asterisk/outgoing
+
+echo "[9/10] Start services"
 systemctl daemon-reload
-systemctl enable ${SERVICE_NAME}
-systemctl restart ${SERVICE_NAME}
+systemctl enable "$SERVICE_DASH"
+systemctl restart "$SERVICE_DASH"
 
-# ---- FIREWALL ----
-echo "[8/8] Configuring firewall..."
-if command -v ufw &> /dev/null; then
-  ufw allow 22/tcp    2>/dev/null || true
-  ufw allow 3000/tcp  2>/dev/null || true
-  ufw allow 5060/udp  2>/dev/null || true
-  ufw allow 10000:20000/udp 2>/dev/null || true
-  ufw --force enable 2>/dev/null || true
-  echo "  UFW rules applied"
+if [[ "${INSTALL_PLATFORM}" == "yes" ]]; then
+  systemctl enable "$SERVICE_PLATFORM"
+  systemctl restart "$SERVICE_PLATFORM"
+fi
+if systemctl list-unit-files | grep -q "^asterisk.service"; then
+  systemctl enable asterisk || true
+  systemctl restart asterisk || true
 else
-  echo "  UFW not installed, skipping firewall setup"
+  echo "WARNING: asterisk.service not found (common on source-based installs)."
 fi
 
-# ---- VERIFY ----
-sleep 2
-if systemctl is-active --quiet ${SERVICE_NAME}; then
-  STATUS="RUNNING"
-else
-  STATUS="FAILED - check: journalctl -u ${SERVICE_NAME} -n 50"
+echo "[10/10] Firewall rules"
+ufw allow 22/tcp || true
+ufw allow ${DASH_PORT}/tcp || true
+if [[ "${INSTALL_PLATFORM}" == "yes" ]]; then
+  ufw allow ${PLATFORM_PORT}/tcp || true
 fi
+ufw allow 5060/udp || true
+ufw allow 10000:20000/udp || true
+ufw --force enable || true
 
 echo ""
-echo "============================================"
-echo "  Deployment Complete!"
-echo "============================================"
+echo "Deployment complete."
+echo "Dashboard: http://<server-ip>:${DASH_PORT} (user: ${DASH_USER})"
+if [[ "${INSTALL_PLATFORM}" == "yes" ]]; then
+  echo "Platform:  http://<server-ip>:${PLATFORM_PORT}"
+fi
+echo "Asterisk templates copied to: /opt/asterisk"
+echo "Asterisk live config directory: /etc/asterisk"
 echo ""
-echo "  Dashboard:  http://${VPS_IP}:3000"
-echo "  Login:      ${DASH_USER} / (your password)"
-echo "  Status:     ${STATUS}"
-echo ""
-echo "  Service Commands:"
-echo "    systemctl status ${SERVICE_NAME}"
-echo "    systemctl restart ${SERVICE_NAME}"
-echo "    journalctl -u ${SERVICE_NAME} -f"
-echo ""
-echo "  NEXT STEPS:"
-echo "  1. Login at http://${VPS_IP}:3000"
-echo "  2. Go to Suppliers - verify/rename your 8 SIP providers"
-echo "  3. Go to Number inventory - add your DID ranges"
-echo "  4. Click 'Apply & Reload Asterisk' to push configs to /etc/asterisk/"
-echo "  5. Hard-refresh the browser (Ctrl+Shift+R) if the UI looks old after redeploy"
-echo ""
-echo "  SECURITY:"
-echo "  - Change default password immediately after first login"
-echo "  - Set DASH_USER and DASH_PASS env vars in systemd service"
-echo "    sudo systemctl edit ${SERVICE_NAME}"
-echo ""
-echo "  FILES:"
-echo "  - Dashboard data: ${INSTALL_DIR}/data/db.json"
-echo "  - Asterisk config: /etc/asterisk/"
-echo "  - CDR logs: /var/log/asterisk/cdr-csv/Master.csv"
-echo "  - Service: /etc/systemd/system/${SERVICE_NAME}.service"
-echo "============================================"
+echo "Useful checks:"
+echo "  systemctl status ${SERVICE_DASH}"
+[[ "${INSTALL_PLATFORM}" == "yes" ]] && echo "  systemctl status ${SERVICE_PLATFORM}"
+echo "  systemctl status asterisk"
+echo "  bash ${REPO_DIR}/check-setup.sh"
