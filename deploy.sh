@@ -6,6 +6,8 @@
 set -e
 
 INSTALL_DIR="/opt/asterisk-dashboard"
+PREMIUM_REPO_URL="https://github.com/Kanonsarowar/Premium-telecom.git"
+PREMIUM_DIR="/opt/premium-telecom"
 SERVICE_NAME="asterisk-dashboard"
 VPS_IP="167.172.170.88"
 
@@ -21,24 +23,24 @@ fi
 
 # ---- NODE.JS ----
 if ! command -v node &> /dev/null; then
-  echo "[1/8] Installing Node.js 22.x..."
+  echo "[1/9] Installing Node.js 22.x..."
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   apt-get install -y nodejs
 else
-  echo "[1/8] Node.js already installed: $(node -v)"
+  echo "[1/9] Node.js already installed: $(node -v)"
 fi
 
 # ---- ASTERISK ----
 if ! command -v asterisk &> /dev/null; then
-  echo "[2/8] Installing Asterisk..."
+  echo "[2/9] Installing Asterisk..."
   apt-get update
   DEBIAN_FRONTEND=noninteractive apt-get install -y asterisk
 else
-  echo "[2/8] Asterisk already installed: $(asterisk -V 2>/dev/null || echo 'unknown')"
+  echo "[2/9] Asterisk already installed: $(asterisk -V 2>/dev/null || echo 'unknown')"
 fi
 
 # ---- BACKUP ----
-echo "[3/8] Backing up existing configs..."
+echo "[3/9] Backing up existing configs..."
 BACKUP_DIR="/etc/asterisk/backup_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 cp /etc/asterisk/pjsip.conf "$BACKUP_DIR/" 2>/dev/null || true
@@ -46,7 +48,7 @@ cp /etc/asterisk/extensions.conf "$BACKUP_DIR/" 2>/dev/null || true
 echo "  Backup: $BACKUP_DIR"
 
 # ---- INSTALL ----
-echo "[4/8] Copying dashboard to $INSTALL_DIR..."
+echo "[4/9] Copying dashboard to $INSTALL_DIR..."
 # Preserve live dashboard data on redeploy (otherwise db.json from git replaces production)
 DB_JSON_LIVE="$INSTALL_DIR/data/db.json"
 DB_JSON_SAVE=""
@@ -66,7 +68,15 @@ fi
 mkdir -p "$INSTALL_DIR/../asterisk"
 cp -r asterisk/* "$INSTALL_DIR/../asterisk/" 2>/dev/null || true
 
-echo "[5/8] npm install (required — picks up mysql2 and any new deps)..."
+echo "[5/9] Syncing Premium Telecom repo to $PREMIUM_DIR..."
+if [ -d "$PREMIUM_DIR/.git" ]; then
+  (cd "$PREMIUM_DIR" && git pull --ff-only)
+else
+  rm -rf "$PREMIUM_DIR"
+  git clone "$PREMIUM_REPO_URL" "$PREMIUM_DIR"
+fi
+
+echo "[6/9] npm install (required — picks up mysql2 and any new deps)..."
 if [ -f "$INSTALL_DIR/package.json" ]; then
   if [ -f "$INSTALL_DIR/package-lock.json" ]; then
     (cd "$INSTALL_DIR" && npm ci --omit=dev)
@@ -83,7 +93,7 @@ mkdir -p /var/log/asterisk/cdr-csv
 mkdir -p /var/spool/asterisk/outgoing
 
 # ---- CREDENTIALS ----
-echo "[6/8] Setting up credentials..."
+echo "[7/9] Setting up credentials..."
 if [ -z "$DASH_USER" ]; then
   read -p "  Dashboard username [admin]: " DASH_USER
   DASH_USER=${DASH_USER:-admin}
@@ -95,7 +105,7 @@ if [ -z "$DASH_PASS" ]; then
 fi
 
 # ---- SYSTEMD SERVICE ----
-echo "[7/8] Creating systemd service..."
+echo "[8/9] Creating systemd service..."
 cat > /etc/systemd/system/${SERVICE_NAME}.service << EOF
 [Unit]
 Description=Asterisk IPRN Dashboard
@@ -122,7 +132,7 @@ systemctl enable ${SERVICE_NAME}
 systemctl restart ${SERVICE_NAME}
 
 # ---- FIREWALL ----
-echo "[8/8] Configuring firewall..."
+echo "[9/9] Configuring firewall..."
 if command -v ufw &> /dev/null; then
   ufw allow 22/tcp    2>/dev/null || true
   ufw allow 3000/tcp  2>/dev/null || true
