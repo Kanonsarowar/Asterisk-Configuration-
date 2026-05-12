@@ -29,7 +29,7 @@ A complete Docker-based monitoring solution for Asterisk PBX with Grafana dashbo
 └──────────────────────┘
        │ (query)
        ▼
-┌────────────��─────────┐
+┌──────────────────────┐
 │   Grafana            │ :3000
 └──────────────────────┘
 ```
