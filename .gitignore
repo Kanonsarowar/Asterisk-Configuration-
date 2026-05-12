@@ -1,0 +1,31 @@
+# Environments
+.env
+.env.local
+.env.*.local
+
+# Docker volumes
+prometheus_data/
+grafana_data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Node
+node_modules/
+npm-debug.log
+
+# Build
+dist/
+build/

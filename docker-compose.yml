@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    restart: unless-stopped
+    networks:
+      - asterisk-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./config/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - ./config/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
+      - ./dashboards:/var/lib/grafana/dashboards
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - asterisk-net
+
+  asterisk-exporter:
+    image: cwiede/asterisk_exporter:latest
+    container_name: asterisk-exporter
+    ports:
+      - "9487:9487"
+    environment:
+      - AMI_HOST=asterisk
+      - AMI_PORT=5038
+      - AMI_USER=exporteruser
+      - AMI_PASS=exporterpass
+      - ASTERISK_HOST=asterisk
+      - ASTERISK_PORT=5038
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - asterisk-net
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  asterisk-net:
+    driver: bridge
